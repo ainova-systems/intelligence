@@ -12,6 +12,12 @@ Update intelligence-sync: fetch the latest engine from https://github.com/ainova
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-07-09
+
+### Fixed
+
+- **Skill directories are now copied in full — bundled resources ship with `SKILL.md`.** Every adapter copied exactly one file per skill (`SKILL.md`) and silently dropped everything beside it, even though the [Agent Skills open standard](https://agentskills.io) allows support files (`references/`, `scripts/`, `assets/`) next to `SKILL.md` and `docs/CONVENTIONS.md` itself tells authors to move detail into `references/<topic>.md`. A synced skill whose body says `Read references/<topic>.md` was therefore broken at runtime in `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, and `.agents/skills/` — the referenced file simply wasn't there. A new `copy_skill_bundle()` helper in `lib/common.sh` copies the whole skill directory and is now the single copy path for all adapters (`claude`, `cursor`, `copilot`, and `sync_open_skill_dirs` for Codex/Pi/opencode). Markdown files are LF-normalized as before; all other files (potentially binary assets) are copied byte-for-byte; symlinks are copied as symlinks, so a link inside a source skill still cannot leak host file content into outputs. `SKILL.md` keeps its extra strict-YAML frontmatter pass in the open-standard dir. Applies to local and remote (`git+`) skill sources alike; CI smoke and remote-sources jobs now assert a `references/` file lands in every enabled output. No schema migration — the stamp advances to `0.5.2` on update like any release; re-run sync afterwards to materialize previously-dropped resources.
+
 ## [0.5.1] — 2026-06-24
 
 ### Fixed

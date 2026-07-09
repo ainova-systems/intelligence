@@ -259,7 +259,26 @@ copy_md_with_quoted_frontmatter() {
     ' "$src" > "$dst"
 }
 
-# Copy SKILL.md directories into an Agent Skills open-standard location.
+# Copy a skill directory in full: SKILL.md plus any bundled resources
+# (references/, scripts/, assets/ — the Agent Skills standard lets a skill
+# ship support files beside SKILL.md, and SKILL.md bodies point at them by
+# relative path, so dropping them breaks the skill at runtime). Markdown is
+# normalized to LF; every other file is copied byte-for-byte so potentially
+# binary assets survive. `cp -R` copies symlinks as symlinks (POSIX), so a
+# link inside a source skill never leaks host file content into the output.
+# Usage: copy_skill_bundle "src/skill/dir" "dest/skill/dir"
+copy_skill_bundle() {
+    local src_dir="${1%/}"
+    local dest_dir="$2"
+    mkdir -p "$dest_dir"
+    cp -R "$src_dir/." "$dest_dir/"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        normalize_file_to_lf "$f"
+    done < <(find "$dest_dir" -type f -name '*.md')
+}
+
+# Copy skill directories into an Agent Skills open-standard location.
 # The destination is a directory whose immediate children are skill folders
 # containing SKILL.md (e.g. .agents/skills/<name>/SKILL.md). Free-text
 # frontmatter fields are quoted for strict YAML consumers; lenient consumers
@@ -298,7 +317,9 @@ sync_open_skill_dirs() {
             local skill_name
             skill_name="$(basename "$d")"
             [ -f "$d/SKILL.md" ] || continue
-            mkdir -p "$output_dir/$skill_name"
+            copy_skill_bundle "$d" "$output_dir/$skill_name"
+            # SKILL.md additionally gets the strict-YAML frontmatter pass on
+            # top of the plain bundle copy.
             copy_md_with_quoted_frontmatter "$d/SKILL.md" "$output_dir/$skill_name/SKILL.md"
             normalize_file_to_lf "$output_dir/$skill_name/SKILL.md"
             count=$((count + 1))

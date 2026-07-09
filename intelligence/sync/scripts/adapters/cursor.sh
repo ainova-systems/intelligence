@@ -8,7 +8,7 @@
 #     natively for project-level context, and the `agents` adapter inlines
 #     always-on rule content into AGENTS.md. Generating .mdc copies of the
 #     same rules would cause double-loading and burn the context window.
-# Skills: copy as-is (universal SKILL.md format)
+# Skills: copy skill directories in full (SKILL.md + bundled resources)
 # Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
@@ -68,9 +68,7 @@ sync_cursor_skills() {
             local skill_name
             skill_name="$(basename "$d")"
             [ -f "$d/SKILL.md" ] || continue
-            mkdir -p "$output_dir/skills/$skill_name"
-            cp "$d/SKILL.md" "$output_dir/skills/$skill_name/SKILL.md"
-            normalize_file_to_lf "$output_dir/skills/$skill_name/SKILL.md"
+            copy_skill_bundle "$d" "$output_dir/skills/$skill_name"
             echo "  skill: $skill_name"
         done
     done < <(read_yaml_list "$config_file" "skills")

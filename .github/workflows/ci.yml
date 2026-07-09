@@ -119,7 +119,7 @@ jobs:
           Builds new endpoints.
           EOF
 
-          mkdir -p "$PROJ/intelligence/skills/backend-add-endpoint"
+          mkdir -p "$PROJ/intelligence/skills/backend-add-endpoint/references"
           cat > "$PROJ/intelligence/skills/backend-add-endpoint/SKILL.md" <<'EOF'
           ---
           name: backend-add-endpoint
@@ -128,7 +128,13 @@ jobs:
 
           # Add endpoint
 
-          Steps to add a new endpoint.
+          Steps to add a new endpoint. Read references/endpoint-template.md first.
+          EOF
+
+          cat > "$PROJ/intelligence/skills/backend-add-endpoint/references/endpoint-template.md" <<'EOF'
+          # Endpoint template
+
+          REFERENCE_MARKER scaffold for handler + route + tests.
           EOF
 
           git -C "$PROJ" init -q
@@ -162,16 +168,27 @@ jobs:
             test -f "$PROJ/.claude/rules/backend.md"
             test -f "$PROJ/.claude/agents/backend-developer.md"
             test -f "$PROJ/.claude/skills/backend-add-endpoint/SKILL.md"
+            # Bundled resources must ship with the skill (Agent Skills spec).
+            grep -q "REFERENCE_MARKER" \
+              "$PROJ/.claude/skills/backend-add-endpoint/references/endpoint-template.md"
           fi
           if [ -d "$PROJ/.cursor" ]; then
             ! test -e "$PROJ/.cursor/rules/context.mdc"
             test -f "$PROJ/.cursor/rules/backend.mdc"
             grep -q "globs:" "$PROJ/.cursor/rules/backend.mdc"
+            if [ -d "$PROJ/.cursor/skills" ]; then
+              grep -q "REFERENCE_MARKER" \
+                "$PROJ/.cursor/skills/backend-add-endpoint/references/endpoint-template.md"
+            fi
           fi
           if [ -d "$PROJ/.github/instructions" ]; then
             ! test -e "$PROJ/.github/copilot-instructions.md"
             test -f "$PROJ/.github/instructions/backend.instructions.md"
             grep -q "applyTo:" "$PROJ/.github/instructions/backend.instructions.md"
+            if [ -d "$PROJ/.github/skills" ]; then
+              grep -q "REFERENCE_MARKER" \
+                "$PROJ/.github/skills/backend-add-endpoint/references/endpoint-template.md"
+            fi
           fi
           if [ -d "$PROJ/.codex" ]; then
             test -f "$PROJ/.codex/agents/backend-developer.toml"
@@ -179,6 +196,8 @@ jobs:
               "$PROJ/.codex/agents/backend-developer.toml"
             ! test -e "$PROJ/CODEX.md"
             test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
+            grep -q "REFERENCE_MARKER" \
+              "$PROJ/.agents/skills/backend-add-endpoint/references/endpoint-template.md"
           fi
 
   remote-sources:
@@ -193,14 +212,17 @@ jobs:
 
           # A local "shared intelligence" git repo — no network involved.
           SHARED=$RUNNER_TEMP/shared-intel
-          mkdir -p "$SHARED/shared/skills/demo-skill" "$SHARED/shared/rules"
+          mkdir -p "$SHARED/shared/skills/demo-skill/references" "$SHARED/shared/rules"
           cat > "$SHARED/shared/skills/demo-skill/SKILL.md" <<'EOF'
           ---
           name: demo-skill
           description: "Remote demo skill pulled from git"
           ---
           # Demo skill
-          Steps from the shared repo.
+          Steps from the shared repo. See references/notes.md.
+          EOF
+          cat > "$SHARED/shared/skills/demo-skill/references/notes.md" <<'EOF'
+          REMOTE_REFERENCE_MARKER bundled resource from the shared repo.
           EOF
           cat > "$SHARED/shared/rules/demo-rule.md" <<'EOF'
           # Shared remote rule
@@ -268,8 +290,10 @@ jobs:
             echo "host file leaked via remote symlink"; exit 1
           fi
 
-          # Remote skill + remote (always-on) rule materialized into outputs.
+          # Remote skill + remote (always-on) rule materialized into outputs,
+          # including the skill's bundled resources.
           test -f .claude/skills/demo-skill/SKILL.md
+          grep -q 'REMOTE_REFERENCE_MARKER' .claude/skills/demo-skill/references/notes.md
           test -f .claude/rules/demo-rule.md
           grep -q 'demo-skill' AGENTS.md
           grep -q 'REMOTE_RULE_MARKER' AGENTS.md
