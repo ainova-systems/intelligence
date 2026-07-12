@@ -14,6 +14,54 @@ normalize_file_to_lf() {
     mv "$tmp_file" "$target"
 }
 
+# --- Layout tokens -----------------------------------------------------------
+#
+# The umbrella folder is named by the project (`intelligence/`, `Intelligence/`,
+# a codename) — so an artifact SHIPPED BY THE ENGINE cannot write that name
+# down. A rule that scopes itself to the intelligence layer needs `paths:` to
+# say "the umbrella", and an agent body needs to name the sync command. Both are
+# spelled with tokens, expanded here at output time:
+#
+#   <umbrella>  ->  the repo-relative umbrella dir   (e.g. `Intelligence`)
+#   <module>    ->  the repo-relative engine module  (e.g. `Intelligence/sync`)
+#
+# Values come from IS_UMBRELLA_REL / IS_MODULE_REL, which sync.sh derives from
+# the detected layout (never hardcoded) and exports before any adapter runs.
+# Expansion happens in EVERY generated file, frontmatter and body alike, so a
+# scoped rule reaches Claude's `paths:`, Cursor's `globs:` and Copilot's
+# `applyTo:` already carrying the project's real folder name.
+
+# finalize_output_file <file>
+# The single exit gate for every file an adapter writes: expand layout tokens,
+# then normalize CRLF -> LF. Adapters MUST call this (not normalize_file_to_lf)
+# on each output — a missed call ships a literal `<umbrella>` into an IDE.
+finalize_output_file() {
+    local target="$1"
+    local umb="${IS_UMBRELLA_REL:-intelligence}"
+    local mod="${IS_MODULE_REL:-intelligence/sync}"
+    local tmp_file="$target.tmp"
+    # Literal (index-based) substitution, not gsub: a regex replacement would
+    # give `&` in a path its special meaning, and POSIX awk has no way to pass a
+    # replacement string verbatim.
+    awk -v umb="$umb" -v mod="$mod" '
+        function repl(s, from, to,   out, i) {
+            out = ""
+            while ((i = index(s, from)) > 0) {
+                out = out substr(s, 1, i - 1) to
+                s = substr(s, i + length(from))
+            }
+            return out s
+        }
+        {
+            sub(/\r$/, "")
+            $0 = repl($0, "<module>", mod)
+            $0 = repl($0, "<umbrella>", umb)
+            print
+        }
+    ' "$target" > "$tmp_file"
+    mv "$tmp_file" "$target"
+}
+
 # Escape a string for safe interpolation into a TOML basic string ("..").
 # Backslash and double-quote are escaped; control chars stripped.
 toml_escape() {
@@ -308,7 +356,7 @@ copy_skill_bundle() {
     cp -R "$src_dir/." "$dest_dir/"
     while IFS= read -r f; do
         [ -n "$f" ] || continue
-        normalize_file_to_lf "$f"
+        finalize_output_file "$f"
     done < <(find "$dest_dir" -type f -name '*.md')
 }
 
@@ -355,7 +403,7 @@ sync_open_skill_dirs() {
             # SKILL.md additionally gets the strict-YAML frontmatter pass on
             # top of the plain bundle copy.
             copy_md_with_quoted_frontmatter "$d/SKILL.md" "$output_dir/$skill_name/SKILL.md"
-            normalize_file_to_lf "$output_dir/$skill_name/SKILL.md"
+            finalize_output_file "$output_dir/$skill_name/SKILL.md"
             count=$((count + 1))
             echo "  skill: $skill_name"
         done

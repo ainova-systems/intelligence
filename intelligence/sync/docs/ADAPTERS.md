@@ -50,7 +50,8 @@ Source `lib/common.sh` for these utilities:
 
 | Function | Description |
 |----------|-------------|
-| `normalize_file_to_lf(file)` | Convert CRLF to LF |
+| `finalize_output_file(file)` | **Call this on every file you write.** Expands layout tokens (`<umbrella>`, `<module>`) and converts CRLF to LF |
+| `normalize_file_to_lf(file)` | LF conversion only — for intermediate files that are not adapter output |
 | `lint_frontmatter(file)` | Warn about unquoted colons, leading tabs, and literal double quotes inside unquoted values (stderr) |
 | `get_frontmatter_value(key, file)` | Extract YAML frontmatter value |
 | `has_frontmatter(file)` | Check for `---` header |
@@ -98,6 +99,17 @@ Skills follow the [Agent Skills open standard](https://agentskills.io). All supp
 
 Model names come from `get_model(config_file, ide, tier)` in `lib/common.sh`. Defaults are baked into `get_model_default()`; users override per-IDE/tier under `models:` in `config.yaml`. Sync prints a drift report when an override no longer matches the current default.
 
+### Layout tokens (required)
+
+The engine ships artifacts of its own — the `intelligence-authoring` rule and the `intelligence-architect` agent — and they cannot hardcode the umbrella's folder name, because the project chooses it. They write `<umbrella>` and `<module>` instead, and **every adapter must expand them by calling `finalize_output_file` on each file it writes** (it also does the LF normalization that `normalize_file_to_lf` used to do):
+
+| Token | Expands to |
+|---|---|
+| `<umbrella>` | repo-relative umbrella dir (e.g. `Intelligence`) |
+| `<module>` | repo-relative engine module (e.g. `Intelligence/sync`) |
+
+Values are exported by `sync.sh` (`IS_UMBRELLA_REL`, `IS_MODULE_REL`), derived from the detected layout. Expansion covers frontmatter and body, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` carrying the project's real folder name. A file written without `finalize_output_file` ships a literal `<umbrella>` into an IDE — CI fails the build if any generated output still contains a token.
+
 ### Cleanup Contract
 
 Every adapter MUST follow these rules to stay safe alongside others:
@@ -140,7 +152,9 @@ sync_to_myide() {
                 }
                 past_fm || !in_fm { print }
             ' "$f" > "$output_dir/rules/$(basename "$f")"
-            normalize_file_to_lf "$output_dir/rules/$(basename "$f")"
+            # Every written file goes through finalize_output_file: it expands
+            # the <umbrella> / <module> layout tokens and normalizes CRLF -> LF.
+            finalize_output_file "$output_dir/rules/$(basename "$f")"
         done
     done < <(read_yaml_list "$config_file" "rules")
 }

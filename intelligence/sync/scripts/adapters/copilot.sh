@@ -71,7 +71,7 @@ sync_copilot_rules() {
                     past_fm || !in_fm { print }
                 ' "$f"
             } > "$instructions_dir/$base.instructions.md"
-            normalize_file_to_lf "$instructions_dir/$base.instructions.md"
+            finalize_output_file "$instructions_dir/$base.instructions.md"
             scoped_count=$((scoped_count + 1))
             echo "  rule: $base.instructions.md (scoped)"
         done
@@ -160,7 +160,7 @@ sync_copilot_agents() {
                     past_fm { print }
                 ' "$f"
             } > "$output_dir/agents/$name.agent.md"
-            normalize_file_to_lf "$output_dir/agents/$name.agent.md"
+            finalize_output_file "$output_dir/agents/$name.agent.md"
             count=$((count + 1))
             echo "  agent: $name.agent.md (tier=$tier -> model=$model)"
         done

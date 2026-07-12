@@ -79,6 +79,9 @@ if [ -d "$WORK_DIR/intelligence/$UPSTREAM_MODULE/scripts" ]; then
     cp -r "$_SRC/scripts" "$UPMOD/scripts"
     [ -f "$_SRC/INIT.md" ] && cp "$_SRC/INIT.md" "$UPMOD/INIT.md"
     [ -d "$_SRC/docs" ] && cp -r "$_SRC/docs" "$UPMOD/docs"
+    # Engine-owned rule + agent (0.7.0+). Absent in older upstreams — optional.
+    [ -d "$_SRC/rules" ] && cp -r "$_SRC/rules" "$UPMOD/rules"
+    [ -d "$_SRC/agents" ] && cp -r "$_SRC/agents" "$UPMOD/agents"
     for s in "$_SRC"/skills/intelligence-*; do
         [ -d "$s" ] && cp -r "$s" "$UPMOD/skills/"
     done
@@ -121,6 +124,14 @@ if [ -d "$UPMOD/docs" ]; then
     echo "  Diff (docs/):"
     diff -ruN "$_LOCAL/docs" "$UPMOD/docs" 2>/dev/null || true
 fi
+# Engine-owned rule + agent (0.7.0+): upstream-owned like the meta-skills, and
+# distinct from the project's own <umbrella>/rules and <umbrella>/agents.
+for _d in rules agents; do
+    [ -d "$UPMOD/$_d" ] || continue
+    echo ""
+    echo "  Diff (engine $_d/):"
+    diff -ruN "$_LOCAL/$_d" "$UPMOD/$_d" 2>/dev/null || true
+done
 
 if [ $AUTO_YES -ne 1 ]; then
     echo ""
@@ -129,7 +140,7 @@ if [ $AUTO_YES -ne 1 ]; then
         echo "        Legacy scripts/, INIT.md, docs/, and intelligence-* skills move there;"
         echo "        a single additive line is added to config.yaml sources.skills."
     fi
-    read -r -p "Apply update? Engine/INIT/meta-skills/docs overwritten; rules/agents/project skills NOT touched. [y/N] " confirm
+    read -r -p "Apply update? Engine/INIT/meta-skills/docs + engine rule/agent overwritten; YOUR rules/agents/skills NOT touched. [y/N] " confirm
     case "$confirm" in
         y|Y|yes|YES) ;;
         *) echo "  Cancelled."; exit 0 ;;
@@ -164,6 +175,16 @@ else
     rm -rf "$MODULE_DIR/scripts"; cp -r "$UPMOD/scripts" "$MODULE_DIR/scripts"
 fi
 [ -f "$UPMOD/INIT.md" ] && cp "$UPMOD/INIT.md" "$MODULE_DIR/INIT.md"
+for _d in rules agents; do
+    [ -d "$UPMOD/$_d" ] || continue
+    if command -v rsync >/dev/null 2>&1; then
+        mkdir -p "$MODULE_DIR/$_d"
+        rsync -a --delete "$UPMOD/$_d/" "$MODULE_DIR/$_d/"
+    else
+        # `:?` so an empty MODULE_DIR/_d can never expand this into `rm -rf /`.
+        rm -rf "${MODULE_DIR:?}/${_d:?}"; cp -r "$UPMOD/$_d" "$MODULE_DIR/$_d"
+    fi
+done
 if [ -d "$UPMOD/docs" ]; then
     if command -v rsync >/dev/null 2>&1; then
         rsync -a --delete "$UPMOD/docs/" "$MODULE_DIR/docs/"
@@ -202,6 +223,7 @@ if [ "${IS_MIGRATED:-0}" -eq 1 ]; then
 else
     is_status ok "version=$_ver"
 fi
-echo "  Updated:   $MODULE_NAME/scripts/, $MODULE_NAME/INIT.md, $MODULE_NAME/skills/intelligence-*, $MODULE_NAME/docs/  (version $_ver)"
-echo "  Untouched: config.yaml (except idempotent sources.skills line on migration), rules/, agents/, project skills."
+echo "  Updated:   $MODULE_NAME/{scripts,INIT.md,docs}, $MODULE_NAME/skills/intelligence-*, $MODULE_NAME/{rules,agents}  (version $_ver)"
+echo "  Untouched: your <umbrella>/rules, <umbrella>/agents, project skills, <umbrella>/adapters."
+echo "             config.yaml only gains the engine's managed keys (sync_version, module sources)."
 echo "  Next: bash $MODULE_NAME/scripts/sync.sh"

@@ -22,7 +22,7 @@ sync_claude_rules() {
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
             cp "$f" "$output_dir/rules/"
-            normalize_file_to_lf "$output_dir/rules/$(basename "$f")"
+            finalize_output_file "$output_dir/rules/$(basename "$f")"
             echo "  rule: $(basename "$f")"
         done
     done < <(read_yaml_list "$config_file" "rules")
@@ -83,7 +83,7 @@ sync_claude_agent() {
         }
         { print }
     ' "$src" > "$output_dir/agents/$name"
-    normalize_file_to_lf "$output_dir/agents/$name"
+    finalize_output_file "$output_dir/agents/$name"
     echo "  agent: $name (tier=$tier -> model=$model, access=$access)"
 }
 

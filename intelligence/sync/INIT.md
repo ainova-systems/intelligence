@@ -232,16 +232,18 @@ project:
 
 # Managed by intelligence-sync — applied schema version. Do not hand-edit;
 # preserve on re-bootstrap. (Value = intelligence/sync/scripts/VERSION.)
-sync_version: "0.6.0"
+sync_version: "0.7.0"
 
 sources:
   rules:
     - "intelligence/rules"
+    - "intelligence/sync/rules"     # engine-owned: intelligence-authoring
   agents:
     - "intelligence/agents"
+    - "intelligence/sync/agents"    # engine-owned: intelligence-architect
   skills:
     - "intelligence/skills"
-    - "intelligence/sync/skills"
+    - "intelligence/sync/skills"    # engine-owned: intelligence-* meta-skills
 
 targets:
   # agents: ALWAYS enabled — generates committed AGENTS.md as the
@@ -330,47 +332,31 @@ One rule per component, scoped with `paths:` frontmatter:
 
 ### 3.5 Skills
 
-Pre-installed skills:
+Pre-installed by the engine — never recreate these, and never use the reserved `intelligence-` prefix for a project skill:
 - `/intelligence-sync` — sync to all enabled IDE targets
-- `/intelligence-install-adapter` — enable an IDE target
-- `/intelligence-uninstall-adapter` — disable an IDE target
-- `/intelligence-add-skill` — create new skill with conventions
-- `/intelligence-add-agent` — create new agent with conventions
-- `/intelligence-add-rule` — create new rule with conventions
+- `/intelligence-update` — update or migrate the engine
+- `/intelligence-install-adapter` / `/intelligence-uninstall-adapter` — turn an IDE channel on or off
+- `/intelligence-add-rule`, `/intelligence-add-agent`, `/intelligence-add-skill` — author an artifact with the conventions applied
+- `/intelligence-extract-skill`, `/intelligence-learn-from-context`, `/intelligence-review-skills` — turn observed work into artifacts, and audit the layer
 
-**Proactively suggest domain skills** based on detected stack. Analyze the codebase for repeatable multi-file patterns and propose skills. Look for operations that touch 3+ files in a predictable pattern.
+The engine also ships the `intelligence-authoring` rule (authoring discipline, scoped to `<intel>/`) and the `intelligence-architect` agent (designs and prunes this layer). They are upstream-owned and arrive via `sources` — do not copy or rewrite them into project content.
 
-Common skill categories (suggest what applies to this repo):
+**Derive skills from this repository. Do not pick them from a catalogue.** A list of plausible skill names ("add-entity", "add-endpoint", "run-tests") is a trap: every one of them sounds right for every project, so working from such a list produces a registry that describes software in general rather than *this* codebase — and every entry costs context budget forever, whether or not anyone invokes it.
 
-**Atomic (`add-`)** — creates/updates a single artifact:
-- `<domain>-add-entity` — new domain model with all required files
-- `<domain>-add-endpoint` — new API endpoint/route with handler
-- `<domain>-add-page` — new page/view with routing
-- `<domain>-add-component` — new UI component with tests
-- `<domain>-add-service` — new service/client with types
-- `<domain>-add-migration` — database schema change
-- `<domain>-add-modal` — dialog/modal with form
-- `<domain>-add-tests` — unit/integration tests for existing code
-- `<domain>-add-e2e-tests` — end-to-end tests for feature
+A candidate skill has to clear all four bars:
 
-**Orchestrator (`create-`)** — invokes multiple add- skills. MUST use `create-` prefix, never `add-`:
-- `<domain>-create-feature` — full feature from spec (entity + endpoint + page + tests)
-- `<domain>-create-crud` — complete CRUD for single entity
+1. **Repeated.** The operation has demonstrably been done more than once. Evidence: near-identical sibling files, a "how to add X" section in `README`/`CONTRIBUTING`, the same multi-file shape appearing across git history. Not "a project like this usually needs it".
+2. **Multi-step and mechanical.** 3+ concrete steps in a predictable pattern, usually across more than one file. If it is one edit, the model does not need a procedure.
+3. **Verifiable.** It ends in a command or check that proves it worked (build, test, lint, migration, sync). **If there is nothing to verify at the end, it is not a skill** — it is a note, or just work.
+4. **Stable.** It describes the project *as it is meant to work*. A procedure that only exists to route around a current bug is not a skill — that belongs in a single rule that records known breakage, so it disappears when the bug is fixed instead of becoming permanent.
 
-**Modifier (`update-`)** — changes across existing files:
-- `<domain>-update-feature` — add/remove/modify fields across stack
+**Show your evidence.** For every skill you propose, name the files it would touch and the concrete instance in the repo you derived it from. If you cannot point at one, do not propose it.
 
-**Execution (`run-`)** — runs operations:
-- `<domain>-run-tests` — run and analyze test results
-- `<domain>-run-lint` — run linter and fix issues
+**Start small: 0–3 skills at bootstrap.** Zero is a legitimate answer for a young or simple repository — say so plainly rather than padding. Skills can be added at any time with `/intelligence-add-skill`, and one added later, from a pattern the team actually hit twice, is worth more than five guessed today.
 
-**Review (`review-`)** — read-only analysis:
-- `<domain>-review-pending-changes` — review before commit
-- `intelligence-review-rules` — check rules match actual codebase
+Naming (details in `<intel>/sync/docs/CONVENTIONS.md`): `<domain>-<verb>-<noun>`, domain prefix taken from the set already in use. Two verbs carry a contract worth keeping — **`add-` creates exactly one artifact**, and **`create-` orchestrates several `add-` skills** while duplicating none of their content. Other verbs (`run-`, `review-`, `update-`, `extract-`) read fine; prefer a verb already in use over a new synonym for the same thing. `intelligence-` is reserved for the engine's meta-skills.
 
-Present the suggested list to the user. They choose which to create now. Remind them skills can be added any time with `/intelligence-add-skill` (or manually).
-
-Each skill must have 3+ concrete, repeatable steps derived from actual codebase patterns. Do not create skills for one-off operations.
+Present the shortlist with its evidence and let the user choose. Then create only what they pick.
 
 ### 3.6 `.gitignore`
 

@@ -38,10 +38,26 @@ intelligence/                         # Umbrella — name NOT hardcoded (whateve
 ├── adapters/                         # OPTIONAL — project-owned adapters (survive updates)
 │   └── myide.sh                      # sync_to_myide(); overrides a built-in of the same name
 └── sync/                             # intelligence-sync MODULE (upstream-owned)
-    └── INIT.md  docs/  scripts/(+VERSION)  skills/intelligence-*
+    ├── INIT.md  docs/  scripts/(+VERSION)
+    ├── rules/intelligence-authoring.md    # authoring discipline for this layer
+    ├── agents/intelligence-architect.md   # designs and prunes this layer
+    └── skills/intelligence-*              # meta-skills
 ```
 
-Everything project-authored lives at the umbrella level (`rules/ agents/ skills/ adapters/`); everything upstream-owned lives in the self-contained module `sync/`, updated independently via `sync/scripts/update.sh`. Additional modules (e.g. `domain/`) sit beside `sync/`. The umbrella folder name is derived at runtime as "the directory holding `config.yaml`" — never hardcoded. The `intelligence-` skill prefix is **reserved** for upstream meta-skills; project skills must not use it (the updater moves/prunes anything matching that prefix).
+Everything project-authored lives at the umbrella level (`rules/ agents/ skills/ adapters/`); everything upstream-owned lives in the self-contained module `sync/`, updated independently via `sync/scripts/update.sh`. Additional modules (e.g. `domain/`) sit beside `sync/`. The umbrella folder name is derived at runtime as "the directory holding `config.yaml`" — never hardcoded. The `intelligence-` prefix is **reserved** for upstream artifacts; project rules, agents and skills must not use it (the updater prunes what matches it).
+
+The module ships three kinds of artifact, and `config.yaml` must list all three under `sources` for them to reach the IDEs — `<umbrella>/sync/rules`, `<umbrella>/sync/agents`, `<umbrella>/sync/skills`. INIT emits those entries on bootstrap; the `0.7.0` migration adds them to existing projects.
+
+### Layout tokens in engine-shipped artifacts
+
+An artifact shipped *by the engine* cannot write the umbrella's name down — the project chooses it (`intelligence/`, `Intelligence/`, a codename). So engine artifacts spell it with tokens, and every adapter expands them on the way out (`finalize_output_file` in `lib/common.sh`):
+
+| Token | Expands to | Example |
+|---|---|---|
+| `<umbrella>` | repo-relative umbrella dir | `Intelligence` |
+| `<module>` | repo-relative engine module | `Intelligence/sync` |
+
+Expansion covers frontmatter and body alike, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the project's real folder name. Project-authored artifacts may use the tokens too, but they have no reason to — they can simply name their own folders.
 
 A custom adapter belongs in the umbrella's `adapters/`, never in the module's `sync/scripts/adapters/` — the module is replaced wholesale on every update, so an adapter written there disappears at the next one. See `docs/ADAPTERS.md`.
 

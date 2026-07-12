@@ -8,15 +8,17 @@
 project:
   name: my-app
 
-sync_version: "0.6.0"
+sync_version: "0.7.0"
 
 sources:
   rules:
     - "intelligence/rules"
+    - "intelligence/sync/rules"
     # Shared rules from a central repo, pinned to a tag:
     - "git+https://github.com/org/shared-intel.git@v1.2.0#rules"
   agents:
     - "intelligence/agents"
+    - "intelligence/sync/agents"
   skills:
     - "intelligence/skills"
     - "intelligence/sync/skills"

@@ -88,7 +88,7 @@ sync_codex_agents() {
                 echo "$body_safe"
                 echo "\"\"\""
             } > "$output_dir/$name.toml"
-            normalize_file_to_lf "$output_dir/$name.toml"
+            finalize_output_file "$output_dir/$name.toml"
             count=$((count + 1))
             echo "  agent: $name.toml"
         done

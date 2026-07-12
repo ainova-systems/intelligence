@@ -20,15 +20,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # print a sync command that does not exist, and would be wrong outright on a
 # case-sensitive filesystem — in the one document Cursor, Copilot and Codex all
 # read as canonical.
+# sync.sh exports both as layout tokens; recompute only when an adapter is
+# driven directly (tests), never assume a folder name.
 agents_md_umbrella_rel() {
-    local repo_root="$1" rel
-    rel="$(repo_rel_dir "$repo_root" "${LS_UMBRELLA_DIR:-$repo_root/intelligence}")"
+    local repo_root="$1" rel="${IS_UMBRELLA_REL:-}"
+    [ -n "$rel" ] || rel="$(repo_rel_dir "$repo_root" "${LS_UMBRELLA_DIR:-$repo_root/intelligence}")"
     printf '%s' "${rel:-intelligence}"
 }
 
 agents_md_module_rel() {
-    local repo_root="$1" rel
-    rel="$(repo_rel_dir "$repo_root" "${LS_MODULE_DIR:-$repo_root/intelligence/sync}")"
+    local repo_root="$1" rel="${IS_MODULE_REL:-}"
+    [ -n "$rel" ] || rel="$(repo_rel_dir "$repo_root" "${LS_MODULE_DIR:-$repo_root/intelligence/sync}")"
     printf '%s' "${rel:-intelligence/sync}"
 }
 
@@ -277,7 +279,7 @@ sync_to_agents() {
     agents_md_append_skills_table "$repo_root" "$config_file" "$output_file"
     agents_md_append_rules_list  "$repo_root" "$config_file" "$output_file"
 
-    normalize_file_to_lf "$output_file"
+    finalize_output_file "$output_file"
 
     # Safety net: AGENTS.md is committed, so it must never carry an absolute or
     # transient link target (remote-pack content lives under the run cache). If

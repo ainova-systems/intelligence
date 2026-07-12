@@ -27,7 +27,7 @@
 # matching migrate_to_<ver> — nothing here is rewritten or reordered.
 
 # Ordered (ascending) list of migration target versions. Append only.
-MIGRATIONS=( "0_3_1" )
+MIGRATIONS=( "0_3_1" "0_7_0" )
 
 # The applied-schema version is a managed key in config.yaml — NOT a dotfile,
 # NOT scripts/VERSION. config.yaml is what most future breaking changes will
@@ -172,39 +172,79 @@ _mig_copy_file() {
     return 0
 }
 
-# Idempotently add a skills source entry to config.yaml. No backup — the edit
-# is a single additive list item and the relocated content is recoverable.
-# Name-agnostic: caller passes the already-resolved "<base>/<module>/skills".
-_mig_add_skill_source() {
+# Repo-root-relative path of the umbrella — the prefix every `sources:` entry is
+# resolved against (resolve_source_dir does "$repo_root/$entry"). `basename` is
+# only correct when the umbrella sits directly at the repo root; a nested one
+# (`platform/intelligence/`) would yield `intelligence/...` and register a source
+# that resolves nowhere. Ask git for the real prefix, and fall back to basename
+# when there is no git (a tarball checkout), which is the flat case anyway.
+_mig_umbrella_rel() {
+    local umbrella="$1" prefix=""
+    if command -v git >/dev/null 2>&1; then
+        prefix="$(git -C "$umbrella" rev-parse --show-prefix 2>/dev/null || true)"
+    fi
+    prefix="${prefix%/}"
+    if [ -n "$prefix" ]; then
+        printf '%s' "$prefix"
+    else
+        printf '%s' "$(basename "$umbrella")"
+    fi
+}
+
+# True (0) if <entry> is already listed anywhere in config.yaml (quoted or bare).
+_mig_has_source() {
     local config="$1" entry="$2"
+    [ -f "$config" ] || return 1
+    grep -Fq -- "\"$entry\"" "$config" || grep -Fq -- "- $entry" "$config"
+}
+
+# Idempotently add one entry to `sources.<section>` in config.yaml. No backup —
+# the edit is a single additive list item. Name-agnostic: the caller passes the
+# already-resolved "<base>/<module>/<dir>". If the section does not exist under
+# `sources:` yet, it is created with the entry as its only item.
+# Usage: _mig_add_source <config.yaml> <rules|agents|skills> <entry>
+_mig_add_source() {
+    local config="$1" section="$2" entry="$3"
     if [ ! -f "$config" ]; then
-        echo "  [migrate] no config.yaml at $config — add this under sources.skills manually:" >&2
+        echo "  [migrate] no config.yaml at $config — add this under sources.$section manually:" >&2
         echo "      - \"$entry\"" >&2
         return 0
     fi
-    # Already present (quoted or bare) — nothing to do.
-    if grep -Fq -- "\"$entry\"" "$config" || grep -Fq -- "- $entry" "$config"; then
-        return 0
-    fi
+    _mig_has_source "$config" "$entry" && return 0
 
     local tmp="$config.mig.tmp"
-    awk -v entry="$entry" '
-        function flush() { if (in_sk && !done) { print "    - \"" entry "\""; done = 1 } }
+    awk -v section="$section" -v entry="$entry" '
+        function emit() { print "    - \"" entry "\""; inserted = 1 }
+        function close_here() {
+            if (in_sec && !inserted) { emit(); in_sec = 0 }
+        }
         { sub(/\r$/, "") }
-        # Top-level key: closes any open sources/skills tracking.
+        # Top-level key: ends the sources block (and any open section in it).
         /^[A-Za-z]/ {
-            flush(); in_sk = 0
+            close_here()
+            # `sources:` existed but never declared this section — declare it.
+            if (in_src && !inserted) { print "  " section ":"; emit() }
+            in_sec = 0
             in_src = ($0 ~ /^sources:[[:space:]]*$/) ? 1 : 0
             print; next
         }
-        in_src && /^  skills:[[:space:]]*$/ { print; in_sk = 1; next }
-        # Another 2-space sub-key (rules/agents) ends the skills block.
-        in_src && /^  [A-Za-z]/ { flush(); in_sk = 0; print; next }
-        in_sk && /^    -[[:space:]]/ { print; next }   # existing skills item
-        in_sk && /^[[:space:]]*$/ { flush(); in_sk = 0; print; next }
+        in_src && $0 ~ "^  " section ":[[:space:]]*$" { print; in_sec = 1; next }
+        # Another 2-space sub-key ends this section.
+        in_src && /^  [A-Za-z]/ { close_here(); print; next }
+        in_sec && /^    -[[:space:]]/ { print; next }     # existing item
+        in_sec && /^[[:space:]]*$/ { close_here(); print; next }
         { print }
-        END { flush() }
+        END {
+            close_here()
+            if (in_src && !inserted) { print "  " section ":"; emit() }
+        }
     ' "$config" > "$tmp" && mv "$tmp" "$config"
+}
+
+# Back-compat shim: 0.3.1 shipped with this name, and a shipped migration is
+# never rewritten.
+_mig_add_skill_source() {
+    _mig_add_source "$1" "skills" "$2"
 }
 
 # --- migrate_to_0_3_1 -------------------------------------------------------
@@ -309,9 +349,53 @@ migrate_to_0_3_1() {
     fi
 
     # config.yaml: name-agnostic relative path under the actual umbrella base.
-    _mig_add_skill_source "$umbrella/config.yaml" "$(basename "$umbrella")/$module_name/skills"
+    _mig_add_skill_source "$umbrella/config.yaml" "$(_mig_umbrella_rel "$umbrella")/$module_name/skills"
 
     echo "  [migrate 0.3.1] done — engine at '$module_name/', legacy removed, no duplicates"
+}
+
+# --- migrate_to_0_7_0 -------------------------------------------------------
+# 0.7.0 is the first release where the engine ships a RULE and an AGENT of its
+# own (`intelligence-authoring`, `intelligence-architect`), inside the module
+# beside the meta-skills. Those reach the IDEs only if `config.yaml` lists the
+# module's `rules/` and `agents/` directories as sources — so this migration
+# registers them, exactly as 0.3.1 registered the module's `skills/`.
+#
+# Precondition is structural: both entries already present ⇒ applied ⇒ silent
+# no-op. Nothing else in config.yaml is read or rewritten, and no file is
+# deleted, so there is nothing to stage — the postcondition is simply that both
+# entries are readable afterwards.
+#
+# migrate_to_0_7_0 <umbrella_dir> <module_name> [<upstream_module_dir> — unused]
+migrate_to_0_7_0() {
+    local umbrella="$1" module_name="$2"
+    local config="$umbrella/config.yaml"
+    [ -f "$config" ] || return 0
+
+    local base rules_entry agents_entry
+    base="$(_mig_umbrella_rel "$umbrella")"
+    rules_entry="$base/$module_name/rules"
+    agents_entry="$base/$module_name/agents"
+
+    if _mig_has_source "$config" "$rules_entry" && _mig_has_source "$config" "$agents_entry"; then
+        return 0
+    fi
+
+    echo "  [migrate 0.7.0] registering the module's rules/ and agents/ as sources"
+    IS_MIGRATED=1
+    _mig_add_source "$config" "rules"  "$rules_entry"
+    _mig_add_source "$config" "agents" "$agents_entry"
+
+    if ! _mig_has_source "$config" "$rules_entry" || ! _mig_has_source "$config" "$agents_entry"; then
+        is_status error "migrate_to_0_7_0 could not register module sources"
+        echo "  ERROR: failed to add the module's rules/agents to sources in $config." >&2
+        echo "         Add them by hand under 'sources:':" >&2
+        echo "           rules:  - \"$rules_entry\"" >&2
+        echo "           agents: - \"$agents_entry\"" >&2
+        return "$IS_RC_ERROR"
+    fi
+
+    echo "  [migrate 0.7.0] done — sources.rules += $rules_entry, sources.agents += $agents_entry"
 }
 
 # run_migrations <umbrella_dir> <module_name> [<upstream_module_dir>]

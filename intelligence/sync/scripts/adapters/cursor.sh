@@ -46,7 +46,7 @@ sync_cursor_rules() {
                 NR==1 { print; print "alwaysApply: false"; next }
                 { print }
             ' "$f" > "$output_dir/rules/$base.mdc"
-            normalize_file_to_lf "$output_dir/rules/$base.mdc"
+            finalize_output_file "$output_dir/rules/$base.mdc"
             echo "  rule: $base.mdc (scoped)"
         done
     done < <(read_yaml_list "$config_file" "rules")
@@ -117,7 +117,7 @@ sync_cursor_agents() {
                 }
                 { print }
             ' "$f" > "$output_dir/agents/$name"
-            normalize_file_to_lf "$output_dir/agents/$name"
+            finalize_output_file "$output_dir/agents/$name"
             echo "  agent: $name (tier=$tier -> cursor)"
         done
     done < <(read_yaml_list "$config_file" "agents")

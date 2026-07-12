@@ -12,6 +12,34 @@ Update intelligence-sync: fetch the latest engine from https://github.com/ainova
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-07-12
+
+The engine stops being only a pipeline and starts shipping its own **authoring discipline**: a rule the model respects while it works, and an agent that owns the layer's shape. Both are upstream-owned — they evolve with the engine instead of drifting inside each project.
+
+### Breaking
+
+- **`config.yaml` must list the module's `rules/` and `agents/` as sources.** The engine now ships artifacts of its own beside the meta-skills, and they only reach the IDEs if `sources` points at them. `migrate_to_0_7_0` adds both entries idempotently (nothing else in `config.yaml` is read or rewritten), exactly as `0.3.1` added the module's `skills/` entry. `sync.sh` fails closed (`IS_STATUS=needs-update`) until the update flow has run — it never migrates.
+
+  Post-conditions to verify after updating:
+  1. `sources.rules` contains `<umbrella>/<module>/rules` and `sources.agents` contains `<umbrella>/<module>/agents` — each exactly once.
+  2. `<module>/rules/intelligence-authoring.md` and `<module>/agents/intelligence-architect.md` exist.
+  3. `config.yaml` `sync_version` is `0.7.0`.
+  4. After a sync, no generated file contains a literal `<umbrella>` or `<module>` token.
+
+  Project content (`rules/`, `agents/`, `skills/`, `adapters/`) is untouched. Re-running is a safe no-op.
+
+### Added
+
+- **`intelligence-authoring` — an engine-shipped rule carrying the authoring discipline** (`<module>/rules/`). Path-scoped to the umbrella, so it loads exactly when someone edits the layer and costs nothing otherwise. It is the judgement that sits on top of `CONVENTIONS.md`'s mechanics: which artifact type a piece of knowledge belongs to (a checklist in an agent body is a procedure — it belongs in a skill), why always-on rules must earn their place, why an agent is thin and never restates the rules it already receives, why a skill without a verification step is not a skill, and the invariant that closes the loop on the defect that produced 0.6.0 — *never state behaviour of a tool you have not verified in its documentation or source*.
+- **`intelligence-architect` — an engine-shipped agent that designs and prunes the layer** (`<module>/agents/`). Decides rule vs skill vs agent, always-on vs scoped, split vs fold, and what to delete. It carries boundaries and verification only; the rule reaches it on its own, so it does not repeat it.
+- **Layout tokens `<umbrella>` and `<module>` in engine-shipped artifacts.** An artifact shipped by the engine cannot hardcode the umbrella's folder name — the project chooses it (`intelligence/`, `Intelligence/`, a codename) — but a scoped rule needs `paths:` to name it. Adapters now expand both tokens on the way out through a single helper (`finalize_output_file`, which replaces `normalize_file_to_lf` at every output site), in frontmatter and body alike: `paths: ["<umbrella>/**"]` arrives as Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the real folder name. CI fails the build if any generated output still contains a literal token.
+- **`update.sh` owns the module's `rules/` and `agents/`** the way it already owns `docs/` and the meta-skills: staged from the fresh upstream clone, shown in the diff before the confirmation prompt, then applied. Your own `<umbrella>/rules` and `<umbrella>/agents` are never touched.
+
+### Changed
+
+- **INIT no longer suggests skills from a catalogue.** §3.5 listed a menu of plausible skill names (`add-entity`, `add-endpoint`, `run-tests`, …), and an agent working from a menu produces a registry that describes software in general rather than the repository in front of it — every entry costing registry budget forever, whether or not anyone invokes it. A skill must now clear four bars — **repeated** (with the instance in the repo named as evidence), **multi-step and mechanical**, **verifiable** (it ends in a check that proves it worked; if there is nothing to verify, it is not a skill), and **stable** (a procedure that only routes around a current bug belongs in a rule that records known breakage, not in a skill that makes the workaround permanent) — and bootstrap now targets **0–3 skills**, with zero stated as a legitimate answer.
+- `examples/go-api-with-opencode/config.yaml` never listed the module's `skills/` as a source, so the meta-skills were missing from that fixture. All six examples now register the module's `rules/`, `agents/` and `skills/`.
+
 ## [0.6.0] — 2026-07-12
 
 ### Added

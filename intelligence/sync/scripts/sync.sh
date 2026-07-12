@@ -71,6 +71,16 @@ REPO_ROOT_RAW="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || (cd "
 REPO_ROOT="$(cd "$REPO_ROOT_RAW" && pwd)"
 unset REPO_ROOT_RAW
 
+# Layout tokens for generated output (see finalize_output_file in common.sh).
+# Engine-shipped rules/agents cannot hardcode the umbrella's name — the project
+# chooses it — so they write `<umbrella>` / `<module>` and every adapter expands
+# them to these repo-relative paths on the way out.
+IS_UMBRELLA_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_UMBRELLA_DIR")"
+IS_MODULE_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_MODULE_DIR")"
+IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
+IS_MODULE_REL="${IS_MODULE_REL:-intelligence/sync}"
+export IS_UMBRELLA_REL IS_MODULE_REL
+
 # Config: explicit env > config.yaml in the umbrella folder
 if [ -n "${CONFIG_FILE:-}" ]; then
     CONFIG_FILE="$CONFIG_FILE"

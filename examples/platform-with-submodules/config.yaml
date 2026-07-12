@@ -6,7 +6,7 @@
 project:
   name: my-platform
 
-sync_version: "0.6.0"
+sync_version: "0.7.0"
 
 sources:
   rules:
@@ -14,10 +14,12 @@ sources:
     - "api/intelligence/rules"
     - "web/intelligence/rules"
     - "deploy/intelligence/rules"
+    - "intelligence/sync/rules"
   agents:
     - "intelligence/agents"
     - "api/intelligence/agents"
     - "web/intelligence/agents"
+    - "intelligence/sync/agents"
   skills:
     - "intelligence/skills"
     - "intelligence/sync/skills"

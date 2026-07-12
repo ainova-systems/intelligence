@@ -135,6 +135,8 @@ intelligence-sync/
 │       │   ├── VERSION          # Module version (drives migrations)
 │       │   ├── lib/             # common.sh, layout.sh, migrations.sh
 │       │   └── adapters/        # 6 built-in + template
+│       ├── rules/               # intelligence-authoring — how to author this layer
+│       ├── agents/              # intelligence-architect — designs and prunes it
 │       └── skills/intelligence-*  # Pre-installed meta-skills
 ├── examples/                    # config.yaml for different project types
 ├── docs/                        # Conventions and adapter guide (source)

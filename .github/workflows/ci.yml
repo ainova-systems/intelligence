@@ -159,6 +159,30 @@ jobs:
           grep -q "backend-developer" "$PROJ/AGENTS.md"
           grep -q "backend-add-endpoint" "$PROJ/AGENTS.md"
 
+      - name: Engine-owned rule + agent reach the outputs, with layout tokens expanded
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJ"
+          # The engine ships intelligence-authoring (rule) + intelligence-architect
+          # (agent). They must arrive via sources, and every `<umbrella>` /
+          # `<module>` token must be gone: a literal token in an output means an
+          # adapter wrote a file without finalize_output_file().
+          grep -q "intelligence-authoring" AGENTS.md
+          grep -q "intelligence-architect" AGENTS.md
+          if [ -d .claude ]; then
+            test -f .claude/rules/intelligence-authoring.md
+            test -f .claude/agents/intelligence-architect.md
+            grep -q '"intelligence/\*\*"' .claude/rules/intelligence-authoring.md
+          fi
+          leaked=$(grep -rl -e '<umbrella>' -e '<module>' \
+            .claude .cursor .github/instructions .github/agents .github/skills \
+            .codex .agents .pi .opencode AGENTS.md 2>/dev/null || true)
+          if [ -n "$leaked" ]; then
+            echo "UNEXPANDED LAYOUT TOKEN shipped into generated output:"; echo "$leaked"; exit 1
+          fi
+          echo "OK: engine rule/agent present, no unexpanded tokens"
+
       - name: Verify Claude / Cursor / Copilot / Codex outputs (if enabled)
         shell: bash
         run: |
@@ -400,29 +424,34 @@ jobs:
           s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
           test -f AGENTS.md
 
-      - name: Multi-version chain walks forward (0.3.1 → 0.4.0), idempotent
+      - name: Multi-version chain walks the whole registry forward, idempotent
         shell: bash
         run: |
           set -euo pipefail
           source "$STAGE_LIB"
-          # An upstream with a synthetic SECOND breaking migration appended.
-          UP=$RUNNER_TEMP/up040
+          # An upstream with a synthetic NEWEST breaking migration appended to
+          # whatever the real registry currently holds. The append is derived,
+          # never pinned to a literal MIGRATIONS=( ... ) line: pinning it means
+          # the chain silently stops being tested the moment a real migration
+          # is added.
+          UP=$RUNNER_TEMP/up990
           mkdir -p "$UP"
           tar --exclude='.git' -cf - . | (cd "$UP" && tar -xf -)
           M="$UP/intelligence/sync/scripts/lib/migrations.sh"
-          printf '0.4.0\n' > "$UP/intelligence/sync/scripts/VERSION"
-          sed -i 's/^MIGRATIONS=( "0_3_1" )/MIGRATIONS=( "0_3_1" "0_4_0" )/' "$M"
+          printf '9.9.0\n' > "$UP/intelligence/sync/scripts/VERSION"
+          sed -i 's/^MIGRATIONS=(\(.*\))$/MIGRATIONS=(\1 "9_9_0" )/' "$M"
+          grep -q '"9_9_0"' "$M" || { echo "fixture failed to extend MIGRATIONS"; exit 1; }
           cat >> "$M" <<'EOF'
 
           # synthetic breaking migration for CI: structural precondition =
           # absence of the marker; idempotent; transactional.
-          migrate_to_0_4_0() {
+          migrate_to_9_9_0() {
             local umbrella="$1" module_name="$2"
-            local marker="$umbrella/$module_name/.mig040"
+            local marker="$umbrella/$module_name/.mig990"
             [ -f "$marker" ] && return 0
             IS_MIGRATED=1
             : > "$marker"
-            echo "  [migrate 0.4.0] applied"
+            echo "  [migrate 9.9.0] applied"
           }
           EOF
           git -C "$UP" init -q
@@ -436,13 +465,17 @@ jobs:
           out=$(REPO_URL="file://$UP" bash intelligence/scripts/update.sh --yes)
           echo "$out"
           echo "$out" | grep -q 'IS_STATUS=migrated' || { echo "expected migrated"; exit 1; }
-          test -f intelligence/sync/.mig040                       # 0.4.0 ran
+          test -f intelligence/sync/.mig990                       # newest ran
           ! test -d intelligence/scripts                          # 0.3.1 ran
-          grep -q '^sync_version: *"0.4.0"' intelligence/config.yaml
-          # Idempotent: re-run is a clean no-op at 0.4.0.
+          # 0.7.0 ran too — the module's rules/ and agents/ are registered, once each.
+          test "$(grep -c '"intelligence/sync/rules"' intelligence/config.yaml)" -eq 1
+          test "$(grep -c '"intelligence/sync/agents"' intelligence/config.yaml)" -eq 1
+          grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
+          # Idempotent: re-run is a clean no-op, and adds no duplicate sources.
           out2=$(REPO_URL="file://$UP" bash intelligence/sync/scripts/update.sh --yes)
           echo "$out2" | grep -q 'IS_STATUS=ok' || { echo "expected ok on re-run"; exit 1; }
-          grep -q '^sync_version: *"0.4.0"' intelligence/config.yaml
+          grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
+          test "$(grep -c '"intelligence/sync/rules"' intelligence/config.yaml)" -eq 1
 
       - name: Version-compat guard fails closed (ahead-of-engine)
         shell: bash
