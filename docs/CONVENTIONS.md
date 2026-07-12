@@ -175,6 +175,16 @@ argument-hint: <arg1> [arg2]         # Optional: usage hint
 
 Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and IDE-specific extensions (Claude's `disable-model-invocation`, `model`, `effort`, `context: fork`, `hooks`, `paths`, `shell`) pass through unchanged — adapters do not strip them. Each tool ignores fields it does not understand.
 
+**Limits that reject the skill outright** (it does not degrade — it disappears from the picker):
+
+| Field | Limit | Failure |
+|---|---|---|
+| `description` | 1024 chars | *"Skill description must be at most 1024 characters"* |
+| `name` | 64 chars | rejected at load |
+| `argument-hint` | must be a **string** | `argument-hint: [pr-number]` is a YAML flow *sequence* unquoted → *"argument-hint must be a string"* |
+
+Sync quotes `description` and `argument-hint` for every target on the way out, so an unquoted hint is fixed automatically; the length limits it can only warn about (`lint_frontmatter` prints the file, line and actual length) — shortening the text is the author's call.
+
 ### Naming Conventions
 
 Skill names are `<domain>-<verb>-<noun>`. Both parts are required.

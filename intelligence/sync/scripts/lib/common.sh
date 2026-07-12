@@ -348,12 +348,31 @@ copy_md_with_quoted_frontmatter() {
 # normalized to LF; every other file is copied byte-for-byte so potentially
 # binary assets survive. `cp -R` copies symlinks as symlinks (POSIX), so a
 # link inside a source skill never leaks host file content into the output.
+#
+# SKILL.md frontmatter is quoted for EVERY consumer, not only the strict-YAML
+# ones. `argument-hint: [pr-number]` is a YAML *flow sequence*, so an unquoted
+# hint arrives as a list and Claude Code refuses the whole skill with
+# "argument-hint must be a string" — the skill silently disappears from the
+# picker. Quoting is idempotent: an already-quoted value passes through
+# untouched.
 # Usage: copy_skill_bundle "src/skill/dir" "dest/skill/dir"
 copy_skill_bundle() {
     local src_dir="${1%/}"
     local dest_dir="$2"
     mkdir -p "$dest_dir"
     cp -R "$src_dir/." "$dest_dir/"
+    # A symlinked SKILL.md is left exactly as `cp -R` produced it — a symlink.
+    # `[ -f ]` follows links, so quoting it would read the link's TARGET and
+    # write that content into a real file, turning `skills/x/SKILL.md -> /etc/…`
+    # into a copy of a host file inside the output. That is the leak the
+    # symlink-preserving copy exists to prevent, so skip the rewrite and say so
+    # (the same reason `find -type f` below never matches a symlink).
+    if [ -L "$dest_dir/SKILL.md" ]; then
+        echo "  WARN: $(basename "$dest_dir")/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
+    elif [ -f "$dest_dir/SKILL.md" ]; then
+        copy_md_with_quoted_frontmatter "$dest_dir/SKILL.md" "$dest_dir/SKILL.md.tmp-q"
+        mv "$dest_dir/SKILL.md.tmp-q" "$dest_dir/SKILL.md"
+    fi
     while IFS= read -r f; do
         [ -n "$f" ] || continue
         finalize_output_file "$f"
@@ -399,11 +418,9 @@ sync_open_skill_dirs() {
             local skill_name
             skill_name="$(basename "$d")"
             [ -f "$d/SKILL.md" ] || continue
+            # copy_skill_bundle now owns the frontmatter-quoting pass, so every
+            # target gets it — not just this open-standard dir.
             copy_skill_bundle "$d" "$output_dir/$skill_name"
-            # SKILL.md additionally gets the strict-YAML frontmatter pass on
-            # top of the plain bundle copy.
-            copy_md_with_quoted_frontmatter "$d/SKILL.md" "$output_dir/$skill_name/SKILL.md"
-            finalize_output_file "$output_dir/$skill_name/SKILL.md"
             count=$((count + 1))
             echo "  skill: $skill_name"
         done
@@ -437,6 +454,25 @@ lint_frontmatter() {
             }
             if (value ~ /"/) {
                 printf "  WARN: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", f, line > "/dev/stderr"
+            }
+        }
+        # Field-length limits. Both Claude Code and the Agent Skills standard
+        # reject an over-long description outright ("Skill description must be
+        # at most 1024 characters") and the skill vanishes from the picker with
+        # no other signal, so catching it at sync time is the only cheap warning
+        # the author ever gets. Measured on the value, quotes excluded; a block
+        # scalar (`description: |`) is skipped — its length is not on this line.
+        in_fm && /^(description|name):[[:space:]]*[^|>[:space:]]/ {
+            key = substr($0, 1, index($0, ":") - 1)
+            val = substr($0, index($0, ":") + 1)
+            sub(/^[[:space:]]+/, "", val); sub(/[[:space:]]+$/, "", val)
+            first = substr(val, 1, 1); last = substr(val, length(val), 1)
+            if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
+                val = substr(val, 2, length(val) - 2)
+            }
+            limit = (key == "name") ? 64 : 1024
+            if (length(val) > limit) {
+                printf "  WARN: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", f, line, key, length(val), limit > "/dev/stderr"
             }
         }
     ' "$file"

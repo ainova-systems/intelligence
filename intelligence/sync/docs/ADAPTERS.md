@@ -83,6 +83,8 @@ intelligence-sync routes rule content based on **scope** (always-on vs path-scop
 
 Skills follow the [Agent Skills open standard](https://agentskills.io). All supported tools read `SKILL.md` directly — no semantic transformation needed. Skill directories are copied **in full** via `copy_skill_bundle` in `lib/common.sh`: bundled resources (`references/`, `scripts/`, `assets/`) ship alongside `SKILL.md`, because skill bodies point at them by relative path and a copy without them is broken at runtime. Markdown files are LF-normalized; everything else is copied byte-for-byte.
 
+`copy_skill_bundle` also quotes free-text `SKILL.md` frontmatter (`description`, `argument-hint`) for **every** target, not just the strict-YAML ones: `argument-hint: [pr-number]` is a YAML flow *sequence* unquoted, and Claude Code rejects the skill with "argument-hint must be a string" — it vanishes from the picker with no other signal. Adapters must therefore copy skills through this helper rather than plain `cp`.
+
 | Pattern | Used by | Output location |
 |---------|---------|-----------------|
 | Copy skill dirs in full (SKILL.md + bundled resources) | Claude, Cursor, Copilot, Codex, Pi, opencode | `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, `.agents/skills/` (shared by Codex, Pi, opencode) |

@@ -12,6 +12,14 @@ Update intelligence-sync: fetch the latest engine from https://github.com/ainova
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-07-12
+
+### Fixed
+
+- **Skills with an unquoted `argument-hint` failed to load in Claude Code, Cursor and Copilot.** Frontmatter quoting ran only for the Agent Skills open-standard directory (`.agents/skills/`), so `.claude/skills/`, `.cursor/skills/` and `.github/skills/` received the source frontmatter verbatim. An unquoted hint such as `argument-hint: [pr-number]` is a YAML **flow sequence**, not a string — Claude Code rejects the whole skill (*"argument-hint must be a string"*) and it silently disappears from the picker. The quoting pass now lives inside `copy_skill_bundle`, the single copy path every adapter uses, so all targets get it; the redundant second pass in `sync_open_skill_dirs` is gone. Quoting stays idempotent — already-quoted values pass through untouched. Re-run sync to fix affected skills.
+- **A symlinked `SKILL.md` is no longer materialized into the outputs.** Every text pass in the engine (LF normalization, token expansion, frontmatter quoting) reads a file and writes it back — run one through a symlink and the link's *target*, a host file outside the repo, gets copied into the generated skill. `cp -R` preserves symlinks precisely so that cannot happen, and `find -type f` already skipped them; the new quoting pass used `[ -f ]`, which follows links. It now leaves a symlinked `SKILL.md` exactly as copied and warns that it is emitted unprocessed. CI asserts a `SKILL.md -> /host/file` symlink never leaks its content into `.claude/`, `.agents/` or `AGENTS.md`.
+- **An over-long `description` silently produced a skill that no tool would load.** Both Claude Code and the Agent Skills standard cap it at 1024 characters (*"Skill description must be at most 1024 characters"*) and reject the file outright, with no signal anywhere in the sync output. `lint_frontmatter` now warns at sync time, naming the file, line and actual length, for `description` (>1024) and `name` (>64). It stays a warning, not an error — the engine reports the problem, the author fixes the source.
+
 ## [0.7.0] — 2026-07-12
 
 The engine stops being only a pipeline and starts shipping its own **authoring discipline**: a rule the model respects while it works, and an agent that owns the layer's shape. Both are upstream-owned — they evolve with the engine instead of drifting inside each project.

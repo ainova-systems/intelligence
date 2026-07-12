@@ -232,7 +232,7 @@ project:
 
 # Managed by intelligence-sync — applied schema version. Do not hand-edit;
 # preserve on re-bootstrap. (Value = intelligence/sync/scripts/VERSION.)
-sync_version: "0.7.0"
+sync_version: "0.7.1"
 
 sources:
   rules:

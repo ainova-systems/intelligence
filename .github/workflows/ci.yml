@@ -124,6 +124,7 @@ jobs:
           ---
           name: backend-add-endpoint
           description: "Add an endpoint: handler + route + tests"
+          argument-hint: [route-name]
           ---
 
           # Add endpoint
@@ -148,7 +149,7 @@ jobs:
           cd "$PROJ"
           out=$(bash intelligence/sync/scripts/sync.sh)
           echo "$out"
-          echo "$out" | grep -q 'IS_STATUS=ok' || { echo "missing IS_STATUS=ok"; exit 1; }
+          case "$out" in *"IS_STATUS=ok"*) ;; *) echo "missing IS_STATUS=ok"; exit 1 ;; esac
 
       - name: Verify AGENTS.md
         shell: bash
@@ -158,6 +159,21 @@ jobs:
           grep -q "Use this for project-wide standards" "$PROJ/AGENTS.md"
           grep -q "backend-developer" "$PROJ/AGENTS.md"
           grep -q "backend-add-endpoint" "$PROJ/AGENTS.md"
+
+      - name: Skill frontmatter is quoted in every channel (argument-hint must be a string)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJ"
+          # `argument-hint: [route-name]` is a YAML flow SEQUENCE unquoted, and
+          # Claude Code rejects the skill outright ("argument-hint must be a
+          # string"). Every copy path must quote it, not just .agents/skills/.
+          for d in .claude/skills .cursor/skills .github/skills .agents/skills; do
+            f="$d/backend-add-endpoint/SKILL.md"
+            [ -f "$f" ] || continue
+            grep -q 'argument-hint: "\[route-name\]"' "$f"               || { echo "UNQUOTED argument-hint in $f:"; grep -n 'argument-hint' "$f"; exit 1; }
+            echo "  ok: $f"
+          done
 
       - name: Engine-owned rule + agent reach the outputs, with layout tokens expanded
         shell: bash
@@ -296,17 +312,17 @@ jobs:
           cd "$PROJ"
           out=$(bash intelligence/sync/scripts/sync.sh 2>&1)
           echo "$out"
-          echo "$out" | grep -q 'IS_STATUS=ok' || { echo "missing IS_STATUS=ok"; exit 1; }
+          case "$out" in *"IS_STATUS=ok"*) ;; *) echo "missing IS_STATUS=ok"; exit 1 ;; esac
 
           # Same repo@ref (two subpaths) is cloned EXACTLY once.
           n=$(printf '%s\n' "$out" | grep -c 'remote: cloned') || true
           [ "$n" -eq 1 ] || { echo "expected 1 clone, got $n"; exit 1; }
 
           # ext:: transport is refused (never reaches git); sync still succeeds.
-          echo "$out" | grep -q 'rejected (unsupported scheme)' || { echo "ext:: not rejected"; exit 1; }
+          case "$out" in *"rejected (unsupported scheme)"*) ;; *) echo "ext:: not rejected"; exit 1 ;; esac
 
           # `..` traversal in #subpath is refused before any escape.
-          echo "$out" | grep -q 'subpath traversal' || { echo "traversal not rejected"; exit 1; }
+          case "$out" in *"subpath traversal"*) ;; *) echo "traversal not rejected"; exit 1 ;; esac
 
           # A hostile symlink in the remote repo must not leak host files —
           # core.symlinks=false checks it out as an inert text file.
@@ -388,7 +404,7 @@ jobs:
           set -e
           echo "$out"
           [ "$rc" -eq 6 ] || { echo "expected exit 6 (needs-update), got $rc"; exit 1; }
-          echo "$out" | grep -q 'IS_STATUS=needs-update' || { echo "missing needs-update"; exit 1; }
+          case "$out" in *"IS_STATUS=needs-update"*) ;; *) echo "missing needs-update"; exit 1 ;; esac
           # sync.sh must NOT migrate or generate anything.
           test -d intelligence/scripts
           test -d intelligence/skills/intelligence-sync
@@ -406,7 +422,7 @@ jobs:
 
           out=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/scripts/update.sh --yes)
           echo "$out"
-          echo "$out" | grep -q 'IS_STATUS=migrated' || { echo "expected IS_STATUS=migrated"; exit 1; }
+          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected IS_STATUS=migrated"; exit 1 ;; esac
           test -f intelligence/sync/scripts/sync.sh
           # Schema version is a config.yaml key (not a dotfile).
           ! test -e intelligence/sync/.intelligence-sync-version
@@ -418,7 +434,7 @@ jobs:
           test "$(grep -c '"intelligence/sync/skills"' intelligence/config.yaml)" -eq 1
 
           out2=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
-          echo "$out2" | grep -q 'IS_STATUS=ok' || { echo "expected IS_STATUS=ok on re-run"; exit 1; }
+          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected IS_STATUS=ok on re-run"; exit 1 ;; esac
           test "$(grep -c '^sync_version:' intelligence/config.yaml)" -eq 1
           # Now modular & current → sync.sh works and is ok.
           s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
@@ -464,7 +480,7 @@ jobs:
           cd "$PROJ"
           out=$(REPO_URL="file://$UP" bash intelligence/scripts/update.sh --yes)
           echo "$out"
-          echo "$out" | grep -q 'IS_STATUS=migrated' || { echo "expected migrated"; exit 1; }
+          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected migrated"; exit 1 ;; esac
           test -f intelligence/sync/.mig990                       # newest ran
           ! test -d intelligence/scripts                          # 0.3.1 ran
           # 0.7.0 ran too — the module's rules/ and agents/ are registered, once each.
@@ -473,7 +489,7 @@ jobs:
           grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
           # Idempotent: re-run is a clean no-op, and adds no duplicate sources.
           out2=$(REPO_URL="file://$UP" bash intelligence/sync/scripts/update.sh --yes)
-          echo "$out2" | grep -q 'IS_STATUS=ok' || { echo "expected ok on re-run"; exit 1; }
+          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected ok on re-run"; exit 1 ;; esac
           grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
           test "$(grep -c '"intelligence/sync/rules"' intelligence/config.yaml)" -eq 1
 
@@ -506,7 +522,7 @@ jobs:
           set -e
           echo "$out"; echo "rc=$rc"
           [ "$rc" -eq 4 ] || { echo "expected exit 4 (ahead-of-engine), got $rc"; exit 1; }
-          echo "$out" | grep -q 'IS_STATUS=ahead-of-engine' || { echo "missing ahead-of-engine"; exit 1; }
+          case "$out" in *"IS_STATUS=ahead-of-engine"*) ;; *) echo "missing ahead-of-engine"; exit 1 ;; esac
           ! test -f AGENTS.md
 
       - name: Incomplete upstream fails closed (aborted-incomplete, legacy intact)
@@ -530,7 +546,7 @@ jobs:
           set -e
           echo "$out"
           [ "$rc" -eq 5 ] || { echo "expected exit 5 (aborted-incomplete), got $rc"; exit 1; }
-          echo "$out" | grep -q 'IS_STATUS=aborted-incomplete' || { echo "missing aborted-incomplete"; exit 1; }
+          case "$out" in *"IS_STATUS=aborted-incomplete"*) ;; *) echo "missing aborted-incomplete"; exit 1 ;; esac
           # Crash-safety: legacy fully intact, nothing migrated/stamped.
           test -d intelligence/scripts
           test -e intelligence/INIT.md
@@ -614,3 +630,47 @@ jobs:
           else
             echo "OK: sync enforced agents-required invariant."
           fi
+
+      - name: A symlinked SKILL.md is never materialized into an output
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every text pass in the engine (LF normalization, token expansion,
+          # frontmatter quoting) reads a file and writes it back. Run one of
+          # those through a symlink and the link's TARGET — a host file outside
+          # the repo — is copied into the generated skill. `cp -R` preserves
+          # symlinks precisely so that cannot happen; assert it stays true.
+          PROJ=$RUNNER_TEMP/symskill
+          SECRET=$RUNNER_TEMP/secret
+          mkdir -p "$PROJ/intelligence"/{rules,agents,skills/evil-skill} "$SECRET"
+          echo "TOP-SECRET-HOST-CONTENT" > "$SECRET/passwd"
+          cp -r intelligence/sync "$PROJ/intelligence/sync"
+          printf '# ctx\n' > "$PROJ/intelligence/rules/context.md"
+          ln -s "$SECRET/passwd" "$PROJ/intelligence/skills/evil-skill/SKILL.md"
+          cat > "$PROJ/intelligence/config.yaml" <<EOF
+          project:
+            name: symskill
+          sync_version: "$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          sources:
+            rules:
+              - "intelligence/rules"
+            agents:
+              - "intelligence/agents"
+            skills:
+              - "intelligence/skills"
+          targets:
+            agents: { enabled: true, output: "AGENTS.md" }
+            claude: { enabled: true, output: ".claude" }
+            codex: { enabled: true, output: ".codex" }
+          EOF
+          git -C "$PROJ" init -q
+          cd "$PROJ"
+          bash intelligence/sync/scripts/sync.sh > /dev/null 2>&1
+          if grep -rq "TOP-SECRET-HOST-CONTENT" .claude .agents AGENTS.md 2>/dev/null; then
+            echo "LEAK: host file content materialized into generated output:"
+            grep -rl "TOP-SECRET-HOST-CONTENT" .claude .agents AGENTS.md
+            exit 1
+          fi
+          test -L .claude/skills/evil-skill/SKILL.md \
+            || { echo "FAIL: symlinked SKILL.md was replaced by a real file"; exit 1; }
+          echo "OK: symlinked SKILL.md left as a symlink; no host content in outputs"
