@@ -80,6 +80,40 @@ repo_rel_link() {
     printf '%s' "$rel"
 }
 
+# Repo-root-relative path of an existing DIRECTORY — by identity, not spelling.
+# `${dir#"$repo_root"/}` is a plain string strip, which silently yields the
+# unchanged absolute path when the two were produced from different spellings of
+# the same location. That is not hypothetical: Git Bash reaches the Windows temp
+# dir through two mounts (`/tmp/...` and `/c/Users/.../Temp/...`) and `pwd`
+# prints whichever one you arrived through, so `REPO_ROOT` (from `git
+# rev-parse`) and `LS_UMBRELLA_DIR` (from the invocation path) can disagree
+# character-by-character while naming the same directory. AGENTS.md is
+# committed, so a failed strip would bake a machine-specific absolute path into
+# version control.
+#
+# Walks up from <dir> comparing each ancestor to <repo_root> with `-ef`
+# (device+inode — identity, immune to spelling), collecting basenames.
+# Echoes "" when <dir> is not inside <repo_root>, or does not exist.
+# Usage: rel="$(repo_rel_dir "$repo_root" "$LS_MODULE_DIR")"   # -> intelligence/sync
+repo_rel_dir() {
+    local repo_root="$1" dir="$2"
+    local cur rel="" parent base depth=0
+    cur="$(cd "$dir" 2>/dev/null && pwd)" || return 0
+    [ -d "$repo_root" ] || return 0
+    while [ "$depth" -lt 64 ]; do
+        if [ "$cur" -ef "$repo_root" ]; then
+            printf '%s' "$rel"
+            return 0
+        fi
+        parent="$(dirname "$cur")"
+        base="$(basename "$cur")"
+        [ "$parent" = "$cur" ] && return 0      # reached the filesystem root
+        rel="$base${rel:+/$rel}"
+        cur="$parent"
+        depth=$((depth + 1))
+    done
+}
+
 # Resolve a single source token to an absolute local directory.
 #   Local token  -> "$repo_root/$token".
 #   Remote token -> shallow-clone into the run cache, echo "<clone>/<subpath>".
@@ -451,9 +485,9 @@ has_paths() {
 # --- Tier/Access Mappings ---
 
 # Hardcoded defaults: ide:tier -> model name.
-# When you bump these, run `bash intelligence/scripts/sync.sh` in projects;
-# any project whose config.yaml `models:` section diverges from these will
-# print a drift warning so users know their override is now stale.
+# When you bump these, re-run sync in projects; any project whose config.yaml
+# `models:` section diverges from these will print a drift warning so users
+# know their override is now stale.
 get_model_default() {
     local ide="$1"
     local tier="$2"
@@ -464,14 +498,14 @@ get_model_default() {
         cursor:heavy)     echo "inherit" ;;
         cursor:standard)  echo "inherit" ;;
         cursor:light)     echo "fast" ;;
-        copilot:heavy)    echo "gpt-5.5" ;;
-        copilot:standard) echo "gpt-5.5-codex" ;;
-        copilot:light)    echo "gpt-5.5-mini" ;;
-        codex:heavy)      echo "gpt-5.5" ;;
-        codex:standard)   echo "gpt-5.5-codex" ;;
-        codex:light)      echo "gpt-5.5-mini" ;;
+        copilot:heavy)    echo "gpt-5.6-sol" ;;
+        copilot:standard) echo "gpt-5.6-terra" ;;
+        copilot:light)    echo "gpt-5.6-luna" ;;
+        codex:heavy)      echo "gpt-5.6-sol" ;;
+        codex:standard)   echo "gpt-5.6-terra" ;;
+        codex:light)      echo "gpt-5.6-luna" ;;
         opencode:heavy)    echo "anthropic/claude-opus-4-8" ;;
-        opencode:standard) echo "anthropic/claude-sonnet-4-6" ;;
+        opencode:standard) echo "anthropic/claude-sonnet-5" ;;
         opencode:light)    echo "anthropic/claude-haiku-4-5-20251001" ;;
         *)                echo "" ;;
     esac
@@ -587,12 +621,34 @@ map_access_to_claude_disallowed() {
 
 # --- Validation ---
 
-# Refuse to operate on output paths that could clobber repo content.
-# Adapters call `rm -rf` on subdirectories of $output_dir; if config.yaml
-# accidentally points an adapter at the repo root, the intelligence source
-# tree (whatever the user named it), or any configured source directory,
-# that cleanup would delete real work. Call this from sync.sh before
-# invoking each adapter.
+# Lexically canonicalize a path: collapse `//`, `.` and `..` by pure string
+# surgery, so a path that does not exist yet still normalizes (realpath -m is
+# not POSIX and `cd` only works on dirs that exist). Symlinks are NOT resolved
+# — validate_output_path pairs this with a `cd -P` check for paths that do
+# exist.
+# Usage: canon="$(normalize_path "/repo/a/../b")"   # -> /repo/b
+normalize_path() {
+    local path="$1" p out=""
+    local -a parts
+    IFS='/' read -r -a parts <<< "$path"
+    for p in "${parts[@]+"${parts[@]}"}"; do
+        case "$p" in
+            ""|".") ;;
+            "..")   out="${out%/*}" ;;
+            *)      out="$out/$p" ;;
+        esac
+    done
+    printf '%s' "${out:-/}"
+}
+
+# Refuse to operate on output paths that could clobber content.
+# Adapters `rm -rf` subdirectories of $output_dir, and the `agents` adapter
+# overwrites whatever single file it is pointed at; if config.yaml aims an
+# adapter at the repo root, outside the repo, at the intelligence source tree
+# (whatever the user named it), or at any configured source directory, that
+# write would destroy real work. Call this from sync.sh before invoking EVERY
+# adapter — `agents` included: writing one file to an arbitrary path is a
+# config-file-to-arbitrary-write path, no less than a cleanup is.
 #
 # All forbidden paths are derived dynamically — no folder name is
 # hardcoded, so projects that renamed `intelligence/` (capital I, custom
@@ -606,53 +662,100 @@ validate_output_path() {
     local adapter="$3"
     local output_dir="$4"
 
-    # Empty / dotted paths.
-    case "$output_dir" in
-        ""|"."|"/"|"./"|"$repo_root"|"$repo_root/"|"$repo_root/.")
+    # Canonicalize FIRST. Every check below is a string comparison, so a `../`
+    # left in the raw value would walk straight past all of them.
+    local canon
+    canon="$(normalize_path "$output_dir")"
+
+    case "$canon" in
+        ""|"/"|"$repo_root")
             echo "ERROR: targets.$adapter.output resolves to repo root or empty path: '$output_dir'" >&2
-            echo "  Refusing to run — adapter cleanup would destroy repository content." >&2
+            echo "  Refusing to run — the adapter would destroy repository content." >&2
             exit 1
             ;;
     esac
 
-    # Resolve to canonical path. If the resolved output equals or is an
-    # ancestor of the repo root, refuse.
-    local resolved
-    resolved=$(cd "$output_dir" 2>/dev/null && pwd) || resolved=""
-    if [ -n "$resolved" ] && [ "$resolved" = "$repo_root" ]; then
-        echo "ERROR: targets.$adapter.output resolves to repo root: '$output_dir'" >&2
-        exit 1
+    # Must stay inside the repository.
+    case "$canon" in
+        "$repo_root"/*) ;;
+        *)
+            echo "ERROR: targets.$adapter.output escapes the repository: '$output_dir'" >&2
+            echo "  Resolves to '$canon', outside '$repo_root'." >&2
+            exit 1
+            ;;
+    esac
+
+    # A symlink ANYWHERE on the path can still lead out of the repo, which the
+    # lexical pass above cannot see. The output itself usually does not exist on
+    # a first sync, so checking only an existing final directory would miss the
+    # common case (`.cursor` absent, but its parent `generated/` symlinked out).
+    # Walk up to the deepest component that does exist and resolve THAT
+    # physically. `-L` in the loop guard so a broken symlink is caught rather
+    # than stepped over.
+    local probe="$canon" parent
+    while [ ! -e "$probe" ] && [ ! -L "$probe" ]; do
+        parent="$(dirname "$probe")"
+        [ "$parent" = "$probe" ] && break
+        probe="$parent"
+    done
+
+    if [ -e "$probe" ] || [ -L "$probe" ]; then
+        # A symlinked FILE target (e.g. `AGENTS.md` -> /etc/hosts, or a dangling
+        # link) would be written straight through. Refuse rather than follow it;
+        # a generated output is never legitimately a file symlink.
+        if [ -L "$probe" ] && [ ! -d "$probe" ]; then
+            echo "ERROR: targets.$adapter.output ('$output_dir') resolves through a symlink ('$probe')." >&2
+            echo "  Refusing to write through it." >&2
+            exit 1
+        fi
+        # Symlinked directory: allowed only while its physical target stays
+        # inside the repo (`pwd -P` on both sides so a symlinked repo root
+        # resolves consistently).
+        local probe_dir phys repo_phys
+        if [ -d "$probe" ]; then probe_dir="$probe"; else probe_dir="$(dirname "$probe")"; fi
+        phys="$(cd "$probe_dir" 2>/dev/null && pwd -P)" || phys=""
+        repo_phys="$(cd "$repo_root" && pwd -P)"
+        case "${phys:-/nonexistent}" in
+            "$repo_phys"|"$repo_phys"/*) ;;
+            *)
+                echo "ERROR: targets.$adapter.output ('$output_dir') resolves through a symlink to '$phys'," >&2
+                echo "  which is outside the repository. Refusing to run." >&2
+                exit 1
+                ;;
+        esac
     fi
 
-    local rel="${output_dir#$repo_root/}"
+    local rel="${canon#"$repo_root"/}"
 
     # Reject the intelligence source directory itself (parent of config.yaml).
     # Folder name is whatever the user chose — we read it from the filesystem.
     local intel_dir intel_rel
     intel_dir="$(cd "$(dirname "$config_file")" && pwd)"
-    intel_rel="${intel_dir#$repo_root/}"
-    if [ -n "$intel_rel" ]; then
+    intel_rel="${intel_dir#"$repo_root"/}"
+    if [ -n "$intel_rel" ] && [ "$intel_rel" != "$intel_dir" ]; then
         case "$rel" in
-            "$intel_rel"|"$intel_rel/"|"$intel_rel"/*)
+            "$intel_rel"|"$intel_rel"/*)
                 echo "ERROR: targets.$adapter.output points into the intelligence source tree ('$intel_rel'): '$rel'" >&2
-                echo "  Adapter cleanup would delete rules / agents / skills source files." >&2
+                echo "  The adapter would overwrite or delete rules / agents / skills source files." >&2
                 exit 1
                 ;;
         esac
     fi
 
     # Reject any configured source directory (rules, agents, skills).
-    local section src
+    local section src src_rel
     for section in rules agents skills; do
         while IFS= read -r src; do
             [ -z "$src" ] && continue
             # Remote sources never resolve to a local output path — skip them
             # so a `git+...` spec is not pattern-matched against the output dir.
             source_is_remote "$src" && continue
+            src_rel="$(normalize_path "$repo_root/$src")"
+            src_rel="${src_rel#"$repo_root"/}"
             case "$rel" in
-                "$src"|"$src/"|"$src"/*)
+                "$src_rel"|"$src_rel"/*)
                     echo "ERROR: targets.$adapter.output ('$rel') overlaps a configured source ('$src')." >&2
-                    echo "  Adapter cleanup would delete source content." >&2
+                    echo "  The adapter would overwrite or delete source content." >&2
                     exit 1
                     ;;
             esac

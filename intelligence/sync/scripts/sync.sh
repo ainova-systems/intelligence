@@ -147,18 +147,55 @@ for section in rules agents skills; do
     done < <(read_yaml_list "$CONFIG_FILE" "$section")
 done
 
-# Available adapters (filename without .sh, excluding _template)
+# Adapters come from two places, discovered by filename (minus `.sh`,
+# `_template` excluded):
+#
+#   1. Built-in   — <module>/scripts/adapters/   (upstream-owned; update.sh
+#                   replaces this directory wholesale on every engine update)
+#   2. Project    — <umbrella>/adapters/         (project-owned; update.sh
+#                   never touches it)
+#
+# A custom adapter therefore belongs in the umbrella's `adapters/` — put one in
+# the engine's own adapters/ and the next update deletes it. A project adapter
+# whose name matches a built-in overrides it (an escape hatch for patching a
+# built-in without forking the engine — announced, never silent).
 ADAPTERS=()
-for adapter_file in "$SCRIPT_DIR/adapters"/*.sh; do
-    [ -f "$adapter_file" ] || continue
-    adapter_name="$(basename "$adapter_file" .sh)"
-    [ "$adapter_name" = "_template" ] && continue
-    ADAPTERS+=("$adapter_name")
+ADAPTER_FILES=()
+
+register_adapter() {
+    local name="$1" file="$2"
+    local n=${#ADAPTERS[@]} i=0
+    while [ "$i" -lt "$n" ]; do
+        if [ "${ADAPTERS[$i]}" = "$name" ]; then
+            ADAPTER_FILES[$i]="$file"
+            echo "  NOTE: project adapter '$name' overrides the built-in one ($(basename "$INTELLIGENCE_DIR")/adapters/$(basename "$file"))"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    ADAPTERS+=("$name")
+    ADAPTER_FILES+=("$file")
+}
+
+for adapters_dir in "$SCRIPT_DIR/adapters" "$INTELLIGENCE_DIR/adapters"; do
+    [ -d "$adapters_dir" ] || continue
+    for adapter_file in "$adapters_dir"/*.sh; do
+        [ -f "$adapter_file" ] || continue
+        adapter_name="$(basename "$adapter_file" .sh)"
+        [ "$adapter_name" = "_template" ] && continue
+        register_adapter "$adapter_name" "$adapter_file"
+    done
 done
 
 synced=0
+adapter_count=${#ADAPTERS[@]}
+adapter_idx=0
 
-for adapter in "${ADAPTERS[@]}"; do
+while [ "$adapter_idx" -lt "$adapter_count" ]; do
+    adapter="${ADAPTERS[$adapter_idx]}"
+    adapter_file="${ADAPTER_FILES[$adapter_idx]}"
+    adapter_idx=$((adapter_idx + 1))
+
     # Skip if user requested specific target and this isn't it
     if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
         continue
@@ -177,16 +214,16 @@ for adapter in "${ADAPTERS[@]}"; do
     fi
     output_dir="$REPO_ROOT/$output"
 
-    # Refuse to run if output would clobber repo content (e.g. config.yaml
-    # accidentally sets `output: "."` or `output: "intelligence"`). The
-    # `agents` adapter writes a single file (AGENTS.md) and is exempt.
-    if [ "$adapter" != "agents" ]; then
-        validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$output_dir"
-    fi
+    # Refuse to run if the output would clobber content — `output: "."`,
+    # `output: "intelligence"`, or a `../` path that escapes the repo. Applies
+    # to EVERY adapter, `agents` included: dir-writing adapters `rm -rf` their
+    # output, and `agents` overwrites whatever single file it is handed. Both
+    # turn a bad config line into a destructive write.
+    validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$output_dir"
 
     # Source adapter and run.
     # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/adapters/$adapter.sh"
+    source "$adapter_file"
     "sync_to_$adapter" "$REPO_ROOT" "$CONFIG_FILE" "$output_dir"
     echo ""
     synced=$((synced + 1))

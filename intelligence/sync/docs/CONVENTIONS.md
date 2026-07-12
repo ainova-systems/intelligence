@@ -35,11 +35,15 @@ intelligence/                         # Umbrella — name NOT hardcoded (whateve
 ├── skills/                           # Reusable project skill commands
 │   ├── backend-add-endpoint/SKILL.md
 │   └── frontend-add-component/SKILL.md
+├── adapters/                         # OPTIONAL — project-owned adapters (survive updates)
+│   └── myide.sh                      # sync_to_myide(); overrides a built-in of the same name
 └── sync/                             # intelligence-sync MODULE (upstream-owned)
     └── INIT.md  docs/  scripts/(+VERSION)  skills/intelligence-*
 ```
 
-Everything project-authored lives at the umbrella level (`rules/ agents/ skills/`); everything upstream-owned lives in the self-contained module `sync/`, updated independently via `sync/scripts/update.sh`. Additional modules (e.g. `domain/`) sit beside `sync/`. The umbrella folder name is derived at runtime as "the directory holding `config.yaml`" — never hardcoded. The `intelligence-` skill prefix is **reserved** for upstream meta-skills; project skills must not use it (the updater moves/prunes anything matching that prefix).
+Everything project-authored lives at the umbrella level (`rules/ agents/ skills/ adapters/`); everything upstream-owned lives in the self-contained module `sync/`, updated independently via `sync/scripts/update.sh`. Additional modules (e.g. `domain/`) sit beside `sync/`. The umbrella folder name is derived at runtime as "the directory holding `config.yaml`" — never hardcoded. The `intelligence-` skill prefix is **reserved** for upstream meta-skills; project skills must not use it (the updater moves/prunes anything matching that prefix).
+
+A custom adapter belongs in the umbrella's `adapters/`, never in the module's `sync/scripts/adapters/` — the module is replaced wholesale on every update, so an adapter written there disappears at the next one. See `docs/ADAPTERS.md`.
 
 Rule filenames, agent names, and skill names all share the same **domain prefix** (`backend-`, `frontend-`, `devops-`, `core-`, `tests-`, project codename, or monorepo component name). Pick the domain once from repo structure and reuse it — do not invent new domains without clear need.
 
@@ -87,15 +91,21 @@ skills:                              # Optional: linked skills
 Agent instructions in markdown...
 ```
 
+### An agent is thin — it never restates the rules
+
+Body sections: **Expertise** → **Boundaries** (where it stops) → **Build & Verify**. What belongs to the agent is its role, its limits, and how it proves the work is done.
+
+**Do not instruct an agent to read the rules.** They reach it on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor, Copilot, Codex, Pi and opencode receive always-on rules inlined in `AGENTS.md`. A `Read intelligence/rules/<domain>.md before starting` line is duplication: it doubles the tokens and creates a second copy that drifts from the rule it copied. Point at a rule by name if you must; never restate it. The urge to copy a rule into an agent means the rule is in the wrong place — move it.
+
 ### Tier Mappings
 
-| Tier | Claude | Cursor | Use for |
-|------|--------|--------|---------|
-| heavy | opus | (default) | Developers, complex reasoning, migration |
-| standard | sonnet | fast | Reviewers, validators, analysis |
-| light | haiku | fast | Simple lookups, formatting |
+| Tier | Claude | Cursor | Copilot / Codex | opencode | Use for |
+|------|--------|--------|-----------------|----------|---------|
+| heavy | opus | (default) | gpt-5.6-sol | claude-opus-4-8 | Developers, complex reasoning, migration |
+| standard | sonnet | fast | gpt-5.6-terra | claude-sonnet-5 | Reviewers, validators, analysis |
+| light | haiku | fast | gpt-5.6-luna | claude-haiku-4-5 | Simple lookups, formatting |
 
-Tier is only relevant for IDEs with agent support (Claude, Cursor). Other IDEs ignore it.
+The vocabulary is tool-agnostic on purpose: the source says `tier: heavy`, and each adapter resolves it through `get_model()`. Defaults move forward as vendors ship new models — pin one per IDE/tier under `models:` in `config.yaml` only when you must, and expect a drift report on every sync once the default overtakes the pin.
 
 ### Access Mappings
 

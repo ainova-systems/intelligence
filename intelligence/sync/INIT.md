@@ -232,7 +232,7 @@ project:
 
 # Managed by intelligence-sync — applied schema version. Do not hand-edit;
 # preserve on re-bootstrap. (Value = intelligence/sync/scripts/VERSION.)
-sync_version: "0.5.2"
+sync_version: "0.6.0"
 
 sources:
   rules:
@@ -274,7 +274,7 @@ ignore:
 # Example:
 # models:
 #   copilot:
-#     heavy: "gpt-5.5"
+#     heavy: "gpt-5.6-sol"
 ```
 
 The `agents.header` block is the only hand-authored part of `AGENTS.md`. Everything else (tables for agents/skills, list of rules) is regenerated from frontmatter on every sync. Keep the header to 3–5 lines: project name, one-liner stack summary, link to `context.md`.
@@ -297,6 +297,8 @@ Built-in adapters:
 | `pi` | `pi.sh` | `.pi/` + `.agents/skills/` | Reads AGENTS.md for always-on context; generated extension surfaces scoped rules; agents become prompt templates |
 | `opencode` | `opencode.sh` | `.opencode/` + `.agents/skills/` | Reads AGENTS.md natively; agents become markdown subagents (`.opencode/agents/<name>.md`); skills via `.agents/skills/`; no scoped-rules emission (users may opt in via `instructions:` globs in `opencode.json`) |
 
+Need a target with no built-in adapter? Write it as `<intel>/adapters/<name>.sh` — beside `config.yaml`, using the folder name detected in *Phase 0*, and **never** inside `<intel>/sync/scripts/adapters/`, which `update.sh` replaces wholesale (an adapter written there is deleted by the next engine update). `sync.sh` scans both locations; a project adapter overrides a built-in of the same name. See `/intelligence-install-adapter` and `<intel>/sync/docs/ADAPTERS.md`.
+
 ### 3.2 `intelligence/rules/context.md`
 
 Always-loaded context (no `paths:` in frontmatter):
@@ -318,8 +320,8 @@ One rule per component, scoped with `paths:` frontmatter:
 ### 3.4 Agents
 
 **Developer agents** (tier: heavy, access: full) -- one per distinct stack:
-- Expertise based on detected patterns, "Before Any Task" checklist, build/verify commands
-- "Before Any Task" must reference the domain rules file: "Read `intelligence/rules/<domain>.md` before starting"
+- Expertise based on detected patterns; boundaries (where the agent stops); build/verify commands
+- **Never instruct an agent to read the rules.** Rules load on their own — Claude Code loads `.claude/rules/` into every custom subagent's startup context, and Cursor / Copilot / Codex / Pi / opencode get always-on rules inlined in `AGENTS.md`. A "read `intelligence/rules/<domain>.md` first" line duplicates content the agent already has and drifts from the rule it copied.
 - Link relevant skills via `skills:` in frontmatter
 
 **Code reviewer** (tier: standard, access: readonly):
@@ -490,7 +492,7 @@ agent: agent-name                # optional: which agent executes this skill
 - Reserve **Invariants** for true must-nots — safety, output format, security
 - **Patterns to recognize and replace** is reference documentation of anti-patterns with their positive replacement, not LLM instructions
 
-**Agent body:** Expertise -> Before Any Task (reference rules to read) -> Build & Verify
+**Agent body:** Expertise -> Boundaries (where it stops) -> Build & Verify. An agent is thin — rules reach it automatically, so it never lists rules to read.
 
 **Skill body:** Steps (numbered, concrete, with verification at the end). Orchestrator skills (`<domain>-create-`) reference atomic skills (`<domain>-add-`) by name.
 

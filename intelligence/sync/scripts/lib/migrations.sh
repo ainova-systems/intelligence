@@ -146,25 +146,30 @@ check_version_compat() {
 # can report `migrated` vs `ok`.
 IS_MIGRATED=0
 
-# Idempotent directory replace (rsync if present, else rm+cp).
+# Idempotent directory replace (rsync if present, else rm+cp). Returns non-zero
+# if any step fails: a migration runs in an `||` context, so `set -e` is off and
+# an unchecked copy failure (permissions, full disk) would otherwise sail on to
+# the cleanup and delete the legacy files it never actually copied.
 _mig_copy_dir() {
     local src="$1" dst="$2"
     [ -d "$src" ] || return 0
     if command -v rsync >/dev/null 2>&1; then
-        mkdir -p "$dst"
-        rsync -a --delete "$src/" "$dst/"
+        mkdir -p "$dst" || return 1
+        rsync -a --delete "$src/" "$dst/" || return 1
     else
-        rm -rf "$dst"
-        mkdir -p "$(dirname "$dst")"
-        cp -r "$src" "$dst"
+        rm -rf "$dst" || return 1
+        mkdir -p "$(dirname "$dst")" || return 1
+        cp -r "$src" "$dst" || return 1
     fi
+    return 0
 }
 
 _mig_copy_file() {
     local src="$1" dst="$2"
     [ -f "$src" ] || return 0
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
+    mkdir -p "$(dirname "$dst")" || return 1
+    cp "$src" "$dst" || return 1
+    return 0
 }
 
 # Idempotently add a skills source entry to config.yaml. No backup — the edit
@@ -238,33 +243,48 @@ migrate_to_0_3_1() {
     IS_MIGRATED=1
     mkdir -p "$module_dir"
 
+    # Authoritative content source: the fresh upstream clone when update.sh
+    # supplies one, else the project's own legacy files (sync.sh, offline).
+    local src_root="$umbrella"
     if [ -n "$upstream" ] && [ -d "$upstream" ]; then
-        # update.sh: copy authoritative content from the fresh upstream clone.
-        _mig_copy_dir  "$upstream/scripts" "$module_dir/scripts"
-        _mig_copy_file "$upstream/INIT.md" "$module_dir/INIT.md"
-        _mig_copy_dir  "$upstream/docs"    "$module_dir/docs"
-        mkdir -p "$module_dir/skills"
-        for s in "$upstream"/skills/intelligence-*; do
-            [ -d "$s" ] || continue
-            _mig_copy_dir "$s" "$module_dir/skills/$(basename "$s")"
-        done
-    else
-        # sync.sh (offline): relocate the local legacy files.
-        _mig_copy_dir  "$umbrella/scripts" "$module_dir/scripts"
-        _mig_copy_file "$umbrella/INIT.md" "$module_dir/INIT.md"
-        _mig_copy_dir  "$umbrella/docs"    "$module_dir/docs"
-        mkdir -p "$module_dir/skills"
-        for s in "$umbrella"/skills/intelligence-*; do
-            [ -d "$s" ] || continue
-            _mig_copy_dir "$s" "$module_dir/skills/$(basename "$s")"
-        done
+        src_root="$upstream"
     fi
 
-    # Verify sentinel BEFORE any destructive cleanup. A half-populated module
-    # must never trigger legacy deletion — that is the crash-safety gate.
-    if [ ! -s "$module_dir/scripts/sync.sh" ] || [ ! -s "$module_dir/scripts/lib/common.sh" ]; then
-        is_status aborted-incomplete "module=$module_name"
-        echo "  ERROR: migration aborted — '$module_name/scripts/' incomplete; legacy left intact." >&2
+    # Stage. Every copy's exit status is captured — see _mig_copy_dir.
+    local copy_rc=0
+    _mig_copy_dir  "$src_root/scripts" "$module_dir/scripts" || copy_rc=1
+    _mig_copy_file "$src_root/INIT.md" "$module_dir/INIT.md" || copy_rc=1
+    _mig_copy_dir  "$src_root/docs"    "$module_dir/docs"    || copy_rc=1
+    mkdir -p "$module_dir/skills" || copy_rc=1
+    for s in "$src_root"/skills/intelligence-*; do
+        [ -d "$s" ] || continue
+        _mig_copy_dir "$s" "$module_dir/skills/$(basename "$s")" || copy_rc=1
+    done
+
+    # Verify the FULL postcondition BEFORE any destructive cleanup: every
+    # artifact present at the source must now exist in the module, non-empty.
+    # This is the crash-safety gate — a half-populated module must never
+    # trigger legacy deletion, so two script sentinels are not enough.
+    local missing=""
+    [ "$copy_rc" -eq 0 ] || missing="$missing copy-failed"
+    [ -s "$module_dir/scripts/sync.sh" ] || missing="$missing scripts/sync.sh"
+    [ -s "$module_dir/scripts/lib/common.sh" ] || missing="$missing scripts/lib/common.sh"
+    if [ -f "$src_root/INIT.md" ] && [ ! -s "$module_dir/INIT.md" ]; then
+        missing="$missing INIT.md"
+    fi
+    if [ -d "$src_root/docs" ] && [ -z "$(find "$module_dir/docs" -type f 2>/dev/null | head -1)" ]; then
+        missing="$missing docs/"
+    fi
+    for s in "$src_root"/skills/intelligence-*; do
+        [ -d "$s" ] || continue
+        if [ ! -s "$module_dir/skills/$(basename "$s")/SKILL.md" ]; then
+            missing="$missing skills/$(basename "$s")"
+        fi
+    done
+
+    if [ -n "$missing" ]; then
+        is_status aborted-incomplete "module=$module_name missing=${missing# }"
+        echo "  ERROR: migration aborted — '$module_name/' incomplete (${missing# }); legacy left intact." >&2
         return "$IS_RC_ABORTED_INCOMPLETE"
     fi
 

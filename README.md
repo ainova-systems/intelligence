@@ -4,13 +4,42 @@
 
 Write standards once in plain markdown. The sync engine routes content into the format each tool actually reads — no duplication, no drift, no per-IDE rewrites.
 
+## Quick Start
+
+From inside your project, paste this prompt into Claude Code, Cursor, or any AI coding assistant:
+
+```
+Set up intelligence-sync in this repository from https://github.com/ainova-systems/intelligence-sync:
+clone it into a temp directory, copy its `intelligence/` folder into my project root, then read
+`intelligence/sync/INIT.md` and follow it to bootstrap rules, agents, and skills. Finish by running
+`bash intelligence/sync/scripts/sync.sh`.
+```
+
+The assistant clones the engine, copies it in, interviews you about your stack, generates
+`intelligence/rules`, `intelligence/agents`, and `intelligence/skills`, and runs the first sync —
+you never run a `git clone` or `cp` yourself.
+
+### Upgrading
+
+Tell your AI coding agent:
+
+> **Update intelligence-sync**
+
+The `intelligence-update` skill fetches the latest engine, drives any layout migration, resolves issues, and verifies the result. Your project-authored content — `rules/`, `agents/`, project `skills/`, project `adapters/`, and everything you wrote in `config.yaml` — is left intact; the only managed `config.yaml` edits are the engine's own keys: the `sync_version` schema stamp and the additive `sources.skills` module entry a migration adds. Idempotent and safe to repeat.
+
+Directly, if you prefer: `bash intelligence/sync/scripts/update.sh`.
+
+**Pre-0.3.1 projects** (engine flat under `intelligence/`): there is no manual procedure and no deadline. The old frozen `update.sh` fails closed (changes nothing, no data loss, however long it sits). Run the agent instruction above once — it migrates the engine into `intelligence/sync/` (meta-skills moved, never duplicated; one additive `config.yaml` line). Everything is automatic thereafter.
+
+The script clones upstream into a temp dir (cross-platform `mktemp`), shows a diff, and prompts before applying. Pass `--yes` to skip the prompt, or `REPO_URL=<your-fork>` to use a fork.
+
 ## The problem
 
 Teams running multiple AI coding agents (Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Pi, opencode) hit three recurring pains:
 
 1. **Rule drift.** The same coding standards live in `.claude/rules/`, `.cursor/rules/`, `.github/instructions/`, `AGENTS.md`, `CLAUDE.md`. Six copies, six chances to forget an update.
 2. **Context duplication.** `AGENTS.md` is read natively by Cursor / Copilot / Codex / Pi / opencode. If `.cursor/rules/` mirrors the same content, the model sees rules twice and burns context window. Cursor users complain about this on the official forum.
-3. **Format chaos.** Each tool has its own frontmatter (`paths:` vs `globs:` vs `applyTo:`), its own model naming (`opus`/`sonnet` vs `gpt-5.5`/`gpt-5.5-codex`), and its own rule-scoping rules. Migrating between tools — or supporting all of them — means manual rewrites.
+3. **Format chaos.** Each tool has its own frontmatter (`paths:` vs `globs:` vs `applyTo:`), its own model naming (`opus`/`sonnet` vs `gpt-5.6-sol`/`gpt-5.6-terra`), and its own rule-scoping rules. Migrating between tools — or supporting all of them — means manual rewrites.
 
 ## Why intelligence-sync
 
@@ -50,35 +79,6 @@ Zero dependencies. Just bash + awk. Linux, macOS, Windows (Git Bash / WSL).
 ## Ready-made packs
 
 [intelligence-dev-packs](https://github.com/ainova-systems/intelligence-dev-packs) is a set of shared AI-first engineering packs - git/PR/review discipline plus an optional spec-driven development lifecycle - that you consume straight through this engine as remote `git+` sources, instead of authoring every rule and skill from scratch. Extracted from production AI-coded systems.
-
-## Quick Start
-
-From inside your project, paste this prompt into Claude Code, Cursor, or any AI coding assistant:
-
-```
-Set up intelligence-sync in this repository from https://github.com/ainova-systems/intelligence-sync:
-clone it into a temp directory, copy its `intelligence/` folder into my project root, then read
-`intelligence/sync/INIT.md` and follow it to bootstrap rules, agents, and skills. Finish by running
-`bash intelligence/sync/scripts/sync.sh`.
-```
-
-The assistant clones the engine, copies it in, interviews you about your stack, generates
-`intelligence/rules`, `intelligence/agents`, and `intelligence/skills`, and runs the first sync —
-you never run a `git clone` or `cp` yourself.
-
-### Upgrading
-
-Tell your AI coding agent:
-
-> **Update intelligence-sync**
-
-The `intelligence-update` skill fetches the latest engine, drives any layout migration, resolves issues, and verifies the result. Your project-authored content — `rules/`, `agents/`, project `skills/`, and everything you wrote in `config.yaml` — is left intact; the only managed `config.yaml` edits are the engine's own keys: the `sync_version` schema stamp and the additive `sources.skills` module entry a migration adds. Idempotent and safe to repeat.
-
-Directly, if you prefer: `bash intelligence/sync/scripts/update.sh`.
-
-**Pre-0.3.1 projects** (engine flat under `intelligence/`): there is no manual procedure and no deadline. The old frozen `update.sh` fails closed (changes nothing, no data loss, however long it sits). Run the agent instruction above once — it migrates the engine into `intelligence/sync/` (meta-skills moved, never duplicated; one additive `config.yaml` line). Everything is automatic thereafter.
-
-The script clones upstream into a temp dir (cross-platform `mktemp`), shows a diff, and prompts before applying. Pass `--yes` to skip the prompt, or `REPO_URL=<your-fork>` to use a fork.
 
 ## How It Works
 
@@ -125,6 +125,7 @@ intelligence-sync/
 │   ├── rules/                   # Your rules go here          ← project content
 │   ├── agents/                  # Your agents go here         ← project content
 │   ├── skills/                  # Your skills go here         ← project content
+│   ├── adapters/                # Optional: your own adapters ← project content (survive updates)
 │   └── sync/                    # intelligence-sync MODULE (upstream-owned, self-update)
 │       ├── INIT.md              # Bootstrap prompt for AI assistants
 │       ├── docs/                # Vendored conventions + adapter guide

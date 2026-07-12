@@ -6,11 +6,11 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Generated (from intelligence/scripts/sync.sh — only relevant if testing locally)
+# Generated (from intelligence/sync/scripts/sync.sh — only relevant if testing locally)
 .claude/
 .cursor/
 .agents/
 .codex/
 
-# Temp dirs from intelligence/scripts/update.sh (mktemp fallback)
+# Temp dirs from intelligence/sync/scripts/update.sh (mktemp fallback)
 .tmp/
