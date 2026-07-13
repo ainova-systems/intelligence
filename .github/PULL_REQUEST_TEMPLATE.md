@@ -16,7 +16,7 @@
 - [ ] `lint_frontmatter` produces no new warnings
 - [ ] Adapter changes tested with an actual IDE (note which one and what behavior was confirmed)
 - [ ] Documentation updated (`README.md`, `docs/CONVENTIONS.md`, `docs/ADAPTERS.md`, `intelligence/INIT.md` as relevant)
-- [ ] `CHANGELOG.md` updated under `## [Unreleased]`
+- [ ] `CHANGELOG.md` has a new `## [X.Y.Z] — <date>` section (there is no `[Unreleased]` — every change ships as a release), and the version is bumped in lockstep: `scripts/VERSION`, the `sync_version` example in `INIT.md`, and every `examples/*/config.yaml`
 
 ## Notes for reviewers
 

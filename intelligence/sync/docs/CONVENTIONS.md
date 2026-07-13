@@ -235,7 +235,9 @@ Two cases:
 | Case | Format | Length target |
 |---|---|---|
 | **Unique skill** (no siblings doing similar action) | Plain verb-noun phrase | 4-8 words |
-| **Skill with siblings** (multiple similar skills in registry) | verb-noun + distinct trigger phrase | 10-20 words, 250 char hard cap |
+| **Skill with siblings** (multiple similar skills in registry) | verb-noun + distinct trigger phrase | 10-20 words, ~250 chars |
+
+Two different numbers, do not confuse them: **~250 chars is the house budget** (what keeps the shared registry affordable), while **1024 chars is a wall** — Claude Code and the Agent Skills standard reject a longer `description` outright and the artifact disappears from the picker. Sync warns at the wall (`lint_frontmatter`); staying near the budget is the author's job.
 
 Examples:
 
@@ -249,28 +251,30 @@ description: "Run weekly check-up: retrospective + strategic analysis + next wee
 
 When the registry grows past comfortable budget, prefer **curation** (merge duplicates, archive orphans via `intelligence-review-skills`) over truncating descriptions individually.
 
-### Size discipline
+### Size discipline — the backstop, not the goal
 
-Reference sizes for skill / rule / agent bodies:
+The goal is **subtraction** (see the `intelligence-authoring` rule the engine ships): every line is loaded into someone's context out of a shared, finite budget, so the default answer to "should this be a rule?" is no. These caps are only the line past which something is definitely wrong.
 
-| Type | Target | Hard cap | Over-budget action |
-|---|---|---|---|
-| SKILL.md body | <500 lines | 1000 lines | Refactor via `references/<topic>.md` and point to it from SKILL.md |
-| Reference file (`references/*.md`) | <300 lines | 500 lines | Add table of contents past 300 lines |
-| Rule | 80-300 lines | 500 lines | Split by sub-scope, or move pattern detail to `references/` |
-| Agent | 40-150 lines | 200 lines | Refactor — agents stay thin; heavy content lives in skills/rules |
+| Type | Hard cap | Over the cap |
+|---|---|---|
+| SKILL.md body | 1000 lines | Move detail into `references/<topic>.md` and point at it |
+| Reference file (`references/*.md`) | 500 lines | Add a table of contents past 300 lines |
+| Rule | 500 lines | Split by sub-scope, or move pattern detail to `references/` |
+| Agent | 200 lines | Refactor — agents stay thin; heavy content lives in skills and rules |
 
-When approaching limits, add a layer of hierarchy: move detail into `references/<topic>.md`, then point to it from SKILL.md with `Read references/<topic>.md when [condition].`
+**Ceilings, not quotas.** An artifact that says everything it needs to is finished, not underweight. Over the cap means it is doing two jobs, or the detail belongs behind a pointer: `Read references/<topic>.md when [condition].`
 
-Resource organization:
+Resource organization — **content lives inside the skill that uses it, by default**:
 
 ```
 skill-name/
-├── SKILL.md (required, <500 lines)
-├── references/    — Detailed docs loaded as needed
-├── scripts/       — Executable code for deterministic / repetitive tasks
+├── SKILL.md (required)
+├── references/    — Detailed docs, loaded on demand
+├── scripts/       — Executable helpers for deterministic / repetitive steps
 └── assets/        — Files used in output (templates, fonts, icons)
 ```
+
+Sync copies the whole directory, so a bundled helper travels with its skill into every tool. **Promote a helper out of the skill folder only when a second skill needs it** — then it lives beside the source groups (e.g. `<umbrella>/scripts/`) and every skill resolves it the same way. The dividing line is reuse, not repetition: a helper one skill runs a hundred times still belongs to that skill.
 
 ### Writing principles
 

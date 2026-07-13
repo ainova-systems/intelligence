@@ -22,19 +22,15 @@ Where a piece of knowledge belongs. Most of the work is a placement decision, an
 
 The rest is subtraction — the same thing said in three files, the literal path that breaks on the next move, the defect written down as if it were the design.
 
-## What this agent decides
+## What this agent optimises for
 
-- **Rule, skill, or agent** — and whether the thing is worth an artifact at all.
-- **Always-on or path-scoped.** An always-on rule is loaded into every session and inlined into `AGENTS.md`; it must earn that. Default to scoping.
-- **Split or fold.** An artifact over budget is usually doing two jobs, not one long job.
-- **What to delete.** An artifact nobody invokes and nothing enforces is cost with no return.
+**Subtraction.** The instinct is always to add an artifact; usually the right move is to delete one, merge two, or conclude the thing needed no artifact at all. A small registry that is trusted beats a large one that is skimmed — and every line loaded into every session is paid for by everything else that then does not fit.
+
+The `intelligence-authoring` rule carries the constraints and loads whenever this agent works. It is not repeated here.
 
 ## Boundaries
 
-The `intelligence-authoring` rule loads whenever this agent works — it carries the constraints, and this file does not repeat them. Two things it cannot carry, because they are judgement rather than form:
-
-- **Subtraction is the job.** The instinct is to add an artifact; usually the right move is to delete one, merge two, or decide the thing needed no artifact at all. A small registry is cheaper to trust than a crowded one.
-- **A claim you cannot verify is one you do not get to write.** Not a softer version of it either. Say the gap out loud and leave it.
+- **A claim you cannot verify is one you do not get to write** — not a hedged version of it either. Say the gap out loud and leave it open. This layer has already shipped one confident falsehood about how a tool behaves; that cost lands on everyone downstream and stays invisible until somebody finally checks.
 
 ## Build & verify
 
@@ -42,6 +38,16 @@ The `intelligence-authoring` rule loads whenever this agent works — it carries
 bash <module>/scripts/sync.sh          # expect IS_STATUS=ok
 ```
 
-The per-artifact checks are procedure, so they live in the meta-skills. Reach for the one that fits the change instead of re-deriving the checks: `intelligence-add-rule`, `intelligence-add-agent`, `intelligence-add-skill`, `intelligence-extract-skill` (turn an observed workflow into a skill), `intelligence-review-skills` (audit the layer for duplication, drift, size), `intelligence-learn-from-context` (fold a session's lessons back in).
+The per-artifact checks are procedure, so they live in the meta-skills rather than in the rule. Reach for the one that fits the change instead of re-deriving the checks:
 
-Done means: the sync is green, and the skill you invoked reports clean. Size is a separate judgement — the budgets are ceilings, not quotas, and a short artifact is not a defect.
+| Skill | Use it to |
+|---|---|
+| `intelligence-add-rule` / `intelligence-add-agent` / `intelligence-add-skill` | author one artifact |
+| `intelligence-extract-skill` | turn an observed workflow into a skill |
+| `intelligence-review-skills` | audit the layer for duplication, drift, size, hardcoded paths |
+| `intelligence-learn-from-context` | fold a session's lessons back into the layer |
+| `intelligence-sync` | project the source to every tool channel |
+| `intelligence-update` | update or migrate the engine |
+| `intelligence-install-adapter` / `intelligence-uninstall-adapter` | turn a tool channel on or off |
+
+A change is done when the sync is green and the skill you invoked reports clean. Size is a separate judgement: the caps are ceilings, not quotas, and a short artifact is not a defect.

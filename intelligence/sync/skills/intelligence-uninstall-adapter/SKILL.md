@@ -32,4 +32,10 @@ The umbrella is whatever directory holds `config.yaml` (`intelligence/`, `Intell
 
 4. Run `/intelligence-sync` to regenerate the remaining targets.
 
-5. Report: adapter disabled, which paths were removed, which were deliberately kept.
+5. **Verify** — an uninstall that removed the wrong thing must not pass quietly:
+   - sync reports `IS_STATUS=ok`;
+   - every path listed under *Remove* for this target is gone;
+   - every path listed under *Keep* still exists, with its content intact (`.github/workflows/`, `.claude/settings.json`, `.opencode/opencode.json`, hand-authored commands);
+   - the other enabled targets still produce their output.
+
+6. Report: adapter disabled, which paths were removed, which were deliberately kept, and the verification result.

@@ -60,7 +60,15 @@ When editing the `intelligence-*` skills or any rule/agent, follow `docs/CONVENT
 
 ## Releasing
 
-A version bump is **not released** until a git tag *and* a matching GitHub release exist — generating the tarball/release is the final, mandatory step, not optional polish. Releases are cut **directly on `main`** (house style — see `… released the fix as 0.5.0` in history; no release branch, no PR). SemVer: **patch** = fix only, **minor** = additive/back-compatible, **major/minor with a migration** = a `migrate_to_<v>` in `lib/migrations.sh` + a `### Breaking` subsection in `CHANGELOG.md`.
+A version bump is **not released** until a git tag *and* a matching GitHub release exist — generating the tarball/release is the final, mandatory step, not optional polish. Releases are cut **directly on `main`** (house style — see `… released the fix as 0.5.0` in history; no release branch, no PR).
+
+**Version numbers: default to patch.** The minor is not a changelog counter — it is reserved for a genuinely **new capability**, something a downstream project can now *do* that it could not before (a new adapter, a new engine feature like project-owned adapters or layout tokens, a new shipped artifact). Everything else is a **patch**, however large the diff: bug fixes, rewritten rule/skill/doc content, sharper prose, extra checks inside an existing skill, refactors. A minor bump for "we improved the text" is version inflation — ask "what can a user do now that they could not yesterday?", and if the answer is nothing, it is a patch.
+
+- **patch** — fixes and content changes, no new capability.
+- **minor** — a new capability, back-compatible.
+- **breaking (minor or major)** — needs a `migrate_to_<v>` in `lib/migrations.sh` *and* a `### Breaking` subsection in `CHANGELOG.md` with verifiable post-conditions.
+
+There is no `[Unreleased]` section in `CHANGELOG.md`: every change ships as a release, so nothing ever waits in one. Write the dated `## [X.Y.Z]` section directly.
 
 The engine version lives in `intelligence/sync/scripts/VERSION` and is **lockstep** with the `sync_version` stamp: `sync.sh` fails closed (`needs-update`) when its `VERSION` is newer than a project's `sync_version`, and CI (`repo-purity` job) asserts every `examples/*/config.yaml` is stamped at exactly `VERSION`. So every release bumps, in one commit, **all** of: `scripts/VERSION`, the `sync_version:` example in `intelligence/sync/INIT.md`, and `sync_version:` in **every** `examples/*/config.yaml`. Mismatch = red CI.
 
@@ -68,8 +76,10 @@ Procedure (run from a clean `main`, working tree already holding the change):
 
 ```bash
 # 1. Lockstep version bump (VERSION + INIT.md example + all examples/*/config.yaml)
-#    and a CHANGELOG.md [X.Y.Z] — <date> section (move items out of [Unreleased];
-#    breaking releases add a ### Breaking subsection with verifiable post-conditions).
+#    and a NEW CHANGELOG.md [X.Y.Z] — <date> section written directly — there is no
+#    [Unreleased] section: every change ships as a release, so nothing ever waits in
+#    one. (Breaking releases add a ### Breaking subsection with verifiable
+#    post-conditions.)
 # 2. Verify lockstep locally (mirrors CI repo-purity):
 V=$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)
 for cf in examples/*/config.yaml; do

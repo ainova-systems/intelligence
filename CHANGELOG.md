@@ -2,7 +2,7 @@
 
 All notable changes to intelligence-sync are recorded here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) — with one deliberate departure: **there is no `[Unreleased]` section.** Every change ships as a release. A version bump lands in one commit with `scripts/VERSION`, the `sync_version` stamp in `INIT.md`, and every `examples/*/config.yaml` (CI fails otherwise), and the tag and GitHub release follow immediately — so "merged but not released" is a state this project does not have. Write the new `## [X.Y.Z] — <date>` section directly.
 
 **Upgrading** — paste this to your AI agent:
 
@@ -10,7 +10,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
-## [Unreleased]
+## [0.7.2] — 2026-07-14
+
+0.7.0 shipped the engine's authoring discipline but left out its thesis. This release puts it back: **subtraction is the job** — every line is loaded into someone's context out of a shared, finite budget, so the default answer to "should this be a rule?" is no. The audit skill is rebuilt around the same idea, and stops assuming a layout it has no right to assume.
+
+### Changed
+
+- **`intelligence-authoring` now leads with subtraction.** A registry is not free: an always-on rule is loaded into *every* session forever, a line you add is a line something else loses, and the loss is invisible. The rule now opens with that, ranks the three ways to shorten — **make the rule unnecessary** (a gate the model cannot skip beats a rule listing which command to run for which change: a list is a menu, and a menu gets ordered from), delete what the code already says, cut the words but keep the reason — and states plainly that a new artifact is the most expensive answer available and the one that feels cheapest to write. Also added: *explain the why, but only a why you can back* (an invented reason is worse than none — it sounds like evidence); the invariant against unverified claims about tooling now **cites the documentation it is derived from**, so it obeys itself; size is reframed as a **backstop, not a goal** (hard caps only — a "comfortable" target is a number to pad toward).
+- **Where a helper lives is decided by reuse, not repetition.** Content stays **inside the skill's own folder by default** (`references/`, `scripts/`, `assets/` — sync copies the whole bundle, so a helper travels with its skill to every tool). It is promoted beside the source groups only when a *second* skill needs it; a helper one skill runs a hundred times still belongs to that skill.
+- **`intelligence-architect` is thinner.** The "what this agent decides" list duplicated the rule, so it is gone; the agent now states what it optimises for (subtraction) and carries one boundary — *a claim you cannot verify is one you do not get to write* — plus its verification. An agent that repeats its own rule is the defect the rule warns about.
+
+### Fixed
+
+- **`intelligence-review-skills` audited a layout it had guessed.** It enumerated `intelligence/rules/`, `intelligence/agents/`, `intelligence/skills/` as literal paths and loaded `docs/CONVENTIONS.md` from a literal path — so in any project that renamed the umbrella, split its sources into several groups (a shared pack plus a project group), nested them, or pulled a `git+` remote pack, the audit read directories that do not exist. It now resolves the layout by role and **enumerates from `config.yaml` `sources`**, whatever they are.
+- **The audit would have proposed edits to engine-owned artifacts.** Since 0.7.0 the module's `rules/` and `agents/` are listed in `sources`, so a sweep over the sources now includes `intelligence-authoring` and `intelligence-architect` — and `update.sh` replaces those wholesale, so any local "fix" is deleted at the next update. The skill now skips everything under `<module>/` and reports a genuine gap there as a **proposal to upstream** instead of patching it locally.
+
+### Added
+
+- **Generic checks in `intelligence-review-skills`**, each with a portable detection command (no `\b`, no `-P` — the same command works in Git Bash on Windows, on macOS with BSD grep, and on Linux): a markdown **link from one rule to another** (dead in at least one channel, since always-on rules are inlined into `AGENTS.md` while the scoped channels carry only scoped rules); **machine facts in a rule** (a shell, a home directory, a drive letter — those belong in a personal, gitignored `CLAUDE.md`, because a rule is read by everyone including whoever is on another platform); a **literal path baked into a skill** (a skill is *executed*, so it breaks when the layout moves — with the skill's own bundle explicitly exempt); a **skill with no verification** at the end; the **reserved `intelligence-` prefix** on a project artifact (the updater prunes what matches it); **misplaced content** (a checklist in an agent, a workflow in a rule) as a `MOVE`, not a rewrite; and an **unbacked reason**, which is surfaced to its owner and never rewritten. The skill now asks subtraction first: before proposing a split or a patch, ask whether the artifact should exist at all.
+- `intelligence-review-skills` declares `agent: intelligence-architect` — the engine ships the persona that runs its own audit.
+- **Two `description` numbers, no longer conflated:** ~250 characters is the house budget that keeps the shared registry affordable; **1024 is a wall** — the tools reject a longer description outright and the artifact vanishes from the picker (sync warns at the wall since 0.7.1).
 
 ## [0.7.1] — 2026-07-12
 
