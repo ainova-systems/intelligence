@@ -38,7 +38,7 @@ argument-hint: <domain> [description]
    ```yaml
    ---
    name: <domain>-<role>
-   description: "<when to use this agent — IDEs use this to suggest the agent>"
+   description: "<when to use this agent - IDEs use this to suggest the agent>"
    tier: heavy|standard|light
    access: full|readonly
    skills:

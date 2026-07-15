@@ -8,7 +8,7 @@
 project:
   name: my-app
 
-sync_version: "0.7.3"
+sync_version: "0.7.4"
 
 sources:
   rules:

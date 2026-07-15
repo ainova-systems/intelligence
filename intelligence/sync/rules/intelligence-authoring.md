@@ -1,6 +1,6 @@
 ---
 name: intelligence-authoring
-description: "Authoring discipline for the intelligence layer — subtraction first, rule vs skill vs agent, scoping, size"
+description: "Authoring discipline for the intelligence layer - subtraction first, rule vs skill vs agent, scoping, size"
 paths:
   - "<umbrella>/**"
 ---

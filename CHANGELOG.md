@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.7.4] — 2026-07-15
+
+### Fixed
+
+- **Engine-shipped `description` fields no longer carry an em dash.** The `intelligence-architect` agent and the `intelligence-authoring` rule described themselves with an em dash, and the `intelligence-add-agent` frontmatter template modelled one - so every consumer that inlines a description into a registry (`AGENTS.md`, the agent and skill pickers) inherited it, which is wrong for a project whose house voice forbids the character. A `description` is compact metadata reproduced verbatim across every tool, so these are plain hyphens now; the em-dash voice in prose bodies is unchanged. No schema change - the stamp advances to 0.7.4 on update.
+
 ## [0.7.3] — 2026-07-15
 
 ### Fixed

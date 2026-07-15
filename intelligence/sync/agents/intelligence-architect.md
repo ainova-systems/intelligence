@@ -1,6 +1,6 @@
 ---
 name: intelligence-architect
-description: "Design and prune the intelligence layer — rule vs skill vs agent, split what grew, remove duplication and hardcoded paths"
+description: "Design and prune the intelligence layer - rule vs skill vs agent, split what grew, remove duplication and hardcoded paths"
 tier: heavy
 access: full
 skills:
