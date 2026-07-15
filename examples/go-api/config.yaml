@@ -4,7 +4,7 @@
 project:
   name: my-api
 
-sync_version: "0.7.2"
+sync_version: "0.7.3"
 
 sources:
   rules:

@@ -266,8 +266,16 @@ migrate_to_0_3_1() {
 
     # Precondition: any legacy upstream-owned artifact directly under the
     # umbrella. None ⇒ already modular or fresh ⇒ idempotent no-op.
+    #
+    # The flat engine is identified by its entry script `scripts/sync.sh`, never
+    # by the bare `scripts/` directory: a project may legitimately own
+    # <umbrella>/scripts/ for its own tooling, and mistaking it for the engine
+    # would relocate then delete the project's code (the postcondition below
+    # already treats scripts/sync.sh as the engine sentinel).
     local has_legacy=0
-    [ -d "$umbrella/scripts" ] && has_legacy=1
+    local legacy_engine=0
+    [ -f "$umbrella/scripts/sync.sh" ] && legacy_engine=1
+    [ "$legacy_engine" -eq 1 ] && has_legacy=1
     [ -e "$umbrella/INIT.md" ] && has_legacy=1
     [ -d "$umbrella/docs" ] && has_legacy=1
     for s in "$umbrella"/skills/intelligence-*; do
@@ -340,12 +348,16 @@ migrate_to_0_3_1() {
     # On Linux deleting an open script is fine; some Windows shells refuse
     # it. Try, and if it lingers print a one-line manual cleanup instead of
     # failing — the new location, config, and stamp are already correct, and
-    # the next sync/update run removes the dead dir.
-    rm -rf "$umbrella/scripts" 2>/dev/null || true
-    if [ -d "$umbrella/scripts" ]; then
-        echo "  NOTE: legacy '$umbrella/scripts' still present (likely in use)." >&2
-        echo "        Remove it manually once this process exits:" >&2
-        echo "          rm -rf \"$umbrella/scripts\"" >&2
+    # the next sync/update run removes the dead dir. Guarded by the engine
+    # sentinel so a project-owned <umbrella>/scripts/ (no sync.sh) is never
+    # removed, even if another legacy signal set has_legacy.
+    if [ "$legacy_engine" -eq 1 ]; then
+        rm -rf "$umbrella/scripts" 2>/dev/null || true
+        if [ -d "$umbrella/scripts" ]; then
+            echo "  NOTE: legacy '$umbrella/scripts' still present (likely in use)." >&2
+            echo "        Remove it manually once this process exits:" >&2
+            echo "          rm -rf \"$umbrella/scripts\"" >&2
+        fi
     fi
 
     # config.yaml: name-agnostic relative path under the actual umbrella base.

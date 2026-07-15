@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.7.3] — 2026-07-15
+
+### Fixed
+
+- **`migrate_to_0_3_1` no longer deletes a project's own `<umbrella>/scripts/`.** The 0.3.1 migration detected the pre-0.3.1 flat engine by the bare presence of `<umbrella>/scripts/` and then `rm -rf`'d it — but a modular project may legitimately keep its own tooling there (build/design scripts, tests, fixtures), and the migration relocated the real engine into `sync/` while deleting the project's code as "legacy". Because `run_migrations` walks the whole chain on every `update.sh`, this fired on each update, not once. The flat engine is now identified by its entry script `scripts/sync.sh` — the same sentinel the migration's own postcondition already verifies — so a `<umbrella>/scripts/` without it is left untouched, and the destructive cleanup is guarded by the same sentinel. A genuine pre-0.3.1 layout (which always ships `scripts/sync.sh`) still migrates exactly as before; a modular project that owns `<umbrella>/scripts/` is now a correct no-op. No schema change — the stamp advances to 0.7.3 on update; re-run sync afterwards.
+
 ## [0.7.2] — 2026-07-14
 
 0.7.0 shipped the engine's authoring discipline but left out its thesis. This release puts it back: **subtraction is the job** — every line is loaded into someone's context out of a shared, finite budget, so the default answer to "should this be a rule?" is no. The audit skill is rebuilt around the same idea, and stops assuming a layout it has no right to assume.
