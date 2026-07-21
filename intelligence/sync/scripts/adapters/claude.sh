@@ -77,7 +77,7 @@ sync_claude_agent() {
         }
         /^---$/ { count++ }
         count==2 && /^---$/ {
-            print "tools: " tools
+            if (tools != "") print "tools: " tools
             if (extra != "") print "disallowedTools: " extra
             print "model: " model
         }

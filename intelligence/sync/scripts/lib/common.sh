@@ -690,7 +690,17 @@ map_access_to_claude_tools() {
     local access="$1"
     case "$access" in
         readonly) echo "Read, Grep, Glob, Bash" ;;
-        *)        echo "Read, Write, Edit, Glob, Grep, Bash, Agent" ;;
+        # full: emit NO tools list at all. Confirmed empirically in Copilot (VSCode,
+        # reading .claude/agents): a closed tools list restricts the agent to exactly
+        # those tools and loses MCP; omitting the field lets it inherit every session
+        # tool, MCP servers included. tools: ["*"] did NOT enable MCP - omission does.
+        # (Claude Code behaves the same: no tools field = inherit all incl MCP.)
+        # NOTE: omission also inherits Pylance + all built-ins, which can push the
+        # request over Copilot's 128-tool cap and trigger virtual-tools grouping that
+        # intermittently hides MCP. The durable fix is an explicit allowlist that
+        # NAMES the MCP servers (umbraco-mcp/*, figma/*) and stays under 128; that
+        # needs the project's MCP server list, so it is tracked, not encoded here yet.
+        *)        echo "" ;;
     esac
 }
 

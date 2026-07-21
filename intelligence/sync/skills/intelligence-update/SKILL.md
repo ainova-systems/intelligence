@@ -2,6 +2,7 @@
 name: intelligence-update
 description: "Update or migrate intelligence-sync: discover engine, read changelog, run migration chain, verify"
 argument-hint: "[--yes]"
+agent: intelligence-operator
 ---
 
 # Update intelligence-sync

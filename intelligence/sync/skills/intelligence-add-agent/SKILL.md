@@ -27,6 +27,8 @@ argument-hint: <domain> [description]
    - Developer agents: `tier: heavy`, `access: full`
    - Reviewer/validator agents: `tier: standard`, `access: readonly`
    - Simple lookup agents: `tier: light`, `access: readonly`
+   - Caveat: `readonly`'s closed tools list also removes MCP and tool-search access. A reviewer
+     that needs MCP reads takes `access: full` with a read-only boundary stated in its body.
 
 4. **Analyze codebase**: Read source files in the domain's directory to determine:
    - Technology stack and frameworks

@@ -2,6 +2,7 @@
 name: intelligence-install-adapter
 description: "Enable IDE adapter for intelligence-sync"
 argument-hint: <target-name>
+agent: intelligence-operator
 ---
 
 # Install Adapter

@@ -41,6 +41,7 @@ intelligence/                         # Umbrella — name NOT hardcoded (whateve
     ├── INIT.md  docs/  scripts/(+VERSION)
     ├── rules/intelligence-authoring.md    # authoring discipline for this layer
     ├── agents/intelligence-architect.md   # designs and prunes this layer
+    ├── agents/intelligence-operator.md    # runs sync, update, adapter flows
     └── skills/intelligence-*              # meta-skills
 ```
 
@@ -127,7 +128,7 @@ The vocabulary is tool-agnostic on purpose: the source says `tier: heavy`, and e
 
 | Access | Claude | Cursor | Description |
 |--------|--------|--------|-------------|
-| full | tools: Read,Write,Edit,Glob,Grep,Bash,Agent | (default) | Full edit access |
+| full | (no `tools:` field - inherits every session tool, MCP servers included) | (default) | Full edit access |
 | readonly | tools: Read,Grep,Glob,Bash + disallowedTools: Write,Edit | readonly: true | Analysis only |
 
 ## Rule Frontmatter
@@ -173,7 +174,7 @@ argument-hint: <arg1> [arg2]         # Optional: usage hint
 2. Second step...
 ```
 
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and IDE-specific extensions (Claude's `disable-model-invocation`, `model`, `effort`, `context: fork`, `hooks`, `paths`, `shell`) pass through unchanged — adapters do not strip them. Each tool ignores fields it does not understand.
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and IDE-specific extensions (Claude's `disable-model-invocation`, `model`, `effort`, `agent`, `context: fork`, `hooks`, `paths`, `shell`) pass through unchanged — adapters do not strip them. The engine's own flow skills declare `agent:` (`intelligence-review-skills` → `intelligence-architect`, the four sync/update/adapter flows → `intelligence-operator`); the binding takes effect where a tool honors it, and a skill invoked directly runs on the session model unless it also sets `context: fork`, as `intelligence-sync` does — the flows that can need the user mid-run (update, adapter install/removal) deliberately do not. Each tool ignores fields it does not understand.
 
 **Limits that reject the skill outright** (it does not degrade — it disappears from the picker):
 

@@ -10,6 +10,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.8.0] — 2026-07-21
+
+The engine now ships two personas: `intelligence-architect` owns what the layer contains, and the new `intelligence-operator` runs the machinery that ships it.
+
+### Added
+
+- **`intelligence-operator` — a standard-tier agent for the engine's mechanical flows.** Sync, update and adapter install/removal are deterministic, fail-closed procedures: `sync.sh` refuses across an un-applied schema, `update.sh` stages and verifies a sentinel before it commits, and every skill branches on the `IS_STATUS` contract — so their failure mode is a loud refusal and a retry, not a plausible wrong answer, and they do not need the heavy model the judgement work runs on. The four flow skills (`intelligence-sync`, `intelligence-update`, `intelligence-install-adapter`, `intelligence-uninstall-adapter`) now declare `agent: intelligence-operator`, following the `agent: intelligence-architect` precedent `intelligence-review-skills` set in 0.7.2. `intelligence-sync` — the one flow with no human step mid-run — additionally sets `context: fork`, so a direct `/intelligence-sync` executes in the operator's own context where the tool supports forking (verified in Claude Code; tools without forking fall back to the `agent:` binding or the session model). The update and adapter flows stay binding-only on purpose: each can need the user mid-flow (an `ambiguous` update state, adapter research, the `AGENTS.md` removal confirmation), and a forked skill reaches the human only by relaying its final message. No schema change — the agent reaches the IDEs through the `sources` entries 0.7.0 added; the stamp advances to 0.8.0 on update.
+
+### Changed
+
+- **Full-access agents no longer emit a `tools:` list in `.claude/agents/`.** A closed list restricts the agent to exactly the named tools and silently drops every MCP server — confirmed empirically in Copilot (VS Code) reading `.claude/agents/`: `tools: ["*"]` did not enable MCP, omitting the field did, letting the agent inherit every session tool, MCP servers included (Claude Code behaves the same). `readonly` agents keep their explicit allowlist and `disallowedTools`. The trade-off: omission also inherits every built-in, which can push a Copilot request over its 128-tool cap and trigger virtual-tools grouping that intermittently hides MCP — the durable fix is an explicit allowlist naming the project's MCP servers, which needs per-project input and is tracked rather than encoded. The Access Mappings table in `docs/CONVENTIONS.md` reflects the new output.
+
 ## [0.7.4] — 2026-07-15
 
 ### Fixed

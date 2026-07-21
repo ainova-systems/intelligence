@@ -232,7 +232,7 @@ project:
 
 # Managed by intelligence-sync — applied schema version. Do not hand-edit;
 # preserve on re-bootstrap. (Value = intelligence/sync/scripts/VERSION.)
-sync_version: "0.7.4"
+sync_version: "0.8.0"
 
 sources:
   rules:
@@ -240,7 +240,7 @@ sources:
     - "intelligence/sync/rules"     # engine-owned: intelligence-authoring
   agents:
     - "intelligence/agents"
-    - "intelligence/sync/agents"    # engine-owned: intelligence-architect
+    - "intelligence/sync/agents"    # engine-owned: intelligence-architect, intelligence-operator
   skills:
     - "intelligence/skills"
     - "intelligence/sync/skills"    # engine-owned: intelligence-* meta-skills
@@ -339,7 +339,7 @@ Pre-installed by the engine — never recreate these, and never use the reserved
 - `/intelligence-add-rule`, `/intelligence-add-agent`, `/intelligence-add-skill` — author an artifact with the conventions applied
 - `/intelligence-extract-skill`, `/intelligence-learn-from-context`, `/intelligence-review-skills` — turn observed work into artifacts, and audit the layer
 
-The engine also ships the `intelligence-authoring` rule (authoring discipline, scoped to `<intel>/`) and the `intelligence-architect` agent (designs and prunes this layer). They are upstream-owned and arrive via `sources` — do not copy or rewrite them into project content.
+The engine also ships the `intelligence-authoring` rule (authoring discipline, scoped to `<intel>/`) and two agents: `intelligence-architect` (designs and prunes this layer) and `intelligence-operator` (runs the sync, update, and adapter-install/removal flows). They are upstream-owned and arrive via `sources` — do not copy or rewrite them into project content.
 
 **Derive skills from this repository. Do not pick them from a catalogue.** A list of plausible skill names ("add-entity", "add-endpoint", "run-tests") is a trap: every one of them sounds right for every project, so working from such a list produces a registry that describes software in general rather than *this* codebase — and every entry costs context budget forever, whether or not anyone invokes it.
 
