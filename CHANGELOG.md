@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.8.1] — 2026-07-26
+
+### Changed
+
+- **`add-` and `create-` are told apart by what already exists, not by how a skill is built inside.** The old contract defined them by implementation facts — `add-` "creates exactly one artifact", `create-` "orchestrates several `add-` skills" — and both mispredict a real registry. A downstream project's `cms-add-block` writes a doc type, an element type, several uSync configs and a Razor partial, and is still plainly the right name; its `asana-create-work` orchestrates no `add-` skill at all, because none exists, and carried a written exemption note explaining the name "despite the naming contract". A definition whose only instance needs an apology is measuring the wrong thing. A call-graph definition also makes a name depend on today's factoring: splitting a skill's internals into three `add-` calls would have demanded a rename, though nothing changed for the caller. The verbs now split on the host — **`add-` puts one new member into a set that is already there** (a field on an existing type, a record among records, a component in the inventory the project keeps), and **`create-` brings the container itself into existence**, where nothing hosted it before — and neither says anything about the inside of a skill. The `Atomic` / `Orchestrator` / `Meta-orchestrator` tier vocabulary goes with it: how much a skill body carries turns on whether that skill dispatches to others, which was always the real question and never a function of its verb. Applied in `intelligence-authoring`, both copies of `docs/CONVENTIONS.md`, `INIT.md`, and the `intelligence-add-skill`, `intelligence-extract-skill` and `intelligence-learn-from-context` skills. No schema change — the stamp advances to 0.8.1 on update.
+
 ## [0.8.0] — 2026-07-21
 
 The engine now ships two personas: `intelligence-architect` owns what the layer contains, and the new `intelligence-operator` runs the machinery that ships it.

@@ -66,4 +66,4 @@ Present the proposal list to the user. User accepts or rejects per item. Only ac
 
 - `intelligence-extract-skill` — when the lesson is a multi-step workflow to be made reusable
 - `intelligence-review-skills` — broader audit across existing intelligence/ artifacts
-- `intelligence-add-rule`, `intelligence-add-skill`, `intelligence-add-agent` — atomic creators that Phase B delegates to
+- `intelligence-add-rule`, `intelligence-add-skill`, `intelligence-add-agent` — each authors one artifact; Phase B delegates to them

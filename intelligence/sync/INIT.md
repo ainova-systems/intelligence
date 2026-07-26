@@ -232,7 +232,7 @@ project:
 
 # Managed by intelligence-sync — applied schema version. Do not hand-edit;
 # preserve on re-bootstrap. (Value = intelligence/sync/scripts/VERSION.)
-sync_version: "0.8.0"
+sync_version: "0.8.1"
 
 sources:
   rules:
@@ -354,7 +354,7 @@ A candidate skill has to clear all four bars:
 
 **Start small: 0–3 skills at bootstrap.** Zero is a legitimate answer for a young or simple repository — say so plainly rather than padding. Skills can be added at any time with `/intelligence-add-skill`, and one added later, from a pattern the team actually hit twice, is worth more than five guessed today.
 
-Naming (details in `<intel>/sync/docs/CONVENTIONS.md`): `<domain>-<verb>-<noun>`, domain prefix taken from the set already in use. Two verbs carry a contract worth keeping — **`add-` creates exactly one artifact**, and **`create-` orchestrates several `add-` skills** while duplicating none of their content. Other verbs (`run-`, `review-`, `update-`, `extract-`) read fine; prefer a verb already in use over a new synonym for the same thing. `intelligence-` is reserved for the engine's meta-skills.
+Naming (details in `<intel>/sync/docs/CONVENTIONS.md`): `<domain>-<verb>-<noun>`, domain prefix taken from the set already in use. Two verbs are told apart by what already exists — **`add-` puts one new member into a set that is already there**, and **`create-` brings into existence the container nothing hosted before**; neither describes how the skill is factored inside. Other verbs (`run-`, `review-`, `update-`, `extract-`) read fine; prefer a verb already in use over a new synonym for the same thing. `intelligence-` is reserved for the engine's meta-skills.
 
 Present the shortlist with its evidence and let the user choose. Then create only what they pick.
 
@@ -480,7 +480,7 @@ agent: agent-name                # optional: which agent executes this skill
 
 **Agent body:** Expertise -> Boundaries (where it stops) -> Build & Verify. An agent is thin — rules reach it automatically, so it never lists rules to read.
 
-**Skill body:** Steps (numbered, concrete, with verification at the end). Orchestrator skills (`<domain>-create-`) reference atomic skills (`<domain>-add-`) by name.
+**Skill body:** Steps (numbered, concrete, with verification at the end). A skill that dispatches to other skills names them and never restates their content.
 
 ### Skill naming
 
@@ -488,8 +488,8 @@ Prefix with domain: `backend-`, `frontend-`, `devops-`, `intelligence-`, etc.
 
 | Prefix | Type |
 |--------|------|
-| `<domain>-add-` | Creates a single artifact |
-| `<domain>-create-` | Orchestrates multiple `add-` skills |
+| `<domain>-add-` | Adds one member to a set that already exists |
+| `<domain>-create-` | Brings into existence a container nothing hosted before |
 | `<domain>-run-` | Runs an operation |
 | `<domain>-review-` | Analyzes without changes |
 

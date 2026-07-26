@@ -82,7 +82,7 @@ A skill is a repeatable procedure someone invokes, and **it ends in a verificati
 
 The verb just names the action — `add-`, `run-`, `review-`, `extract-`, `plan-`, `validate-` all read fine. Prefer a verb already in use over a new synonym for the same thing. A stage that turns one thing into another reads naturally as `<domain>-to-<target>`.
 
-Two verbs carry a contract worth keeping: **`add-` creates exactly one artifact**, and **`create-` orchestrates several `add-` skills** while duplicating none of their content.
+Two verbs are told apart by what already exists. **`add-` puts one new member into a set that is already there** — a field on an existing type, a record among records, a component in the inventory the project keeps — so the noun names the member, and the number of files it takes to land is not the point. **`create-` brings the container itself into existence**, where nothing hosted it before. Neither verb describes how a skill is factored inside, so splitting a skill's internals never renames it.
 
 `intelligence-` is **reserved** for the engine's own artifacts. A project skill carrying that prefix is pruned by the updater — rename it.
 

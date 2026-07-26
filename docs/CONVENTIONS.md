@@ -209,9 +209,9 @@ Reuse an existing domain whenever possible. Do not invent new domains without cl
 
 | Verb | Type | Description |
 |------|------|-------------|
-| `add-` | Atomic | Creates/updates a single artifact |
-| `create-` | Orchestrator | Invokes multiple `add-` skills in sequence |
-| `update-` | Meta-orchestrator | Discovers existing components, updates selectively |
+| `add-` | Append | Puts one new member into a set that already exists |
+| `create-` | Originate | Brings into existence the container nothing hosted before |
+| `update-` | Revise | Changes what is already there, selectively |
 | `run-` | Execution | Runs an operation (tests, sync, build) |
 | `review-` | Read-only | Analyzes code without changes |
 | `test-` | Testing | Manual or automated test verification |
@@ -219,11 +219,11 @@ Reuse an existing domain whenever possible. Do not invent new domains without cl
 
 Agents follow the same domain prefix rule: `<domain>-<role>` (e.g., `backend-developer`, `frontend-code-reviewer`). Rule filenames use the domain without a verb: `<domain>.md` (e.g., `backend.md`).
 
-### Skill Tiers
+### How much a skill body carries
 
-- **Atomic** (`add-`): Full implementation details, code patterns, examples
-- **Orchestrator** (`create-`): Thin wrapper — discovery logic + calls to atomic skills. NO pattern duplication
-- **Meta-orchestrator** (`update-`): Discovers existing components, invokes atomic skills for gaps
+A skill that does the work itself carries the detail: the patterns, the code, the examples. A skill that dispatches to other skills stays thin — it names them and adds only what it alone knows (the discovery, the order, the check between steps), and it never restates their content, because two copies of a procedure disagree at the first edit.
+
+Which of the two a skill is has nothing to do with its verb. An `add-` skill may dispatch, and a `create-` skill may do the work itself: the verb answers what already existed (Verb prefix, above), not how the skill is built inside.
 
 ## Authoring Discipline
 
