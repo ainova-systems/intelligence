@@ -10,6 +10,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.10.0] — 2026-07-28
+
+A remote source is now declared once as a **pack** and referenced by name, so its url and its pin live in exactly one place.
+
+### Breaking
+
+- **`external: { dir: … }` is replaced by `packs:`; `migrate_to_0_10_0` rewrites the config.** 0.9.0 put the mirror location in one global block while the identity of each pack — url and ref — stayed duplicated inside every `sources.*` entry that used it. A pack spanning rules, agents and skills therefore carried its `url@ref` three times, and nothing detected the drift when only two of them were bumped: rules pinned at one commit and skills at another is a config that looks fine and reads wrong. `packs:` inverts it. Each pack is declared once (`url`, optional `ref`, optional `mirror`) and referenced as `@<pack>[/<subpath>]`, so the pin has a single home and the mirror is a per-pack path rather than one global directory. The migration is automatic and comment-preserving: every inline `git+` spec becomes a declared pack plus an `@name` reference, `external.dir` becomes each pack's `mirror:` so vendored content keeps landing where it already is, and the `external:` block is dropped. **Post-condition: no `external:` key in `config.yaml`, and a `packs:` block declaring every remote previously reached inline.** Idempotent — a config with no `external:` key and no `git+` token is left untouched.
+
+### Added
+
+- **`packs:` — declared remote sources, referenced by name.** `packs.<name>.{url,ref,mirror}` sits at three levels, exactly like `targets:`, so it is read by the existing `get_nested_yaml_value` and adds no parser. `mirror:` is both the location and the switch: present, the pack is materialized there and committed; absent, it stays transient in the run cache, which is 0.9.0's default behaviour and needs no flag to express. Because the mirror is *declared*, the whole derive-a-name machinery 0.9.0 needed is gone — no basename extraction, no charset sanitizing, no `pack-<key>` fallback, no collision suffix — and a pack name is now purely a reference handle that never becomes a path component. **An undeclared `@pack` reference fails the run** (exit 1, naming the pack and listing the declared ones), deliberately unlike a missing local path, which only warns: the config claims to know that name, so a typo must not silently drop a whole rule set. That check runs up front, in `validate_pack_refs`, because `resolve_source_dir` is always called inside `$( )` — an error raised there would exit the substitution subshell, not the sync. Inline `git+<url>[@<ref>][#<subpath>]` specs keep working as *anonymous* packs: no name, no mirror, always transient. CI job `packs` covers declaration, mirroring, idempotency, the refresh diff, the never-clear guard, the unsafe-mirror refusal, the undeclared-pack failure and the transient path, against a `file://` pack repo.
+
+### Fixed
+
+- **`get_nested_yaml_value` cut values at the last colon, not the first.** The value strip was a greedy `.*:[[:space:]]*`, which on `url: https://host/repo.git` matched through `https:` and yielded `//host/repo.git`. It is now anchored with `[^:]*:`, and an unquoted value additionally drops a trailing ` # comment` per YAML while a `#` inside quotes stays content. This was latent in 0.9.0 — nothing read a URL through this helper — but it also silently truncated any `models.<ide>.<tier>` value containing a colon.
+- **A pack could lose every subpath but the last when the run cache was unset.** `materialize_pack` recorded its "already cleared this run" claim only when `IS_REMOTE_CACHE` was exported, yet cleared the directory unconditionally. Since `resolve_source_dir` runs in a command substitution — a fresh subshell each call — a caller that had not exported the cache re-cleared the mirror on every entry, so a pack referenced for rules, agents and skills kept only the last. The claim now uses the same cache-root fallback the clone does.
+- **Empty-array expansion under `set -u`.** The new migration iterates with `${#arr[@]}` bounds rather than `"${!arr[@]}"`, which bash 3.2 — the macOS default, and a supported target — treats as unbound when the array is empty.
+
 ## [0.9.0] — 2026-07-28
 
 Remote packs can now be materialized into a tracked directory, so an upstream bump is reviewable instead of invisible.

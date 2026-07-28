@@ -78,7 +78,7 @@ Zero dependencies. Just bash + awk. Linux, macOS, Windows (Git Bash / WSL).
 
 ## Ready-made packs
 
-[intelligence-dev-packs](https://github.com/ainova-systems/intelligence-dev-packs) is a set of shared AI-first engineering packs - git/PR/review discipline plus an optional spec-driven development lifecycle - that you consume straight through this engine as remote `git+` sources, instead of authoring every rule and skill from scratch. Extracted from production AI-coded systems.
+[intelligence-dev-packs](https://github.com/ainova-systems/intelligence-dev-packs) is a set of shared AI-first engineering packs - git/PR/review discipline plus an optional spec-driven development lifecycle - that you consume straight through this engine as declared `packs:`, instead of authoring every rule and skill from scratch. Extracted from production AI-coded systems.
 
 ## How It Works
 
@@ -152,7 +152,7 @@ Each `intelligence/<module>/` (e.g. `sync/`, future `domain/`) is self-contained
 - [go-api-with-opencode](examples/go-api-with-opencode/) -- Go API with opencode (subagents in `.opencode/agents/`, skills via `.agents/skills/`)
 - [dotnet-api-with-react-frontend](examples/dotnet-api-with-react-frontend/) -- .NET backend + React frontend
 - [platform-with-submodules](examples/platform-with-submodules/) -- Multi-component platform with git submodules
-- [with-remote-skills](examples/with-remote-skills/) -- Pulls shared rules/skills from a remote git repo (`git+<url>` sources), materialized into a tracked `external:` dir
+- [with-remote-skills](examples/with-remote-skills/) -- Pulls shared rules/skills from a remote git repo declared under `packs:`, mirrored into a tracked directory
 
 ## Documentation
 

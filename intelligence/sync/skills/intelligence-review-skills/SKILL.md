@@ -15,7 +15,7 @@ Name reflects the umbrella usage of "skills" for all AI artifacts (rules + agent
 
 1. **Resolve the layout — never assume folder names.** The umbrella is the directory holding `config.yaml`; the engine module is the directory under it holding `scripts/sync.sh` and `scripts/VERSION` (conventionally `sync/`). Read authoring conventions from `<module>/docs/CONVENTIONS.md` and the `intelligence-authoring` rule.
 
-2. **Enumerate from `config.yaml`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups (e.g. a shared one and a project one), they may be nested, and a `git+` entry is a remote pack. Take the list from the config; a literal `intelligence/rules/` is wrong in any project that named things differently.
+2. **Enumerate from `config.yaml`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups (e.g. a shared one and a project one), they may be nested, and an `@<pack>` (or inline `git+`) entry is a remote pack declared under `packs:`. Take the list from the config; a literal `intelligence/rules/` is wrong in any project that named things differently.
 
 3. **Skip everything the engine owns.** Sources under `<module>/` (`<module>/rules`, `<module>/agents`, `<module>/skills/intelligence-*`) are upstream-owned: `update.sh` replaces them wholesale, so a local "fix" there is deleted at the next update. Never propose an edit to them. If one of them is genuinely wrong, or a generic check is missing from this skill, that is a **proposal to upstream** — say so in the report rather than patching locally.
 

@@ -61,8 +61,10 @@ Source `lib/common.sh` for these utilities:
 | `map_access_to_claude_tools(access)` | Tool string for access level |
 | `map_access_to_claude_disallowed(access)` | Disallowed tools string |
 | `read_yaml_list(config, section)` | Read list from `config.yaml` |
-| `resolve_source_dir(repo_root, src)` | Map a source entry to a local dir — `"$repo_root/$src"`, or a shallow clone for a remote `git+<url>` spec |
-| `source_is_remote(src)` | True (0) if a source entry is a remote `git+` spec |
+| `resolve_source_dir(repo_root, src)` | Map a source entry to a local dir — `"$repo_root/$src"` for a path, or a shallow clone for a pack reference (`@<name>[/<subpath>]`) or an inline `git+<url>` spec |
+| `source_is_local_path(src)` | True (0) if a source entry is a plain repo-relative path — i.e. neither of the two below. Use this, not a negated `source_is_remote`, whenever a token is about to be pattern-matched against a real directory |
+| `source_is_pack(src)` | True (0) if a source entry references a pack declared under `packs:` (`@<name>`) |
+| `source_is_remote(src)` | True (0) if a source entry is an inline remote `git+` spec |
 | `get_target_field(config, target, field)` | Read a field from a target's config block |
 
 ### Transformation Patterns
@@ -140,7 +142,10 @@ sync_to_myide() {
     while IFS= read -r src; do
         [ -z "$src" ] && continue
         # resolve_source_dir maps a source entry to a local dir: "$repo_root/$src"
-        # for a local path, or a shallow clone for a remote `git+<url>` spec.
+        # for a local path, or a shallow clone for a pack reference (`@<name>`)
+        # or an inline `git+<url>` spec. A pack's url/ref/mirror are read from
+        # config.yaml, which it takes from $IS_CONFIG_FILE (exported by sync.sh)
+        # unless you pass the config as a third argument.
         local dir
         dir="$(resolve_source_dir "$repo_root" "$src")"
         [ -d "$dir" ] || continue

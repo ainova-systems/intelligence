@@ -67,12 +67,12 @@ jobs:
           [ "$fail" -eq 0 ] && echo "OK: all examples stamped at $V"
           exit $fail
 
-  external-packs:
-    name: external packs (materialize + track)
+  packs:
+    name: packs (declare + mirror + track)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Remote pack lands in the tracked dir, and a bump is a readable diff
+      - name: A declared pack mirrors into the repo, and a bump is a readable diff
         shell: bash
         run: |
           set -euo pipefail
@@ -98,16 +98,19 @@ jobs:
           project:
             name: ext-test
           sync_version: "$V"
-          external:
-            dir: "intelligence/external"
+          packs:
+            shared-intel:
+              url: file://$PACK
+              ref: v1.0.0
+              mirror: "intelligence/external/shared-intel"
           sources:
             rules:
               - "intelligence/rules"
-              - "git+file://$PACK@v1.0.0#rules"
+              - "@shared-intel/rules"
             agents:
               - "intelligence/agents"
             skills:
-              - "git+file://$PACK@v1.0.0#skills"
+              - "@shared-intel/skills"
           targets:
             agents: { enabled: true, output: "AGENTS.md" }
             claude: { enabled: true, output: ".claude" }
@@ -145,12 +148,35 @@ jobs:
           git -C "$PACK" add -A
           git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v11
           git -C "$PACK" tag v1.1.0
-          sed -i 's/@v1.0.0/@v1.1.0/g' intelligence/config.yaml
+          # The pin lives in ONE place — the pack declaration, not each source.
+          sed -i 's/ref: v1.0.0/ref: v1.1.0/' intelligence/config.yaml
           bash intelligence/sync/scripts/sync.sh >/dev/null
           git diff --stat -- intelligence/external
           git diff -- intelligence/external | grep -q '^+Be careful AND explicit\.$'
+          git diff -- intelligence/external | grep -q '^+ref=v1.1.0$'
           test ! -e intelligence/external/shared-intel/skills/shared-do-thing
           test -f intelligence/external/shared-intel/skills/shared-ship-it/SKILL.md
+
+          # A MOVED upstream (same pack, new url) refreshes the mirror. The
+          # mirror is declared per pack, so a stamped directory stays this
+          # pack's even after its url changes — freezing it at the old content
+          # while the generated output follows the new repo would break exactly
+          # the reviewability the mirror exists for, and do it silently.
+          git add -A && git -c user.email=ci@example.com -c user.name=ci commit -qm bumped
+          MOVED=$RUNNER_TEMP/moved-intel
+          git clone -q "$PACK" "$MOVED"
+          printf -- '---\nname: shared-baseline\n---\n\nFrom the moved repo.\n' > "$MOVED/rules/shared-baseline.md"
+          git -C "$MOVED" add -A
+          git -C "$MOVED" -c user.email=ci@example.com -c user.name=ci commit -qm moved
+          # Same pin, new home — the clone carries the tags, so move v1.1.0 onto
+          # the moved commit rather than adding a ref the config does not use.
+          git -C "$MOVED" tag -f v1.1.0 >/dev/null
+          sed -i "s|url: file://$PACK\$|url: file://$MOVED|" intelligence/config.yaml
+          out=$(bash intelligence/sync/scripts/sync.sh 2>&1)
+          case "$out" in *"not a pack's"*) echo "$out"; echo "a moved upstream must refresh, not freeze"; exit 1 ;; esac
+          grep -q "^url=file://$MOVED\$" intelligence/external/shared-intel/.pack
+          grep -q '^From the moved repo\.$' intelligence/external/shared-intel/rules/shared-baseline.md
+          git checkout -- intelligence/config.yaml
 
           # A directory that is not ours is never cleared.
           rm -rf intelligence/external
@@ -159,12 +185,49 @@ jobs:
           bash intelligence/sync/scripts/sync.sh >/dev/null
           test -f intelligence/external/shared-intel/PRECIOUS.md
 
-          # external.dir inside a configured source is refused, not obeyed.
-          sed -i 's|dir: "intelligence/external"|dir: "intelligence/rules/packs"|' intelligence/config.yaml
+          # A mirror inside a configured source is refused, not obeyed.
+          git checkout -- intelligence/config.yaml
+          sed -i 's|mirror: "intelligence/external/shared-intel"|mirror: "intelligence/rules/packs"|' intelligence/config.yaml
           rc=0; bash intelligence/sync/scripts/sync.sh >/dev/null 2>&1 || rc=$?
-          [ "$rc" -eq 1 ] || { echo "expected exit 1 for external.dir inside a source, got $rc"; exit 1; }
+          [ "$rc" -eq 1 ] || { echo "expected exit 1 for a mirror inside a source, got $rc"; exit 1; }
 
-          echo "OK: external packs materialize, track, refresh and refuse unsafe dirs"
+          # An undeclared pack reference FAILS the run — it must never degrade
+          # into a silently skipped source the way a missing local path does.
+          git checkout -- intelligence/config.yaml
+          sed -i 's|"@shared-intel/rules"|"@typo-pack/rules"|' intelligence/config.yaml
+          rc=0; err=$(bash intelligence/sync/scripts/sync.sh 2>&1 >/dev/null) || rc=$?
+          [ "$rc" -eq 1 ] || { echo "expected exit 1 for an undeclared pack, got $rc"; exit 1; }
+          case "$err" in *"typo-pack"*) ;; *) echo "$err"; echo "error must name the pack"; exit 1 ;; esac
+
+          # Two packs sharing one mirror FAILS the run. The wipe is claimed per
+          # directory, so the second pack would skip the ownership check and the
+          # shared clear, then `rm -rf` its own subpath over the first pack's
+          # files — leaving one directory holding both packs' content under a
+          # single `.pack` that names only one of them.
+          git checkout -- intelligence/config.yaml
+          awk '
+            /^  shared-intel:/ { print; inp = 1; next }
+            inp && /^sources:/ {
+              print "  twin-intel:"
+              print "    url: file://'"$PACK"'"
+              print "    mirror: \"intelligence/external/shared-intel\""
+              inp = 0
+            }
+            { print }
+          ' intelligence/config.yaml > intelligence/config.tmp && mv intelligence/config.tmp intelligence/config.yaml
+          rc=0; err=$(bash intelligence/sync/scripts/sync.sh 2>&1 >/dev/null) || rc=$?
+          [ "$rc" -eq 1 ] || { echo "expected exit 1 for a shared mirror, got $rc"; exit 1; }
+          case "$err" in *twin-intel*shared-intel*) ;; *) echo "$err"; echo "error must name BOTH packs"; exit 1 ;; esac
+
+          # A pack with no mirror keeps working and leaves NOTHING in the repo.
+          git checkout -- intelligence/config.yaml
+          sed -i '/mirror: "intelligence\/external\/shared-intel"/d' intelligence/config.yaml
+          rm -rf intelligence/external
+          bash intelligence/sync/scripts/sync.sh >/dev/null
+          test ! -e intelligence/external
+          test -f .claude/rules/shared-baseline.md
+
+          echo "OK: packs declare once, mirror, refresh, and fail closed on a bad reference"
 
   smoke:
     name: smoke (sync against examples)
@@ -536,6 +599,77 @@ jobs:
           case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected IS_STATUS=ok on re-run"; exit 1 ;; esac
           test "$(grep -c '^sync_version:' intelligence/config.yaml)" -eq 1
           # Now modular & current → sync.sh works and is ok.
+          s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
+          test -f AGENTS.md
+
+      - name: 0.10.0 converts inline git+ sources into declared packs
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJ=$RUNNER_TEMP/packmig
+          mkdir -p "$PROJ/intelligence"/{rules,agents,skills}
+          cp -r intelligence/sync "$PROJ/intelligence/sync"
+          printf '# Always-on context\n' > "$PROJ/intelligence/rules/context.md"
+          # A 0.9.0-shaped config: one global external dir, the pack identity
+          # duplicated per section, and one UNPINNED spec — the case where ref
+          # is absent but a subpath is present.
+          cat > "$PROJ/intelligence/config.yaml" <<'EOF'
+          project:
+            name: packmig
+          sync_version: "0.9.0"
+          external:
+            dir: "intelligence/external"
+          sources:
+            rules:
+              - "intelligence/rules"
+              - "git+https://example.invalid/org/shared.git@v1.2.0#rules"
+            agents:
+              - "intelligence/agents"
+            skills:
+              - "intelligence/skills"
+              - 'git+https://example.invalid/org/shared.git@v1.2.0#skills'
+              - "git+https://example.invalid/org/other.git#skills"
+          targets:
+            agents:
+              enabled: true
+              output: "AGENTS.md"
+              header: |
+                # Packmig
+          EOF
+          git -C "$PROJ" init -q
+          git -C "$PROJ" add -A
+          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
+
+          cd "$PROJ"
+          out=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
+          echo "$out"
+          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected IS_STATUS=migrated"; exit 1 ;; esac
+
+          # Post-conditions of the breaking change.
+          ! grep -q '^external:' intelligence/config.yaml
+          grep -q '^packs:' intelligence/config.yaml
+          ! grep -qE '^[[:space:]]*-[[:space:]]*["'\'']?git\+' intelligence/config.yaml
+          # One declaration per distinct repo, each carrying its own pin.
+          test "$(grep -c '^    url: ' intelligence/config.yaml)" -eq 2
+          test "$(grep -c '^    ref: v1.2.0$' intelligence/config.yaml)" -eq 1
+          # external.dir became a per-pack mirror, so vendored content keeps
+          # landing where it already is.
+          grep -q '^    mirror: "intelligence/external/shared"$' intelligence/config.yaml
+          # An unpinned spec keeps its subpath and gains NO ref — the field is
+          # optional, and a subpath read as a ref would clone a missing branch.
+          grep -q '"@other/skills"' intelligence/config.yaml
+          test "$(grep -c '^    ref: ' intelligence/config.yaml)" -eq 1
+          # Both sections reference the same pack by name — the pin has one home.
+          test "$(grep -c '"@shared/' intelligence/config.yaml)" -eq 2
+
+          # Idempotent: the whole chain re-runs without touching the config.
+          cp intelligence/config.yaml "$RUNNER_TEMP/packmig.yaml"
+          out2=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
+          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected IS_STATUS=ok on re-run"; exit 1 ;; esac
+          diff -u "$RUNNER_TEMP/packmig.yaml" intelligence/config.yaml
+
+          # An unreachable pack degrades to a warning, exactly as an unreachable
+          # inline spec did — the local sources still sync.
           s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
           test -f AGENTS.md
 

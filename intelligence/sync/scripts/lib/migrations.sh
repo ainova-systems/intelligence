@@ -27,7 +27,7 @@
 # matching migrate_to_<ver> — nothing here is rewritten or reordered.
 
 # Ordered (ascending) list of migration target versions. Append only.
-MIGRATIONS=( "0_3_1" "0_7_0" )
+MIGRATIONS=( "0_3_1" "0_7_0" "0_10_0" )
 
 # The applied-schema version is a managed key in config.yaml — NOT a dotfile,
 # NOT scripts/VERSION. config.yaml is what most future breaking changes will
@@ -408,6 +408,267 @@ migrate_to_0_7_0() {
     fi
 
     echo "  [migrate 0.7.0] done — sources.rules += $rules_entry, sources.agents += $agents_entry"
+}
+
+# --- migrate_to_0_10_0 ------------------------------------------------------
+
+# Split `git+<url>[@<ref>][#<subpath>]` into _MIG_URL / _MIG_REF / _MIG_SUBPATH.
+# Same grammar resolve_source_dir parses; kept here so a migration never has to
+# source the engine library it is migrating towards.
+#
+# Globals, never a delimited string on stdout: two of the three fields are
+# optional, and `read` with a whitespace IFS collapses a run of delimiters into
+# one — so an unpinned `git+<url>#rules` would come back as ref=rules with no
+# subpath, silently rewriting a whole source into a branch that does not exist.
+_mig_split_git_token() {
+    local rest="${1#git+}" urlref after cand
+    _MIG_SUBPATH=""; _MIG_REF=""
+    case "$rest" in
+        *\#*) _MIG_SUBPATH="${rest#*#}"; urlref="${rest%%#*}" ;;
+        *)    urlref="$rest" ;;
+    esac
+    _MIG_URL="$urlref"
+    after="${urlref#*://}"
+    case "$after" in
+        *@*)
+            cand="${after##*@}"
+            case "$cand" in
+                */*|"") ;;
+                *) _MIG_REF="$cand"; _MIG_URL="${urlref%@$cand}" ;;
+            esac
+            ;;
+    esac
+}
+
+# Pack name from a repo URL: basename minus `.git`, restricted to a safe
+# filename charset. This is the ONLY place a name is still derived, it runs
+# once, and the result is written into config.yaml where a human can rename it.
+_mig_pack_name_from_url() {
+    local name="${1%/}"
+    name="${name##*/}"
+    name="${name%.git}"
+    name="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-')"
+    case "$name" in ""|.*|-*) name="pack" ;; esac
+    printf '%s' "$name"
+}
+
+# 0.10.0 replaces the single `external: { dir: … }` block with a `packs:` block:
+# a remote source is DECLARED once (url + ref + optional mirror) and referenced
+# from `sources.*` by name (`@<pack>/<subpath>`). That removes the duplicated
+# `url@ref` an inline spec forced into every section, and makes the mirror
+# directory declared rather than derived from the URL.
+#
+# This migration rewrites the config for the project: every inline `git+` spec
+# becomes a declared pack plus an `@name` reference, and `external.dir` becomes
+# each pack's `mirror:` so vendored content keeps landing where it already is.
+# Inline `git+` specs remain legal afterwards — they are simply no longer the
+# only way to reach a remote source, and they are always transient.
+#
+# Precondition is structural, and each key is a one-way marker: `external:` only
+# ever existed BEFORE 0.10.0, `packs:` only ever exists after it. So an
+# `external:` key ⇒ convert; otherwise a `packs:` key ⇒ applied ⇒ silent no-op;
+# otherwise convert only if there is an inline spec to convert. That last clause
+# is what keeps the migration idempotent once inline specs are legal again: the
+# run that converts them writes `packs:`, and every later run stops at the marker
+# instead of appending a SECOND top-level `packs:` key for each spec added since.
+# Fail-closed: the rewrite is staged in a temp file and verified before it
+# replaces config.yaml.
+#
+# migrate_to_0_10_0 <umbrella_dir> <module_name> [<upstream_module_dir> — unused]
+migrate_to_0_10_0() {
+    local umbrella="$1"
+    local config="$umbrella/config.yaml"
+    [ -f "$config" ] || return 0
+
+    local has_external=0
+    grep -q '^external:[[:space:]]*$' "$config" && has_external=1
+    local has_packs=0
+    grep -q '^packs:[[:space:]]*$' "$config" && has_packs=1
+    local has_inline=0
+    # ERE, and anchored to a list entry: `\|` is a GNU BRE extension that BSD
+    # grep (the macOS default) reads as a literal, and matching `git+` anywhere
+    # would fire on the comment that documents the old spec format.
+    grep -qE '^[[:space:]]*-[[:space:]]*["'\'']?git\+' "$config" && has_inline=1
+    if [ "$has_external" -eq 0 ] && { [ "$has_packs" -eq 1 ] || [ "$has_inline" -eq 0 ]; }; then
+        return 0
+    fi
+
+    echo "  [migrate 0.10.0] converting remote sources to declared packs"
+    IS_MIGRATED=1
+
+    # The old external dir, if any — it becomes each pack's mirror parent.
+    local ext_dir=""
+    if [ "$has_external" -eq 1 ]; then
+        ext_dir="$(awk '
+            { sub(/\r$/, "") }
+            /^external:[[:space:]]*$/ { in_ext = 1; next }
+            /^[A-Za-z]/ { in_ext = 0 }
+            in_ext && /^  dir:/ {
+                v = $0
+                sub(/^[[:space:]]*[^:]*:[[:space:]]*/, "", v)
+                # Two subs, never one alternation: POSIX awk takes the LONGEST
+                # match at the leftmost position, so `^["]|["].*$` would match
+                # the whole quoted value at position 1 and erase it.
+                sub(/^["\047]/, "", v)
+                sub(/["\047][[:space:]]*$/, "", v)
+                sub(/[[:space:]]+$/, "", v)
+                print v; exit
+            }
+        ' "$config")"
+        ext_dir="${ext_dir%/}"
+    fi
+
+    # Collect the distinct url@ref pairs across every section, in first-seen
+    # order, assigning each a unique name.
+    local names=() urls=() refs=() seen=()
+    local section token url ref subpath sig i found name base n
+    for section in rules agents skills; do
+        while IFS= read -r token; do
+            case "$token" in git+*) ;; *) continue ;; esac
+            _mig_split_git_token "$token"
+            url="$_MIG_URL"; ref="$_MIG_REF"
+            sig="$url@$ref"
+            # `${#arr[@]}` guards, never `"${!arr[@]}"` on a possibly-empty
+            # array: bash 3.2 (macOS default) treats that as unbound under
+            # `set -u`, which every script here runs with.
+            found=0
+            i=0
+            while [ "$i" -lt "${#seen[@]}" ]; do
+                [ "${seen[$i]}" = "$sig" ] && { found=1; break; }
+                i=$((i + 1))
+            done
+            [ "$found" -eq 1 ] && continue
+            base="$(_mig_pack_name_from_url "$url")"
+            name="$base"; n=2
+            while :; do
+                found=0
+                i=0
+                while [ "$i" -lt "${#names[@]}" ]; do
+                    [ "${names[$i]}" = "$name" ] && { found=1; break; }
+                    i=$((i + 1))
+                done
+                [ "$found" -eq 0 ] && break
+                name="$base-$n"; n=$((n + 1))
+            done
+            seen+=("$sig"); names+=("$name"); urls+=("$url"); refs+=("$ref")
+        done < <(_mig_read_sources "$config" "$section")
+    done
+
+    # Build the packs: block.
+    local packs_block="" mirror
+    i=0
+    while [ "$i" -lt "${#names[@]}" ]; do
+        packs_block="$packs_block  ${names[$i]}:"$'\n'
+        packs_block="$packs_block    url: ${urls[$i]}"$'\n'
+        [ -n "${refs[$i]}" ] && packs_block="$packs_block    ref: ${refs[$i]}"$'\n'
+        if [ -n "$ext_dir" ]; then
+            mirror="$ext_dir/${names[$i]}"
+            packs_block="$packs_block    mirror: \"$mirror\""$'\n'
+        fi
+        i=$((i + 1))
+    done
+
+    # Map every inline spec to its `@name[/subpath]` replacement.
+    local map=""
+    for section in rules agents skills; do
+        while IFS= read -r token; do
+            case "$token" in git+*) ;; *) continue ;; esac
+            _mig_split_git_token "$token"
+            url="$_MIG_URL"; ref="$_MIG_REF"; subpath="$_MIG_SUBPATH"
+            sig="$url@$ref"
+            i=0
+            while [ "$i" -lt "${#seen[@]}" ]; do
+                if [ "${seen[$i]}" = "$sig" ]; then
+                    map="$map$token"$'\t'"@${names[$i]}${subpath:+/$subpath}"$'\n'
+                    break
+                fi
+                i=$((i + 1))
+            done
+        done < <(_mig_read_sources "$config" "$section")
+    done
+
+    # An `external:` block with no remote source at all declares nothing — emit
+    # no `packs:` key rather than a dangling empty one, and drop `external:`.
+    local emit_packs=1
+    [ "${#names[@]}" -eq 0 ] && emit_packs=0
+
+    local tmp="$config.mig.tmp" mapfile_="$config.mig.map"
+    printf '%s' "$map" > "$mapfile_"
+    awk -v packs="$packs_block" -v mapfile="$mapfile_" -v emit="$emit_packs" '
+        BEGIN {
+            while ((getline line < mapfile) > 0) {
+                sub(/\r$/, "", line)
+                t = index(line, "\t")
+                if (t > 0) repl[substr(line, 1, t - 1)] = substr(line, t + 1)
+            }
+            close(mapfile)
+        }
+        { sub(/\r$/, "") }
+        # Drop the whole external: block.
+        /^external:[[:space:]]*$/ { in_ext = 1; next }
+        in_ext && /^[[:space:]]/ { next }
+        in_ext { in_ext = 0 }
+        # Emit packs: immediately before sources:.
+        /^sources:[[:space:]]*$/ && emit == 1 && !done_packs {
+            printf "packs:\n%s\n", packs
+            done_packs = 1
+        }
+        # Rewrite an inline spec in place, preserving indentation and quoting.
+        /^[[:space:]]*-[[:space:]]*["\047]?git\+/ {
+            val = $0
+            sub(/^[[:space:]]*-[[:space:]]*/, "", val)
+            gsub(/^["\047]|["\047][[:space:]]*$/, "", val)
+            if (val in repl) {
+                indent = $0
+                sub(/-.*$/, "", indent)
+                print indent "- \"" repl[val] "\""
+                next
+            }
+        }
+        { print }
+        END { if (emit == 1 && !done_packs) printf "packs:\n%s\n", packs }
+    ' "$config" > "$tmp"
+
+    # Verify the staged file before it replaces anything: `external:` gone, and
+    # EXACTLY the expected number of top-level `packs:` keys — a second one
+    # would be duplicate-key YAML that strict parsers reject.
+    local packs_keys
+    packs_keys="$(grep -c '^packs:[[:space:]]*$' "$tmp" || true)"
+    if [ "$packs_keys" -ne "$emit_packs" ] || grep -q '^external:[[:space:]]*$' "$tmp"; then
+        rm -f "$tmp" "$mapfile_"
+        is_status error "migrate_to_0_10_0 could not rewrite config.yaml"
+        echo "  ERROR: failed to convert remote sources to packs in $config." >&2
+        echo "         Declare each remote under 'packs:' and reference it as '@<name>/<subpath>'." >&2
+        return "$IS_RC_ERROR"
+    fi
+
+    mv "$tmp" "$config"
+    rm -f "$mapfile_"
+    if [ "$emit_packs" -eq 0 ]; then
+        echo "  [migrate 0.10.0] done — no remote source to declare, dropped the empty 'external:' block"
+    else
+        echo "  [migrate 0.10.0] done — ${#names[@]} pack(s) declared${ext_dir:+, mirrored under $ext_dir}"
+    fi
+}
+
+# Read one `sources.<section>` list, one raw value per line (quotes stripped).
+# Local to migrations so the chain never depends on the engine library.
+_mig_read_sources() {
+    local config="$1" section="$2"
+    awk -v section="$section" '
+        { sub(/\r$/, "") }
+        /^sources:[[:space:]]*$/ { in_src = 1; next }
+        /^[A-Za-z]/ { in_src = 0; in_sec = 0 }
+        in_src && $0 ~ "^  " section ":[[:space:]]*$" { in_sec = 1; next }
+        in_src && /^  [A-Za-z]/ { in_sec = 0 }
+        in_sec && /^[[:space:]]*-[[:space:]]*/ {
+            v = $0
+            sub(/^[[:space:]]*-[[:space:]]*/, "", v)
+            gsub(/^["\047]|["\047][[:space:]]*$/, "", v)
+            sub(/[[:space:]]+$/, "", v)
+            if (v != "") print v
+        }
+    ' "$config"
 }
 
 # run_migrations <umbrella_dir> <module_name> [<upstream_module_dir>]

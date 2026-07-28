@@ -113,6 +113,25 @@ source_is_remote() {
     esac
 }
 
+# True (0) if a source token references a pack declared under `packs:`
+# (`@<name>` or `@<name>/<subpath>`).
+source_is_pack() {
+    case "$1" in
+        @?*) return 0 ;;
+        *)   return 1 ;;
+    esac
+}
+
+# True (0) if a source token is a plain repo-relative path — i.e. NOT a pack
+# reference and NOT an inline remote spec. The inverse of "resolves through a
+# clone", which is what every caller that pattern-matches a token against a
+# real directory needs.
+source_is_local_path() {
+    source_is_pack "$1" && return 1
+    source_is_remote "$1" && return 1
+    return 0
+}
+
 # Map an absolute file path to a repo-root-relative path for use as a link
 # target inside a COMMITTED file (e.g. AGENTS.md). A file under $repo_root gets
 # its repo-relative path. A file resolved OUTSIDE $repo_root comes from a remote
@@ -170,7 +189,14 @@ repo_rel_dir() {
 # `[ -d "$dir" ] || continue` guard then skips an unresolved source.
 # Usage: dir="$(resolve_source_dir "$repo_root" "$src")"
 resolve_source_dir() {
-    local repo_root="$1" token="$2"
+    local repo_root="$1" token="$2" config_file="${3:-${IS_CONFIG_FILE:-}}"
+
+    # A declared pack (`@<name>[/<subpath>]`) keeps its url / ref / mirror in
+    # config.yaml, so the token itself carries nothing but the reference.
+    if source_is_pack "$token"; then
+        resolve_pack_source "$repo_root" "$config_file" "$token"
+        return 0
+    fi
 
     if ! source_is_remote "$token"; then
         printf '%s' "$repo_root/$token"
@@ -178,11 +204,67 @@ resolve_source_dir() {
     fi
 
     # --- parse: git+<url>[@<ref>][#<subpath>] ---
+    # An inline spec is an ANONYMOUS pack: it has no declared name and no
+    # mirror, so it is always transient. Declare it under `packs:` to commit it.
     local rest="${token#git+}"
     local subpath="" urlref="$rest"
     case "$rest" in
         *\#*) subpath="${rest#*#}"; urlref="${rest%%#*}" ;;
     esac
+
+    # ref = segment after the last `@` in the post-scheme part, only if it has
+    # no `/` (else it is userinfo such as `git@host`, not a ref).
+    local url="$urlref" ref="" after_scheme="${urlref#*://}"
+    case "$after_scheme" in
+        *@*)
+            local cand="${after_scheme##*@}"
+            case "$cand" in
+                */*|"") ;;                        # userinfo / empty -> no ref
+                *) ref="$cand"; url="${urlref%@$ref}" ;;
+            esac
+            ;;
+    esac
+
+    fetch_remote_source "$token" "$url" "$ref" "$subpath" ""
+}
+
+# Resolve `@<name>[/<subpath>]` against the `packs:` block and fetch it.
+# An undeclared name is a HARD error: unlike a mistyped local path (which the
+# caller's `[ -d ]` guard silently skips), a pack reference names something the
+# config claims to know, so a typo must not quietly drop a whole rule set.
+# Usage: resolve_pack_source "$repo_root" "$config_file" "@shared/rules"
+resolve_pack_source() {
+    local repo_root="$1" config_file="$2" token="$3"
+
+    local rest="${token#@}" name subpath=""
+    case "$rest" in
+        */*) name="${rest%%/*}"; subpath="${rest#*/}" ;;
+        *)   name="$rest" ;;
+    esac
+
+    local url ref mirror_rel mirror_abs=""
+    url="$(get_pack_field "$config_file" "$name" "url")"
+    # Defensive only: validate_pack_refs has already failed the run for an
+    # undeclared pack. It has to, because every caller invokes this inside `$( )`
+    # — an exit here would end the substitution subshell, not the sync.
+    if [ -z "$url" ]; then
+        echo "  WARN: pack '$name' is not declared under 'packs:': $token" >&2
+        return 0
+    fi
+    ref="$(get_pack_field "$config_file" "$name" "ref")"
+    mirror_rel="$(get_pack_field "$config_file" "$name" "mirror")"
+    [ -n "$mirror_rel" ] && mirror_abs="$(resolve_mirror_dir "$repo_root" "$config_file" "$name" "$mirror_rel")"
+
+    fetch_remote_source "$token" "$url" "$ref" "$subpath" "$mirror_abs" "$mirror_rel"
+}
+
+# Shallow-clone <url>@<ref> into the run cache, echo "<clone>/<subpath>", and —
+# when <mirror_abs> is set — additionally materialize it there so the content is
+# committed. <token> is only used for messages.
+# ALWAYS returns 0 (echoes nothing on failure), per resolve_source_dir's contract.
+# Usage: fetch_remote_source <token> <url> <ref> <subpath> <mirror_abs> [<mirror_rel>]
+fetch_remote_source() {
+    local token="$1" url="$2" ref="$3" subpath="$4" mirror="$5" mirror_rel="${6:-}"
 
     # Reject path traversal in the subpath: a remote spec must not be able to
     # escape the clone dir (e.g. `#../../etc`). Checked before any clone.
@@ -196,24 +278,11 @@ resolve_source_dir() {
     # Scheme whitelist — reject everything but plain fetch transports. The
     # ext::/fd:: transports execute arbitrary commands on clone, so a malicious
     # or mistyped config must never reach `git clone` with them.
-    case "$urlref" in
+    case "$url" in
         https://*|http://*|ssh://*|git://*|file://*) ;;
         *)
             echo "  WARN: remote source rejected (unsupported scheme): $token" >&2
             return 0
-            ;;
-    esac
-
-    # ref = segment after the last `@` in the post-scheme part, only if it has
-    # no `/` (else it is userinfo such as `git@host`, not a ref).
-    local url="$urlref" ref="" after_scheme="${urlref#*://}"
-    case "$after_scheme" in
-        *@*)
-            local cand="${after_scheme##*@}"
-            case "$cand" in
-                */*|"") ;;                        # userinfo / empty -> no ref
-                *) ref="$cand"; url="${urlref%@$ref}" ;;
-            esac
             ;;
     esac
 
@@ -285,77 +354,73 @@ resolve_source_dir() {
             ;;
     esac
 
-    # No `external:` block -> the clone stays in the transient run cache and
-    # nothing lands in the repo (the original behaviour).
-    if [ -z "${IS_EXTERNAL_DIR:-}" ]; then
+    # No `mirror:` -> the clone stays in the transient run cache and nothing
+    # lands in the repo. This is every inline `git+` spec, and any pack that
+    # declares no mirror.
+    if [ -z "$mirror" ]; then
         printf '%s' "$out"
         return 0
     fi
-    materialize_pack "$dest" "$out" "$url" "$ref" "$key" "$subpath"
+    materialize_pack "$dest" "$out" "$url" "$ref" "$subpath" "$mirror" "$mirror_rel"
     return 0
 }
 
-# Read one `key=value` line out of a pack stamp file. Echoes nothing when the
-# file or key is absent. Strips a trailing CR so a stamp that went through a
-# CRLF-normalizing checkout still parses.
-pack_stamp_field() {
-    local file="$1" key="$2" line
-    [ -f "$file" ] || return 0
-    while IFS= read -r line || [ -n "$line" ]; do
-        line="${line%$'\r'}"
-        case "$line" in
-            "$key="*) printf '%s' "${line#"$key="}"; return 0 ;;
-        esac
-    done < "$file"
-}
-
-# Copy a resolved remote source out of the transient clone into the project's
-# external dir, so pack content is committed and an upstream bump shows up in
-# `git diff` instead of only in the generated output. Echoes the materialized
-# directory; on any failure echoes the clone dir instead, so a broken external
-# dir degrades to the transient behaviour rather than losing the source.
+# Copy a resolved remote source out of the transient clone into the pack's
+# declared `mirror:` directory, so pack content is committed and an upstream
+# bump shows up in `git diff` instead of only in the generated output. Echoes
+# the materialized directory; on any failure echoes the clone dir instead, so a
+# broken mirror degrades to the transient behaviour rather than losing the
+# source.
 #
-# One directory per repo@ref, named after the repo. The FIRST token to touch a
-# pack in a run wipes it (clearing content left by a previous ref or a source
-# entry that has since been removed) and writes the `.pack` stamp; later tokens
-# for the same repo@ref only add their subpath. The claim is recorded in the run
-# cache, which is what makes "wipe once per run" work across separate calls.
+# The directory is DECLARED, never derived — `mirror:` says exactly where the
+# pack lives, so there is no name to sanitize and no collision to resolve.
 #
-# The wipe is guarded by the stamp: a directory that exists WITHOUT a `.pack`
-# naming this repo is never deleted — it belongs to the project, not to us.
-# Usage: materialize_pack <clone> <src_dir> <url> <ref> <key> <subpath>
+# The FIRST token to touch a pack in a run wipes it (clearing content left by a
+# previous ref, or by a source entry that has since been removed); later tokens
+# for the same pack only replace their own subpath. The claim is recorded in the
+# clone cache, which is what makes "wipe once per run" work across the separate
+# subshells each resolve_source_dir call runs in.
+#
+# The wipe is guarded by the stamp: a NON-EMPTY directory with no `.pack` in it
+# is never deleted — it belongs to the project, not to us.
+# <mirror_rel> is the path as authored in config.yaml, used only in messages.
+# Usage: materialize_pack <clone> <src_dir> <url> <ref> <subpath> <mirror> <mirror_rel>
 materialize_pack() {
-    local clone="$1" src_dir="$2" url="$3" ref="$4" key="$5" subpath="$6"
+    local clone="$1" src_dir="$2" url="$3" ref="$4" subpath="$5" pack_dir="$6" mirror_rel="${7:-}"
 
-    local claim="" pack_dir=""
-    if [ -n "${IS_REMOTE_CACHE:-}" ]; then
-        claim="$IS_REMOTE_CACHE/$key.packdir"
-        [ -f "$claim" ] && IFS= read -r pack_dir < "$claim"
-    fi
+    # The claim is keyed on the DIRECTORY, not on url@ref: it records "this run
+    # already cleared this path". Keying it on the clone would let two packs
+    # that share a url@ref but declare different mirrors claim each other's,
+    # leaving the second mirror unstamped and never pruned.
+    #
+    # Same cache-root fallback as the clone: the claim must exist even when the
+    # caller is not sync.sh, or every token would re-wipe the pack and only the
+    # last subpath would survive. That fallback root is NOT run-scoped, though,
+    # so the claim carries `$$` — stable across the command-substitution
+    # subshells of one run, different for the next. A claim left behind by an
+    # earlier run must never suppress this run's wipe: that would rebuild the
+    # mirror with no `.pack` in it and freeze it against the guard below.
+    local cache_root claim
+    cache_root="${IS_REMOTE_CACHE:-${TMPDIR:-/tmp}/intelligence-sync-remotes}"
+    mkdir -p "$cache_root" 2>/dev/null || true
+    claim="$cache_root/$$-$(printf '%s' "$pack_dir" | cksum | awk '{print $1 "-" $2}').packdir"
 
-    if [ -z "$pack_dir" ]; then
-        # Pack name = repo basename, minus `.git`. Anything outside a safe
-        # filename charset becomes `-` so a hostile URL cannot steer the path.
-        local name="${url%/}"
-        name="${name##*/}"
-        name="${name%.git}"
-        name="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-')"
-        # Leading `.` or `-` is refused outright: `.git` as a pack name would be
-        # actively destructive, and a leading dash reads as a flag downstream.
-        case "$name" in ""|.*|-*) name="pack-$key" ;; esac
-
-        pack_dir="$IS_EXTERNAL_DIR/$name"
-        # Collision: the name is already taken by a DIFFERENT repo (or by a
-        # project-owned directory with no stamp). Fall back to a suffixed name
-        # rather than touching content that is not ours.
-        if [ -d "$pack_dir" ] && [ "$(pack_stamp_field "$pack_dir/.pack" url)" != "$url" ]; then
-            echo "  WARN: external pack dir '$name' is taken — using '$name-$key'" >&2
-            pack_dir="$IS_EXTERNAL_DIR/$name-$key"
+    if [ ! -f "$claim" ]; then
+        # Refuse to wipe a directory that is not ours. Ownership is the PRESENCE
+        # of the stamp, not the url inside it: a mirror is declared per pack, so
+        # a stamped directory is this pack's even after its `url:` is edited —
+        # a moved or renamed upstream must refresh the mirror, not freeze it at
+        # the old content while the generated output silently follows the new.
+        if [ -d "$pack_dir" ] && [ -n "$(find "$pack_dir" -mindepth 1 -maxdepth 1 2>/dev/null)" ] \
+            && [ ! -f "$pack_dir/.pack" ]; then
+            echo "  WARN: mirror '$pack_dir' holds content that is not a pack's (no .pack stamp) — skipping materialization" >&2
+            printf '%s' "$src_dir"
+            return 0
         fi
 
         rm -rf "$pack_dir"
         if ! mkdir -p "$pack_dir"; then
-            echo "  WARN: cannot create external pack dir '$pack_dir' — using the run cache" >&2
+            echo "  WARN: cannot create mirror dir '$pack_dir' — using the run cache" >&2
             printf '%s' "$src_dir"
             return 0
         fi
@@ -364,8 +429,8 @@ materialize_pack() {
             printf 'ref=%s\n' "${ref:-<default>}"
             printf 'sha=%s\n' "$(git -C "$clone" rev-parse HEAD 2>/dev/null || echo unknown)"
         } > "$pack_dir/.pack"
-        [ -n "$claim" ] && printf '%s\n' "$pack_dir" > "$claim"
-        echo "  external: $url${ref:+ @$ref} -> ${pack_dir#"$IS_EXTERNAL_DIR"/}" >&2
+        printf '%s\n' "$pack_dir" > "$claim"
+        echo "  pack: $url${ref:+ @$ref} -> ${mirror_rel:-$pack_dir}" >&2
     fi
 
     # Only a subpath is cleared here — clearing the pack root would delete the
@@ -702,7 +767,16 @@ get_model_default() {
 }
 
 # Read a nested key from config.yaml: section -> sub -> key.
-# Used to resolve `models.<ide>.<tier>` overrides.
+# Resolves `models.<ide>.<tier>` overrides and `packs.<name>.<field>`.
+#
+# The value strip is anchored at the FIRST colon (`[^:]*:`), never a greedy
+# `.*:` — a greedy match cuts at the LAST colon on the line, which turns
+# `url: https://host/repo.git` into `//host/repo.git`. An unquoted value also
+# drops a trailing ` # comment`, per YAML; inside quotes a `#` is content.
+#
+# The sub-key is matched LITERALLY (`index(...) == 1`), never interpolated into
+# a regex: a pack name may contain `.`, which as a pattern is any character, so
+# `packs.a.b` would happily read a pack named `axb`.
 get_nested_yaml_value() {
     local file="$1"
     local section="$2"
@@ -712,12 +786,22 @@ get_nested_yaml_value() {
         { sub(/\r$/, "") }
         $0 ~ "^" section ":[[:space:]]*$" { in_section=1; in_sub=0; next }
         in_section && /^[a-zA-Z]/ && $0 !~ "^" section ":" { in_section=0; in_sub=0 }
-        in_section && $0 ~ "^  " subname ":[[:space:]]*$" { in_sub=1; next }
-        in_section && in_sub && /^  [a-zA-Z]/ { in_sub=0 }
-        in_section && in_sub && $0 ~ "^    " key ":" {
+        in_section && index($0, "  " subname ":") == 1 {
+            if (substr($0, length(subname) + 4) ~ /^[[:space:]]*$/) { in_sub=1; next }
+        }
+        in_section && in_sub && /^  [A-Za-z0-9_]/ { in_sub=0 }
+        in_section && in_sub && index($0, "    " key ":") == 1 {
             val = $0
-            sub(/.*:[[:space:]]*["\047]?/, "", val)
-            sub(/["\047]?[[:space:]]*$/, "", val)
+            sub(/^[[:space:]]*[^:]*:[[:space:]]*/, "", val)
+            if (val ~ /^"/ || val ~ /^\047/) {
+                q = substr(val, 1, 1)
+                val = substr(val, 2)
+                i = index(val, q)
+                if (i > 0) val = substr(val, 1, i - 1)
+            } else {
+                sub(/[[:space:]]+#.*$/, "", val)
+                sub(/[[:space:]]+$/, "", val)
+            }
             print val
             exit
         }
@@ -948,8 +1032,10 @@ validate_output_path() {
         while IFS= read -r src; do
             [ -z "$src" ] && continue
             # Remote sources never resolve to a local output path — skip them
-            # so a `git+...` spec is not pattern-matched against the output dir.
-            source_is_remote "$src" && continue
+            # so a `git+...` spec or an `@pack` reference is not pattern-matched
+            # against the output dir. A mirrored pack is covered separately,
+            # below, by its declared `mirror:`.
+            source_is_local_path "$src" || continue
             src_rel="$(normalize_path "$repo_root/$src")"
             src_rel="${src_rel#"$repo_root"/}"
             case "$rel" in
@@ -962,56 +1048,47 @@ validate_output_path() {
         done < <(read_yaml_list "$config_file" "$section")
     done
 
-    # Reject the external pack directory — materialized pack content is source,
-    # and it is committed, so an adapter cleanup aimed at it would delete work
-    # that is not regenerated until the next successful clone.
-    local ext_rel ext_canon
-    ext_rel="$(get_external_dir "$config_file")"
-    if [ -n "$ext_rel" ]; then
-        ext_canon="$(normalize_path "$repo_root/$ext_rel")"
-        ext_canon="${ext_canon#"$repo_root"/}"
+    # Reject any pack mirror — materialized pack content is source, and it is
+    # committed, so an adapter cleanup aimed at it would delete work that is not
+    # regenerated until the next successful clone.
+    local mirror_rel
+    while IFS= read -r mirror_rel; do
+        [ -z "$mirror_rel" ] && continue
         case "$rel" in
-            "$ext_canon"|"$ext_canon"/*)
-                echo "ERROR: targets.$adapter.output ('$rel') points into the external pack dir ('$ext_rel')." >&2
+            "$mirror_rel"|"$mirror_rel"/*)
+                echo "ERROR: targets.$adapter.output ('$rel') points into a pack mirror ('$mirror_rel')." >&2
                 echo "  The adapter would delete materialized pack content." >&2
                 exit 1
                 ;;
         esac
-    fi
+    done < <(list_pack_mirrors "$repo_root" "$config_file")
 }
 
-# Resolve and validate `external.dir` into the global IS_EXTERNAL_DIR (absolute,
-# exported by sync.sh). Empty when the project has no `external:` block.
+# Resolve and validate one pack's `mirror:` into an absolute directory.
 #
-# materialize_pack `rm -rf`s a directory under this path, so the same class of
-# check that guards adapter outputs applies — with one deliberate difference:
-# the external dir is ALLOWED inside the intelligence umbrella, since
-# `<umbrella>/external` is the recommended place for it.
+# materialize_pack `rm -rf`s this path, so the same class of check that guards
+# adapter outputs applies — with one deliberate difference: a mirror is ALLOWED
+# inside the intelligence umbrella, since `<umbrella>/external/<pack>` is the
+# recommended place for it.
 #
-# Exits 1 with a clear message on rejection.
-# Usage: resolve_external_dir "$REPO_ROOT" "$CONFIG_FILE"
-resolve_external_dir() {
-    local repo_root="$1"
-    local config_file="$2"
-
-    IS_EXTERNAL_DIR=""
-    local rel
-    rel="$(get_external_dir "$config_file")"
-    [ -n "$rel" ] || return 0
+# Echoes the absolute path; exits 1 with a clear message on rejection.
+# Usage: resolve_mirror_dir "$REPO_ROOT" "$CONFIG_FILE" <pack-name> <mirror-rel>
+resolve_mirror_dir() {
+    local repo_root="$1" config_file="$2" name="$3" rel="$4"
 
     local canon
     canon="$(normalize_path "$repo_root/$rel")"
 
     case "$canon" in
         ""|"/"|"$repo_root")
-            echo "ERROR: external.dir resolves to repo root or empty path: '$rel'" >&2
+            echo "ERROR: packs.$name.mirror resolves to repo root or empty path: '$rel'" >&2
             exit 1
             ;;
     esac
     case "$canon" in
         "$repo_root"/*) ;;
         *)
-            echo "ERROR: external.dir escapes the repository: '$rel' (resolves to '$canon')." >&2
+            echo "ERROR: packs.$name.mirror escapes the repository: '$rel' (resolves to '$canon')." >&2
             exit 1
             ;;
     esac
@@ -1023,12 +1100,12 @@ resolve_external_dir() {
     for section in rules agents skills; do
         while IFS= read -r src; do
             [ -z "$src" ] && continue
-            source_is_remote "$src" && continue
+            source_is_local_path "$src" || continue
             src_rel="$(normalize_path "$repo_root/$src")"
             src_rel="${src_rel#"$repo_root"/}"
             case "$canon_rel" in
                 "$src_rel"|"$src_rel"/*)
-                    echo "ERROR: external.dir ('$rel') is inside a configured source ('$src')." >&2
+                    echo "ERROR: packs.$name.mirror ('$rel') is inside a configured source ('$src')." >&2
                     echo "  Materializing a pack there would overwrite authored content." >&2
                     exit 1
                     ;;
@@ -1036,7 +1113,101 @@ resolve_external_dir() {
         done < <(read_yaml_list "$config_file" "$section")
     done
 
-    IS_EXTERNAL_DIR="$canon"
+    printf '%s' "$canon"
+}
+
+# Fail the run on a `@<pack>` source that names a pack the config does not
+# declare, and on a declared `mirror:` that is unsafe to `rm -rf`.
+#
+# This runs UP FRONT, before any adapter, because resolve_source_dir is always
+# called inside `$( )`: an error raised down there would exit the substitution
+# subshell only, and the caller's `[ -d "$dir" ] || continue` guard would turn a
+# typo into a silently dropped rule set — the exact failure this feature exists
+# to remove. A missing local path stays a warning; a bad pack reference does not,
+# because the config claims to know that name.
+#
+# Exits 1 with a clear message on rejection.
+# Usage: validate_pack_refs "$REPO_ROOT" "$CONFIG_FILE"
+validate_pack_refs() {
+    local repo_root="$1" config_file="$2"
+    local section src name known bad=0
+
+    for section in rules agents skills; do
+        while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            source_is_pack "$src" || continue
+            name="${src#@}"
+            name="${name%%/*}"
+            if [ -z "$(get_pack_field "$config_file" "$name" "url")" ]; then
+                echo "ERROR: sources.$section entry '$src' references pack '$name', which has no 'packs.$name.url' in $config_file." >&2
+                bad=1
+            fi
+        done < <(read_yaml_list "$config_file" "$section")
+    done
+
+    if [ "$bad" -ne 0 ]; then
+        known="$(read_yaml_keys "$config_file" "packs" | tr '\n' ' ')"
+        echo "  Declared packs: ${known:-<none>}" >&2
+        # `targets:` accepts the flow form, so a user reasonably writes
+        # `packs:\n  shared: { url: … }` — which reads as zero declared packs and
+        # makes the message above point at a typo that is not there. Scoped to
+        # the `packs:` block: every shipped example writes `targets:` in flow
+        # form, so an unscoped match would print this note on every failure.
+        if awk '
+            { sub(/\r$/, "") }
+            /^packs:[[:space:]]*$/ { in_p = 1; next }
+            /^[A-Za-z]/ { in_p = 0 }
+            in_p && /^  [A-Za-z0-9_][A-Za-z0-9._-]*:[[:space:]]*\{/ { found = 1; exit }
+            END { exit !found }
+        ' "$config_file"; then
+            echo "  Note: a pack must be declared in block form — 'name:' on its own line," >&2
+            echo "        then indented 'url:' / 'ref:' / 'mirror:'. The '{ … }' form is not read here." >&2
+        fi
+        exit 1
+    fi
+
+    # Validate every declared mirror once, before a single clone runs, so an
+    # unsafe path fails the run rather than being discovered mid-materialization.
+    #
+    # Two packs sharing one mirror is refused here too: the wipe is claimed per
+    # DIRECTORY, so the second pack would skip the clear and copy its subpaths
+    # in beside the first's, leaving one directory holding two packs' content
+    # under a single `.pack`. Nothing downstream can untangle that.
+    local rel canon i
+    local mirror_dirs=() mirror_owners=()
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        rel="$(get_pack_field "$config_file" "$name" "mirror")"
+        [ -n "$rel" ] || continue
+        canon="$(resolve_mirror_dir "$repo_root" "$config_file" "$name" "$rel")"
+        i=0
+        while [ "$i" -lt "${#mirror_dirs[@]}" ]; do
+            if [ "${mirror_dirs[$i]}" = "$canon" ]; then
+                echo "ERROR: packs.$name.mirror ('$rel') is already the mirror of pack '${mirror_owners[$i]}'." >&2
+                echo "  Each pack needs its own directory — sharing one leaves a single '.pack' stamp" >&2
+                echo "  naming one pack over a directory holding both packs' content." >&2
+                exit 1
+            fi
+            i=$((i + 1))
+        done
+        mirror_dirs+=("$canon"); mirror_owners+=("$name")
+    done < <(read_yaml_keys "$config_file" "packs")
+}
+
+# Every declared pack's `mirror:`, one repo-relative path per line (packs with
+# no mirror contribute nothing). Used by the guards that must not mistake
+# materialized pack content for either an adapter output or an unsynced source.
+# Usage: readarray -t mirrors < <(list_pack_mirrors "$REPO_ROOT" "$CONFIG_FILE")
+list_pack_mirrors() {
+    local repo_root="$1" config_file="$2"
+    local name rel canon
+    while IFS= read -r name; do
+        [ -z "$name" ] && continue
+        rel="$(get_pack_field "$config_file" "$name" "mirror")"
+        [ -n "$rel" ] || continue
+        canon="$(normalize_path "$repo_root/$rel")"
+        printf '%s\n' "${canon#"$repo_root"/}"
+    done < <(read_yaml_keys "$config_file" "packs")
 }
 
 # Warn about prompt directories not listed in sources.
@@ -1049,13 +1220,14 @@ warn_unsynced() {
     local repo_root="$1"
     local config_file="$2"
 
-    # Collect all configured source paths (local only — remote git specs are
-    # not filesystem dirs and cannot collide with an unsynced local directory).
+    # Collect all configured source paths (local only — a remote spec and an
+    # `@pack` reference are not filesystem dirs and cannot collide with an
+    # unsynced local directory).
     local all_sources=()
     for section in rules agents skills; do
         while IFS= read -r src; do
             [ -z "$src" ] && continue
-            source_is_remote "$src" && continue
+            source_is_local_path "$src" || continue
             all_sources+=("$src")
         done < <(read_yaml_list "$config_file" "$section")
     done
@@ -1071,11 +1243,12 @@ warn_unsynced() {
         ignores+=("$sub")
     done < <(read_yaml_list "$config_file" "submodules")
     # Materialized packs hold rules/ agents/ skills/ dirs that are reached
-    # through their `git+` source entry, never listed as local sources — so the
-    # scan below would flag every one of them as unsynced.
-    local ext_rel
-    ext_rel="$(get_external_dir "$config_file")"
-    [ -n "$ext_rel" ] && ignores+=("${ext_rel%/}")
+    # through their `@<pack>` source entry, never listed as local sources — so
+    # the scan below would flag every one of them as unsynced.
+    local mirror_rel
+    while IFS= read -r mirror_rel; do
+        [ -n "$mirror_rel" ] && ignores+=("${mirror_rel%/}")
+    done < <(list_pack_mirrors "$repo_root" "$config_file")
 
     # Derive the intelligence folder basename from config.yaml's location —
     # whatever the user named it (`intelligence`, `Intelligence`, `prompts`).
@@ -1358,9 +1531,28 @@ get_project_name() {
     get_yaml_field "$1" "project" "name"
 }
 
-# Repo-relative directory where remote packs are materialized (external.dir),
-# or empty when the project has no `external:` block — the default, where a
-# clone lives only in the transient run cache and nothing reaches the repo.
-get_external_dir() {
-    get_yaml_field "$1" "external" "dir"
+# One field of a declared pack: `packs.<name>.<url|ref|mirror>`.
+# `mirror` empty means the pack is transient — cloned per run, never committed.
+get_pack_field() {
+    get_nested_yaml_value "$1" "packs" "$2" "$3"
+}
+
+# Immediate sub-keys of a top-level block, one per line (`packs:` → pack names).
+# Block form only: a pack always spans several lines, so the inline `{...}` form
+# that `get_target_field` accommodates has no use here.
+# Usage: readarray -t names < <(read_yaml_keys "config.yaml" "packs")
+read_yaml_keys() {
+    local file="$1" section="$2"
+    [ -f "$file" ] || return 0
+    awk -v section="$section" '
+        { sub(/\r$/, "") }
+        $0 ~ "^" section ":[[:space:]]*$" { in_sec = 1; next }
+        /^[A-Za-z]/ { in_sec = 0 }
+        in_sec && /^  [A-Za-z0-9_][A-Za-z0-9._-]*:[[:space:]]*$/ {
+            k = $0
+            sub(/^[[:space:]]+/, "", k)
+            sub(/:[[:space:]]*$/, "", k)
+            print k
+        }
+    ' "$file"
 }

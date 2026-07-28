@@ -1,36 +1,39 @@
 # Example: pulling shared skills/rules from a remote git repo
-# A `sources.*` entry may be a remote `git+<url>[@ref][#subpath]` spec instead
-# of a local path. sync shallow-clones it (fresh each run) and treats the
-# resolved directory exactly like a local source. Pin to a tag or SHA so an
+# A pack is DECLARED once under `packs:` and referenced from `sources.*` by
+# name — `@<pack>[/<subpath>]` — so the url and the pin live in exactly one
+# place however many sections use them. Pin `ref:` to a tag or SHA so an
 # upstream change can't silently alter your agents — see docs/CONVENTIONS.md
-# "Remote sources (git)". Paths/URLs here are EXAMPLES — use your own.
+# "Packs (remote sources)". Paths/URLs here are EXAMPLES — use your own.
 
 project:
   name: my-app
 
-sync_version: "0.9.0"
+sync_version: "0.10.0"
 
-# Materialize remote packs into a tracked directory and commit it, so bumping a
-# pin shows up as a reviewable diff. Drop this block and packs stay transient —
-# cloned to a temp dir and gone at the end of the run.
-external:
-  dir: "intelligence/external"
+packs:
+  # `mirror:` materializes the pack into a tracked directory and commits it, so
+  # bumping `ref:` reads as an ordinary diff. Drop the line and the pack stays
+  # transient — cloned to a temp dir and gone at the end of the run.
+  shared-intel:
+    url: https://github.com/org/shared-intel.git
+    ref: v1.2.0
+    mirror: "intelligence/external/shared-intel"
 
 sources:
   rules:
     - "intelligence/rules"
     - "intelligence/sync/rules"
-    # Shared rules from a central repo, pinned to a tag:
-    - "git+https://github.com/org/shared-intel.git@v1.2.0#rules"
+    # Shared rules from a central repo, pinned by the pack above:
+    - "@shared-intel/rules"
   agents:
     - "intelligence/agents"
     - "intelligence/sync/agents"
   skills:
     - "intelligence/skills"
     - "intelligence/sync/skills"
-    # Shared skills from the same repo @ the same tag — cloned once per sync,
-    # reused for the rules entry above (same repo@ref):
-    - "git+https://github.com/org/shared-intel.git@v1.2.0#skills"
+    # Shared skills from the SAME pack — one clone per sync, reused for the
+    # rules entry above:
+    - "@shared-intel/skills"
 
 targets:
   agents:

@@ -130,22 +130,31 @@ if [ -z "$TARGET_FILTER" ]; then
     fi
 fi
 
-# Remote sources (git+<url> specs in sources.*) are shallow-cloned on demand by
-# resolve_source_dir. Give it a run-scoped cache dir so each spec is fetched at
-# most once per sync and is removed on exit. Honors $TMPDIR (never hardcodes
-# /tmp), mirroring update.sh.
+# Remote sources (declared `packs:` reached via `@<pack>`, and inline `git+`
+# specs in sources.*) are shallow-cloned on demand by resolve_source_dir. Give
+# it a run-scoped cache dir so each spec is fetched at most once per sync and is
+# removed on exit. Honors $TMPDIR (never hardcodes /tmp), mirroring update.sh.
 IS_REMOTE_CACHE="$(mktemp -d -t intelligence-sync-remotes-XXXXXX 2>/dev/null || mktemp -d)"
 export IS_REMOTE_CACHE
 trap 'rm -rf "$IS_REMOTE_CACHE"' EXIT INT TERM
 
-# With an `external:` block the clone is additionally materialized into a
-# tracked directory in the repo, so an upstream bump is visible in `git diff`
-# rather than only in the generated output. Without it, packs stay transient.
-resolve_external_dir "$REPO_ROOT" "$CONFIG_FILE"
-export IS_EXTERNAL_DIR
-if [ -n "$IS_EXTERNAL_DIR" ]; then
-    echo "  External packs: ${IS_EXTERNAL_DIR#"$REPO_ROOT"/}"
-fi
+# A `@<pack>` token carries only the reference; its url / ref / mirror live in
+# config.yaml. resolve_source_dir keeps its published two-argument contract so
+# project-owned adapters written against it keep working, so the config path
+# reaches it the same way the clone cache does — through the environment.
+IS_CONFIG_FILE="$CONFIG_FILE"
+export IS_CONFIG_FILE
+
+# Fail closed on an undeclared pack reference or an unsafe mirror, before any
+# adapter runs — see validate_pack_refs for why this cannot live in the resolver.
+validate_pack_refs "$REPO_ROOT" "$CONFIG_FILE"
+
+# A pack that declares `mirror:` is additionally materialized into a tracked
+# directory in the repo, so an upstream bump is visible in `git diff` rather
+# than only in the generated output. Without it, the pack stays transient.
+while IFS= read -r mirror_rel; do
+    [ -n "$mirror_rel" ] && echo "  Pack mirror: $mirror_rel"
+done < <(list_pack_mirrors "$REPO_ROOT" "$CONFIG_FILE")
 
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.

@@ -64,58 +64,84 @@ A custom adapter belongs in the umbrella's `adapters/`, never in the module's `s
 
 Rule filenames, agent names, and skill names all share the same **domain prefix** (`backend-`, `frontend-`, `devops-`, `core-`, `tests-`, project codename, or monorepo component name). Pick the domain once from repo structure and reuse it — do not invent new domains without clear need.
 
-### Remote sources (git)
+### Packs (remote sources)
 
-A `sources.{rules,agents,skills}` entry is normally a **local path** relative to the repo root. It may instead be a **remote git spec**, which `sync` shallow-clones on the fly and treats exactly like a local source directory — so a team can keep shared intelligence in one repo and pull it into many projects:
+A `sources.{rules,agents,skills}` entry is normally a **local path** relative to the repo root. It may instead reference a **pack** — a remote git repo that `sync` shallow-clones and treats exactly like a local source directory — so a team can keep shared intelligence in one repo and pull it into many projects.
+
+A pack is **declared once** under `packs:` and referenced by name from as many sections as need it:
 
 ```yaml
+packs:
+  shared-intel:
+    url: https://github.com/org/shared-intel.git
+    ref: v1.2.0                                    # the pin — one place, not one per section
+    mirror: "intelligence/external/shared-intel"   # optional; see below
+
 sources:
-  skills:
-    - "intelligence/skills"                                       # local
-    - "git+https://github.com/org/shared-intel.git@v1.2.0#skills"  # remote, pinned tag
   rules:
-    - "intelligence/rules"
-    - "git+ssh://git@github.com/org/shared-intel.git@main#rules"   # remote, branch
+    - "intelligence/rules"        # local
+    - "@shared-intel/rules"       # pack
+  skills:
+    - "@shared-intel/skills"      # same pack, same clone, same pin
 ```
 
-Spec format: `git+<url>[@<ref>][#<subpath>]`
+Declaring the pack is what keeps the url and the ref in one place. Repeating them per section is how the two drift, and nothing catches it: rules pinned at one commit and skills at another is a config that looks fine and reads wrong.
 
-- `<url>` — must carry an explicit scheme: `https://`, `http://`, `ssh://`, `git://`, or `file://`. Other transports (notably the command-executing `ext::` / `fd::`) are **rejected** with a warning and skipped.
-- `@<ref>` — optional tag, branch, or commit SHA. Parsed as the segment after the last `@`, accepted as a ref only when it contains no `/` (so `ssh://git@host/...` userinfo is not mistaken for a ref). Branch names containing `/` (e.g. `feature/x`) can't be expressed this way — use a tag, SHA, or slashless branch (pinning is recommended regardless).
-- `#<subpath>` — optional directory inside the cloned repo holding the rules / agents / skills. Omit to use the repo root.
+Reference format: `@<pack>[/<subpath>]`
+
+- `<pack>` — a key under `packs:`. It is a **reference handle, never a path component**, so it needs no sanitizing; it must simply contain no `/`.
+- `/<subpath>` — optional directory inside the pack repo holding the rules / agents / skills. Omit to use the repo root. The subpath is preserved in the mirror, so `@shared-intel/packs/core/rules` lands at `<mirror>/packs/core/rules`.
+- **An undeclared pack fails the run** (exit 1, naming the pack and listing the declared ones). This is deliberately unlike a missing local path, which only warns: the config claims to know that name, so a typo must not quietly drop a whole rule set.
+
+Pack fields:
+
+- `url:` — must carry an explicit scheme: `https://`, `http://`, `ssh://`, `git://`, or `file://`. Other transports (notably the command-executing `ext::` / `fd::`) are **rejected** with a warning and skipped.
+- `ref:` — optional tag, branch, or commit SHA. Omit for the default branch.
+- `mirror:` — optional; see [Mirroring a pack into the repo](#mirroring-a-pack-into-the-repo).
+
+#### Inline specs (`git+…`)
+
+A source entry may still carry the whole spec inline: `git+<url>[@<ref>][#<subpath>]`. This is an **anonymous pack** — it has no declared name and no mirror, so it is always transient and cannot be referenced from elsewhere. Declare the pack under `packs:` to pin it once or to commit it.
+
+The inline `@<ref>` is parsed as the segment after the last `@`, accepted as a ref only when it contains no `/` (so `ssh://git@host/...` userinfo is not mistaken for a ref). Branch names containing `/` (e.g. `feature/x`) can't be expressed this way — use `packs:` with a plain `ref:`, which has no such limit.
 
 Behavior and trust:
 
-- **Fresh every sync.** Each `sync` run clones into a run-scoped temp dir and removes it on exit, so branch refs always pick up the latest. Within one run the same `repo@ref` is cloned only once, even when several entries (different `#subpath`s) reference it.
+- **Fresh every sync.** Each `sync` run clones into a run-scoped temp dir and removes it on exit, so branch refs always pick up the latest. Within one run the same `url@ref` is cloned only once, even when several entries (different subpaths) reference it.
 - **Reproducibility / supply chain.** A remote's content becomes rules, agents, and skills the LLM reads as project context. Pin to a tag or SHA so an upstream change can't silently alter behavior, and only reference repos you trust.
 - **Containment.** The clone can't be made to read outside itself: `..` in `#subpath` is refused, remote repos are checked out with `core.symlinks=false` (a hostile `skills -> /etc` link becomes an inert text file, not a path the copy step follows), and the resolved directory is verified to sit inside the clone.
 - **Private repos** rely on ambient credentials (an SSH agent or git credential helper). `sync` runs git with `GIT_TERMINAL_PROMPT=0`, so a missing credential fails fast with a warning instead of hanging; local sources still sync.
 - **Best-effort.** A clone failure (offline, bad URL, missing subpath) warns on stderr and skips that one source — the rest of the sync proceeds and still reports `IS_STATUS=ok`.
 
-#### Tracking packs in the repo (`external:`)
+#### Mirroring a pack into the repo
 
-By default a remote pack exists only inside the run cache, so the only trace of an upstream change is a shifted diff in the *generated* output, mixed in with your own content. Add an `external:` block and each pack is additionally materialized into a tracked directory, which makes a version bump readable as an ordinary diff:
+Without `mirror:` a pack exists only inside the run cache, so the only trace of an upstream change is a shifted diff in the *generated* output, mixed in with your own content. Give the pack a `mirror:` and it is additionally materialized there, which makes a version bump readable as an ordinary diff:
 
 ```yaml
-external:
-  dir: "intelligence/external"   # omit the block to keep packs transient
+packs:
+  shared-intel:
+    url: https://github.com/org/shared-intel.git
+    ref: v1.2.0
+    mirror: "intelligence/external/shared-intel"   # omit to keep the pack transient
 ```
 
 ```
 intelligence/external/
-└── shared-intel/          # named after the repo
-    ├── .pack              # url + ref + resolved SHA
+└── shared-intel/          # the path you declared — nothing is derived
+    ├── .pack              # url + ref + resolved SHA, written by sync
     ├── rules/             # only the subpaths your sources reference
     └── skills/
 ```
 
-Commit that directory — being able to review `git diff` after bumping a pin is the entire point.
+Commit that directory — being able to review `git diff` after bumping a pin is the entire point. `<umbrella>/external/<pack>` is the recommended location, but the value is a plain path, so packs can live wherever suits the repo, one per pack.
 
-- **Only the referenced subpaths are copied**, so a pack's `README`, CI config and tests never enter your repo. A source with no `#subpath` copies the whole repo.
+- **The directory is declared, never derived.** `mirror:` says exactly where the pack goes, so there is no name to sanitize and no collision to resolve.
+- **`.pack` is output, not config.** sync writes it; nothing reads it as configuration and it is not meant to be hand-edited. The pin lives in `config.yaml`.
+- **Only the referenced subpaths are copied**, so a pack's `README`, CI config and tests never enter your repo. A reference with no subpath copies the whole repo.
 - **`.git` is never copied.** A nested repository would be recorded as a gitlink, whose contents git does not track — precisely the state this avoids.
-- **One directory per `repo@ref`,** named after the repo. The first source entry to touch a pack in a run clears it, so content left by a previous ref (or by a source entry you have since deleted) does not linger.
-- **Never destructive.** A directory is only cleared when its `.pack` names the same repo. A same-named directory of your own — or a second pack whose repo basename collides — is left alone and the pack goes to a suffixed name instead.
-- Pack files now have committed paths, so `AGENTS.md` and the Pi adapter link to them like any local source instead of naming them bare.
+- **Cleared once per run.** The first entry to touch a pack clears its mirror, so content left by a previous ref (or by a source entry you have since deleted) does not linger; later entries only replace their own subpath.
+- **Never destructive.** The `.pack` stamp marks the directory as sync's to manage: a non-empty directory *without* one is left alone (with a warning) rather than deleted, so a directory of your own at that path is safe. A stamped directory stays the pack's even after you edit its `url:` — a moved or renamed upstream refreshes the mirror, which is the whole point of committing it. To hand a mirror path back to the project, delete the directory. A mirror that resolves to the repo root, escapes the repo, or sits inside a configured `sources.*` directory is refused outright — `sync` exits 1 before anything is written.
+- Mirrored files have committed paths, so `AGENTS.md` and the Pi adapter link to them like any local source instead of naming them bare. A transient pack has no such path and is still named bare.
 
 ## Agent Frontmatter
 
