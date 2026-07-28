@@ -8,7 +8,13 @@
 project:
   name: my-app
 
-sync_version: "0.8.1"
+sync_version: "0.9.0"
+
+# Materialize remote packs into a tracked directory and commit it, so bumping a
+# pin shows up as a reviewable diff. Drop this block and packs stay transient —
+# cloned to a temp dir and gone at the end of the run.
+external:
+  dir: "intelligence/external"
 
 sources:
   rules:

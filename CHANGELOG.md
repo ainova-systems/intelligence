@@ -10,6 +10,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.9.0] — 2026-07-28
+
+Remote packs can now be materialized into a tracked directory, so an upstream bump is reviewable instead of invisible.
+
+### Added
+
+- **`external: { dir: … }` — remote packs materialized into the repo and committed.** A `git+` source has so far existed only inside the run cache: it was cloned, consumed, and deleted, so the only evidence an upstream pack had changed was a shifted diff in the *generated* output, interleaved with the project's own rules and skills. There was no way to review what a pin bump actually brought in. With an `external:` block each pack is additionally copied into `<dir>/<repo-name>/`, alongside a `.pack` stamp recording `url`, `ref` and resolved SHA — commit that directory and bumping `@v1.2.0` to `@v1.3.0` reads as an ordinary `git diff`, deleted skills included. Only the subpaths the sources actually reference are copied, so a pack's `README`, CI config and tests stay out of the repo, and `.git` is never copied — a nested repository would be recorded as a gitlink, whose contents git does not track, which is the exact state the feature exists to avoid. One directory per `repo@ref`: the first source entry to touch a pack in a run clears it, so content from a previous ref or a since-deleted source entry does not linger. The clear is guarded by the stamp — a directory whose `.pack` does not name the same repo is never deleted, and the pack takes a suffixed name instead, so neither a project-owned folder nor a second pack with a colliding repo basename can be destroyed. Omit the block and behaviour is unchanged: packs stay transient. Two consequences fall out for free — pack files now have committed paths, so `AGENTS.md` and the Pi adapter link to them like any local source instead of naming them bare, and a pinned pack that is already committed keeps working when its remote is unreachable. New CI job `external-packs` covers materialization, idempotency, the refresh diff, the never-clear guard and the unsafe-`dir` refusal against a `file://` pack repo. No schema change — the stamp advances to 0.9.0 on update.
+
+### Changed
+
+- **`external.dir` is validated like an adapter output, minus the umbrella restriction.** `materialize_pack` does an `rm -rf` under that path, so `resolve_external_dir` refuses a value that resolves to the repo root, escapes the repository, or sits inside a configured `sources.*` directory — exit 1 before anything is written. Unlike `targets.*.output` it is deliberately *allowed* inside the intelligence umbrella, since `<umbrella>/external` is the recommended location. Symmetrically, `validate_output_path` now refuses an adapter output aimed at the external dir, and `warn_unsynced` no longer flags materialized packs as unsynced source directories.
+- **`get_yaml_field` is the single two-level config reader.** `get_project_name` was a bespoke parser for `project.name`; it and the new `external.dir` lookup now share one helper, alongside the existing three-level readers (`get_nested_yaml_value`, `get_target_field`). No new parsing logic entered the codebase.
+
 ## [0.8.1] — 2026-07-26
 
 ### Changed

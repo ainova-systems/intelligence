@@ -67,6 +67,105 @@ jobs:
           [ "$fail" -eq 0 ] && echo "OK: all examples stamped at $V"
           exit $fail
 
+  external-packs:
+    name: external packs (materialize + track)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Remote pack lands in the tracked dir, and a bump is a readable diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACK=$RUNNER_TEMP/shared-intel
+          PROJ=$RUNNER_TEMP/proj
+
+          # A pack repo served over file:// — no network, same code path as https.
+          mkdir -p "$PACK/rules" "$PACK/skills/shared-do-thing"
+          printf -- '---\nname: shared-baseline\n---\n\nBe careful.\n' > "$PACK/rules/shared-baseline.md"
+          printf -- '---\nname: shared-do-thing\ndescription: "Does it"\n---\n\nSteps.\n' > "$PACK/skills/shared-do-thing/SKILL.md"
+          printf 'not intelligence content\n' > "$PACK/README.md"
+          git -C "$PACK" init -q
+          git -C "$PACK" add -A
+          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v1
+          git -C "$PACK" tag v1.0.0
+
+          mkdir -p "$PROJ/intelligence/rules"
+          cp -r intelligence/sync "$PROJ/intelligence/sync"
+          mkdir -p "$PROJ/intelligence/agents"
+          printf -- '---\nname: local\n---\n\nLocal context.\n' > "$PROJ/intelligence/rules/context.md"
+          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          cat > "$PROJ/intelligence/config.yaml" <<YAML
+          project:
+            name: ext-test
+          sync_version: "$V"
+          external:
+            dir: "intelligence/external"
+          sources:
+            rules:
+              - "intelligence/rules"
+              - "git+file://$PACK@v1.0.0#rules"
+            agents:
+              - "intelligence/agents"
+            skills:
+              - "git+file://$PACK@v1.0.0#skills"
+          targets:
+            agents: { enabled: true, output: "AGENTS.md" }
+            claude: { enabled: true, output: ".claude" }
+          YAML
+          git -C "$PROJ" init -q
+          git -C "$PROJ" add -A
+          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -qm init
+
+          cd "$PROJ"
+          out=$(bash intelligence/sync/scripts/sync.sh)
+          case "$out" in *"IS_STATUS=ok"*) ;; *) echo "$out"; echo "missing IS_STATUS=ok"; exit 1 ;; esac
+
+          # Referenced subpaths only — no README, and never a nested .git.
+          test -f intelligence/external/shared-intel/.pack
+          test -f intelligence/external/shared-intel/rules/shared-baseline.md
+          test -f intelligence/external/shared-intel/skills/shared-do-thing/SKILL.md
+          test ! -e intelligence/external/shared-intel/README.md
+          test ! -e intelligence/external/shared-intel/.git
+          grep -q "^url=file://$PACK\$" intelligence/external/shared-intel/.pack
+          # The pack still reaches the IDE channels, exactly as a local source would.
+          test -f .claude/skills/shared-do-thing/SKILL.md
+
+          # Idempotent: a second run must not dirty the tree.
+          git add -A && git -c user.email=ci@example.com -c user.name=ci commit -qm packs
+          bash intelligence/sync/scripts/sync.sh >/dev/null
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "NOT IDEMPOTENT:"; git status --porcelain; exit 1
+          fi
+
+          # Bumping the pin must surface as a content diff, and drop removed files.
+          printf -- '---\nname: shared-baseline\n---\n\nBe careful AND explicit.\n' > "$PACK/rules/shared-baseline.md"
+          rm -rf "$PACK/skills/shared-do-thing"
+          mkdir -p "$PACK/skills/shared-ship-it"
+          printf -- '---\nname: shared-ship-it\ndescription: "Ships"\n---\n\nShip.\n' > "$PACK/skills/shared-ship-it/SKILL.md"
+          git -C "$PACK" add -A
+          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v11
+          git -C "$PACK" tag v1.1.0
+          sed -i 's/@v1.0.0/@v1.1.0/g' intelligence/config.yaml
+          bash intelligence/sync/scripts/sync.sh >/dev/null
+          git diff --stat -- intelligence/external
+          git diff -- intelligence/external | grep -q '^+Be careful AND explicit\.$'
+          test ! -e intelligence/external/shared-intel/skills/shared-do-thing
+          test -f intelligence/external/shared-intel/skills/shared-ship-it/SKILL.md
+
+          # A directory that is not ours is never cleared.
+          rm -rf intelligence/external
+          mkdir -p intelligence/external/shared-intel
+          echo precious > intelligence/external/shared-intel/PRECIOUS.md
+          bash intelligence/sync/scripts/sync.sh >/dev/null
+          test -f intelligence/external/shared-intel/PRECIOUS.md
+
+          # external.dir inside a configured source is refused, not obeyed.
+          sed -i 's|dir: "intelligence/external"|dir: "intelligence/rules/packs"|' intelligence/config.yaml
+          rc=0; bash intelligence/sync/scripts/sync.sh >/dev/null 2>&1 || rc=$?
+          [ "$rc" -eq 1 ] || { echo "expected exit 1 for external.dir inside a source, got $rc"; exit 1; }
+
+          echo "OK: external packs materialize, track, refresh and refuse unsafe dirs"
+
   smoke:
     name: smoke (sync against examples)
     runs-on: ${{ matrix.os }}

@@ -92,6 +92,31 @@ Behavior and trust:
 - **Private repos** rely on ambient credentials (an SSH agent or git credential helper). `sync` runs git with `GIT_TERMINAL_PROMPT=0`, so a missing credential fails fast with a warning instead of hanging; local sources still sync.
 - **Best-effort.** A clone failure (offline, bad URL, missing subpath) warns on stderr and skips that one source — the rest of the sync proceeds and still reports `IS_STATUS=ok`.
 
+#### Tracking packs in the repo (`external:`)
+
+By default a remote pack exists only inside the run cache, so the only trace of an upstream change is a shifted diff in the *generated* output, mixed in with your own content. Add an `external:` block and each pack is additionally materialized into a tracked directory, which makes a version bump readable as an ordinary diff:
+
+```yaml
+external:
+  dir: "intelligence/external"   # omit the block to keep packs transient
+```
+
+```
+intelligence/external/
+└── shared-intel/          # named after the repo
+    ├── .pack              # url + ref + resolved SHA
+    ├── rules/             # only the subpaths your sources reference
+    └── skills/
+```
+
+Commit that directory — being able to review `git diff` after bumping a pin is the entire point.
+
+- **Only the referenced subpaths are copied**, so a pack's `README`, CI config and tests never enter your repo. A source with no `#subpath` copies the whole repo.
+- **`.git` is never copied.** A nested repository would be recorded as a gitlink, whose contents git does not track — precisely the state this avoids.
+- **One directory per `repo@ref`,** named after the repo. The first source entry to touch a pack in a run clears it, so content left by a previous ref (or by a source entry you have since deleted) does not linger.
+- **Never destructive.** A directory is only cleared when its `.pack` names the same repo. A same-named directory of your own — or a second pack whose repo basename collides — is left alone and the pack goes to a suffixed name instead.
+- Pack files now have committed paths, so `AGENTS.md` and the Pi adapter link to them like any local source instead of naming them bare.
+
 ## Agent Frontmatter
 
 ```yaml

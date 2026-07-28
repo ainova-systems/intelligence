@@ -284,7 +284,113 @@ resolve_source_dir() {
             return 0
             ;;
     esac
-    printf '%s' "$out"
+
+    # No `external:` block -> the clone stays in the transient run cache and
+    # nothing lands in the repo (the original behaviour).
+    if [ -z "${IS_EXTERNAL_DIR:-}" ]; then
+        printf '%s' "$out"
+        return 0
+    fi
+    materialize_pack "$dest" "$out" "$url" "$ref" "$key" "$subpath"
+    return 0
+}
+
+# Read one `key=value` line out of a pack stamp file. Echoes nothing when the
+# file or key is absent. Strips a trailing CR so a stamp that went through a
+# CRLF-normalizing checkout still parses.
+pack_stamp_field() {
+    local file="$1" key="$2" line
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        case "$line" in
+            "$key="*) printf '%s' "${line#"$key="}"; return 0 ;;
+        esac
+    done < "$file"
+}
+
+# Copy a resolved remote source out of the transient clone into the project's
+# external dir, so pack content is committed and an upstream bump shows up in
+# `git diff` instead of only in the generated output. Echoes the materialized
+# directory; on any failure echoes the clone dir instead, so a broken external
+# dir degrades to the transient behaviour rather than losing the source.
+#
+# One directory per repo@ref, named after the repo. The FIRST token to touch a
+# pack in a run wipes it (clearing content left by a previous ref or a source
+# entry that has since been removed) and writes the `.pack` stamp; later tokens
+# for the same repo@ref only add their subpath. The claim is recorded in the run
+# cache, which is what makes "wipe once per run" work across separate calls.
+#
+# The wipe is guarded by the stamp: a directory that exists WITHOUT a `.pack`
+# naming this repo is never deleted — it belongs to the project, not to us.
+# Usage: materialize_pack <clone> <src_dir> <url> <ref> <key> <subpath>
+materialize_pack() {
+    local clone="$1" src_dir="$2" url="$3" ref="$4" key="$5" subpath="$6"
+
+    local claim="" pack_dir=""
+    if [ -n "${IS_REMOTE_CACHE:-}" ]; then
+        claim="$IS_REMOTE_CACHE/$key.packdir"
+        [ -f "$claim" ] && IFS= read -r pack_dir < "$claim"
+    fi
+
+    if [ -z "$pack_dir" ]; then
+        # Pack name = repo basename, minus `.git`. Anything outside a safe
+        # filename charset becomes `-` so a hostile URL cannot steer the path.
+        local name="${url%/}"
+        name="${name##*/}"
+        name="${name%.git}"
+        name="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-')"
+        # Leading `.` or `-` is refused outright: `.git` as a pack name would be
+        # actively destructive, and a leading dash reads as a flag downstream.
+        case "$name" in ""|.*|-*) name="pack-$key" ;; esac
+
+        pack_dir="$IS_EXTERNAL_DIR/$name"
+        # Collision: the name is already taken by a DIFFERENT repo (or by a
+        # project-owned directory with no stamp). Fall back to a suffixed name
+        # rather than touching content that is not ours.
+        if [ -d "$pack_dir" ] && [ "$(pack_stamp_field "$pack_dir/.pack" url)" != "$url" ]; then
+            echo "  WARN: external pack dir '$name' is taken — using '$name-$key'" >&2
+            pack_dir="$IS_EXTERNAL_DIR/$name-$key"
+        fi
+
+        rm -rf "$pack_dir"
+        if ! mkdir -p "$pack_dir"; then
+            echo "  WARN: cannot create external pack dir '$pack_dir' — using the run cache" >&2
+            printf '%s' "$src_dir"
+            return 0
+        fi
+        {
+            printf 'url=%s\n' "$url"
+            printf 'ref=%s\n' "${ref:-<default>}"
+            printf 'sha=%s\n' "$(git -C "$clone" rev-parse HEAD 2>/dev/null || echo unknown)"
+        } > "$pack_dir/.pack"
+        [ -n "$claim" ] && printf '%s\n' "$pack_dir" > "$claim"
+        echo "  external: $url${ref:+ @$ref} -> ${pack_dir#"$IS_EXTERNAL_DIR"/}" >&2
+    fi
+
+    # Only a subpath is cleared here — clearing the pack root would delete the
+    # `.pack` stamp written above (and any sibling subpath already copied in
+    # this run). The root is already clean: the claim step wiped it.
+    local dest="$pack_dir"
+    if [ -n "$subpath" ]; then
+        dest="$pack_dir/$subpath"
+        rm -rf "$dest"
+    fi
+    mkdir -p "$dest"
+
+    # Copy the subpath's contents, skipping `.git` — it only exists when the
+    # source IS the clone root (no `#subpath`), and a nested `.git` inside the
+    # project repo would be recorded as a gitlink, which is exactly the
+    # untrackable state this whole feature exists to avoid.
+    local entry base
+    for entry in "$src_dir"/* "$src_dir"/.[!.]*; do
+        [ -e "$entry" ] || continue
+        base="${entry##*/}"
+        [ "$base" = ".git" ] && continue
+        cp -R "$entry" "$dest/"
+    done
+
+    printf '%s' "$dest"
     return 0
 }
 
@@ -855,6 +961,82 @@ validate_output_path() {
             esac
         done < <(read_yaml_list "$config_file" "$section")
     done
+
+    # Reject the external pack directory — materialized pack content is source,
+    # and it is committed, so an adapter cleanup aimed at it would delete work
+    # that is not regenerated until the next successful clone.
+    local ext_rel ext_canon
+    ext_rel="$(get_external_dir "$config_file")"
+    if [ -n "$ext_rel" ]; then
+        ext_canon="$(normalize_path "$repo_root/$ext_rel")"
+        ext_canon="${ext_canon#"$repo_root"/}"
+        case "$rel" in
+            "$ext_canon"|"$ext_canon"/*)
+                echo "ERROR: targets.$adapter.output ('$rel') points into the external pack dir ('$ext_rel')." >&2
+                echo "  The adapter would delete materialized pack content." >&2
+                exit 1
+                ;;
+        esac
+    fi
+}
+
+# Resolve and validate `external.dir` into the global IS_EXTERNAL_DIR (absolute,
+# exported by sync.sh). Empty when the project has no `external:` block.
+#
+# materialize_pack `rm -rf`s a directory under this path, so the same class of
+# check that guards adapter outputs applies — with one deliberate difference:
+# the external dir is ALLOWED inside the intelligence umbrella, since
+# `<umbrella>/external` is the recommended place for it.
+#
+# Exits 1 with a clear message on rejection.
+# Usage: resolve_external_dir "$REPO_ROOT" "$CONFIG_FILE"
+resolve_external_dir() {
+    local repo_root="$1"
+    local config_file="$2"
+
+    IS_EXTERNAL_DIR=""
+    local rel
+    rel="$(get_external_dir "$config_file")"
+    [ -n "$rel" ] || return 0
+
+    local canon
+    canon="$(normalize_path "$repo_root/$rel")"
+
+    case "$canon" in
+        ""|"/"|"$repo_root")
+            echo "ERROR: external.dir resolves to repo root or empty path: '$rel'" >&2
+            exit 1
+            ;;
+    esac
+    case "$canon" in
+        "$repo_root"/*) ;;
+        *)
+            echo "ERROR: external.dir escapes the repository: '$rel' (resolves to '$canon')." >&2
+            exit 1
+            ;;
+    esac
+
+    # Never inside a configured source tree: a pack directory created there
+    # would be `rm -rf`d alongside authored rules / agents / skills.
+    local canon_rel section src src_rel
+    canon_rel="${canon#"$repo_root"/}"
+    for section in rules agents skills; do
+        while IFS= read -r src; do
+            [ -z "$src" ] && continue
+            source_is_remote "$src" && continue
+            src_rel="$(normalize_path "$repo_root/$src")"
+            src_rel="${src_rel#"$repo_root"/}"
+            case "$canon_rel" in
+                "$src_rel"|"$src_rel"/*)
+                    echo "ERROR: external.dir ('$rel') is inside a configured source ('$src')." >&2
+                    echo "  Materializing a pack there would overwrite authored content." >&2
+                    exit 1
+                    ;;
+            esac
+        done < <(read_yaml_list "$config_file" "$section")
+    done
+
+    IS_EXTERNAL_DIR="$canon"
 }
 
 # Warn about prompt directories not listed in sources.
@@ -888,6 +1070,12 @@ warn_unsynced() {
         [ -z "$sub" ] && continue
         ignores+=("$sub")
     done < <(read_yaml_list "$config_file" "submodules")
+    # Materialized packs hold rules/ agents/ skills/ dirs that are reached
+    # through their `git+` source entry, never listed as local sources — so the
+    # scan below would flag every one of them as unsynced.
+    local ext_rel
+    ext_rel="$(get_external_dir "$config_file")"
+    [ -n "$ext_rel" ] && ignores+=("${ext_rel%/}")
 
     # Derive the intelligence folder basename from config.yaml's location —
     # whatever the user named it (`intelligence`, `Intelligence`, `prompts`).
@@ -1143,19 +1331,36 @@ get_target_block() {
     ' "$file"
 }
 
-# Get project name from config.yaml (project.name)
-get_project_name() {
+# Read a scalar field out of a top-level config block: `section:` -> `  key:`.
+# The single two-level reader — `get_nested_yaml_value` and `get_target_field`
+# cover the three-level shapes (`models.<ide>.<tier>`, `targets.<name>.<field>`).
+# Usage: get_yaml_field "config.yaml" "external" "dir"
+get_yaml_field() {
     local file="$1"
-    awk '
+    local section="$2"
+    local key="$3"
+    awk -v section="$section" -v key="$key" '
         { sub(/\r$/, "") }
-        /^project:/ { in_p = 1; next }
-        in_p && /^  name:/ {
+        $0 ~ "^" section ":" { in_section = 1; next }
+        in_section && /^[a-zA-Z]/ { exit }
+        in_section && $0 ~ "^  " key ":" {
             val = $0
-            sub(/.*name:[[:space:]]*["\047]?/, "", val)
+            sub(/.*:[[:space:]]*["\047]?/, "", val)
             sub(/["\047]?[[:space:]]*$/, "", val)
             print val
             exit
         }
-        in_p && /^[a-z]/ { exit }
     ' "$file"
+}
+
+# Get project name from config.yaml (project.name)
+get_project_name() {
+    get_yaml_field "$1" "project" "name"
+}
+
+# Repo-relative directory where remote packs are materialized (external.dir),
+# or empty when the project has no `external:` block — the default, where a
+# clone lives only in the transient run cache and nothing reaches the repo.
+get_external_dir() {
+    get_yaml_field "$1" "external" "dir"
 }

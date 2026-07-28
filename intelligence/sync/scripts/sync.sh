@@ -138,6 +138,15 @@ IS_REMOTE_CACHE="$(mktemp -d -t intelligence-sync-remotes-XXXXXX 2>/dev/null || 
 export IS_REMOTE_CACHE
 trap 'rm -rf "$IS_REMOTE_CACHE"' EXIT INT TERM
 
+# With an `external:` block the clone is additionally materialized into a
+# tracked directory in the repo, so an upstream bump is visible in `git diff`
+# rather than only in the generated output. Without it, packs stay transient.
+resolve_external_dir "$REPO_ROOT" "$CONFIG_FILE"
+export IS_EXTERNAL_DIR
+if [ -n "$IS_EXTERNAL_DIR" ]; then
+    echo "  External packs: ${IS_EXTERNAL_DIR#"$REPO_ROOT"/}"
+fi
+
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
 for section in rules agents skills; do

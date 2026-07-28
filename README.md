@@ -152,7 +152,7 @@ Each `intelligence/<module>/` (e.g. `sync/`, future `domain/`) is self-contained
 - [go-api-with-opencode](examples/go-api-with-opencode/) -- Go API with opencode (subagents in `.opencode/agents/`, skills via `.agents/skills/`)
 - [dotnet-api-with-react-frontend](examples/dotnet-api-with-react-frontend/) -- .NET backend + React frontend
 - [platform-with-submodules](examples/platform-with-submodules/) -- Multi-component platform with git submodules
-- [with-remote-skills](examples/with-remote-skills/) -- Pulls shared rules/skills from a remote git repo (`git+<url>` sources)
+- [with-remote-skills](examples/with-remote-skills/) -- Pulls shared rules/skills from a remote git repo (`git+<url>` sources), materialized into a tracked `external:` dir
 
 ## Documentation
 
