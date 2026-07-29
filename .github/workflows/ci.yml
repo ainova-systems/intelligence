@@ -229,6 +229,62 @@ jobs:
 
           echo "OK: packs declare once, mirror, refresh, and fail closed on a bad reference"
 
+      - name: A mirrored pack is LF even when the host checks out CRLF
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Reproduce the Windows default on Linux. With core.autocrlf=true the
+          # pack clone materializes CRLF for any pack that declares no
+          # attributes, and materialize_pack copies bytes verbatim — so the
+          # mirror lands CRLF inside the project repo and reappears as a dirty
+          # tree after every sync. The engine pins the clone instead of trusting
+          # the host, which is what this asserts.
+          git config --global core.autocrlf true
+
+          PACK=$RUNNER_TEMP/eol-intel
+          PROJ=$RUNNER_TEMP/eol-proj
+          mkdir -p "$PACK/rules"
+          printf -- '---\nname: eol-baseline\n---\n\nLF only.\n' > "$PACK/rules/eol-baseline.md"
+          git -C "$PACK" init -q
+          git -C "$PACK" add -A
+          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v1
+
+          mkdir -p "$PROJ/intelligence/rules" "$PROJ/intelligence/agents"
+          cp -r intelligence/sync "$PROJ/intelligence/sync"
+          printf -- '---\nname: local\n---\n\nLocal context.\n' > "$PROJ/intelligence/rules/context.md"
+          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          cat > "$PROJ/intelligence/config.yaml" <<YAML
+          project:
+            name: eol-test
+          sync_version: "$V"
+          packs:
+            eol-intel:
+              url: file://$PACK
+              mirror: "intelligence/external/eol-intel"
+          sources:
+            rules:
+              - "intelligence/rules"
+              - "@eol-intel/rules"
+            agents:
+              - "intelligence/agents"
+          targets:
+            agents: { enabled: true, output: "AGENTS.md" }
+            claude: { enabled: true, output: ".claude" }
+          YAML
+          git -C "$PROJ" init -q
+
+          cd "$PROJ"
+          bash intelligence/sync/scripts/sync.sh >/dev/null
+          test -f intelligence/external/eol-intel/rules/eol-baseline.md
+          crlf=""
+          while IFS= read -r f; do
+            [ "$(tr -cd '\r' < "$f" | wc -c)" -eq 0 ] || crlf="$crlf $f"
+          done < <(find intelligence/external -type f)
+          [ -z "$crlf" ] || { echo "CRLF reached the mirror:$crlf"; exit 1; }
+
+          git config --global --unset core.autocrlf
+          echo "OK: the mirror is LF whatever the host's core.autocrlf says"
+
   smoke:
     name: smoke (sync against examples)
     runs-on: ${{ matrix.os }}

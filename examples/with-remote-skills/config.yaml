@@ -8,7 +8,7 @@
 project:
   name: my-app
 
-sync_version: "0.10.0"
+sync_version: "0.10.1"
 
 packs:
   # `mirror:` materializes the pack into a tracked directory and commits it, so

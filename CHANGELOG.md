@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Update intelligence-sync: fetch the latest engine from https://github.com/ainova-systems/intelligence-sync and run its update flow to migrate this project to the newest version. Leave my rules, agents, and project skills untouched. If it fails, read the CHANGELOG "### Breaking" entries between my version and the latest, base your fix plan on them, make sure you are running the latest scripts, and retry; ask me only if it still fails.
 ```
 
+## [0.10.1] — 2026-07-29
+
+### Fixed
+
+- **A mirrored pack landed CRLF on Windows, so the tree was dirty after every sync.** `fetch_remote_source` cloned the pack under the host's git configuration, and `core.autocrlf=true` — the Git for Windows default — rewrites every text file to CRLF on checkout unless the *remote* repo declares `.gitattributes` of its own. `materialize_pack` then copies those bytes verbatim into the declared `mirror:`, so a project whose own `.gitattributes` normalizes to LF saw its entire vendored pack reported as modified after each run: no content diff, only line endings, and back again the moment it was reverted. A pack cannot be relied on to declare its line endings, so the engine no longer relies on the host either — the clone, and the SHA-checkout path beside it, now pin `core.autocrlf=false` and `core.eol=lf` next to the `core.symlinks=false` that was already there, and materialize exactly the bytes the pack has stored. `update.sh` pins the same two on its own upstream clone: that checkout is copied straight into `intelligence/sync/scripts/`, so a CRLF one would install CRLF shell scripts. Covered in CI by setting `core.autocrlf=true` globally and asserting the mirror comes out LF.
+
 ## [0.10.0] — 2026-07-28
 
 A remote source is now declared once as a **pack** and referenced by name, so its url and its pin live in exactly one place.

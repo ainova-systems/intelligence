@@ -66,7 +66,9 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 echo "  Cloning latest..."
-git clone --depth=1 --quiet "$REPO_URL" "$WORK_DIR"
+# LF regardless of the host's core.autocrlf: this checkout is copied verbatim
+# into the project, so a CRLF one on Windows would install CRLF shell scripts.
+git -c core.autocrlf=false -c core.eol=lf clone --depth=1 --quiet "$REPO_URL" "$WORK_DIR"
 
 # Normalize the upstream into a single module-shaped staging dir so the rest
 # of this script is layout-agnostic. Accept either upstream shape:

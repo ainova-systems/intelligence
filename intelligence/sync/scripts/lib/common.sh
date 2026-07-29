@@ -309,20 +309,29 @@ fetch_remote_source() {
         # repo. With core.symlinks=false git writes each symlink as a plain text
         # file holding its target path, so a hostile link like `skills -> /etc`
         # cannot make the copy pipeline read host files outside the clone.
+        #
+        # Line endings are pinned for the same reason the engine's own
+        # `.gitattributes` pins them: the checkout must not depend on the host's
+        # `core.autocrlf`. On Windows that default rewrites a pack declaring no
+        # attributes to CRLF, `materialize_pack` copies bytes verbatim, and the
+        # mirror lands CRLF inside the project repo — a phantom diff that returns
+        # on every sync. `autocrlf=false` covers packs with no attributes,
+        # `eol=lf` covers those that mark files `text`.
+        local git_cfg=(-c core.symlinks=false -c core.autocrlf=false -c core.eol=lf)
         local ok=0
         if [ -n "$ref" ]; then
-            if GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false clone --depth 1 --branch "$ref" --quiet \
+            if GIT_TERMINAL_PROMPT=0 git "${git_cfg[@]}" clone --depth 1 --branch "$ref" --quiet \
                 "$url" "$dest" 2>/dev/null; then
                 ok=1
             else
                 # ref is likely a SHA (not a branch/tag) — full clone + checkout.
                 rm -rf "$dest"
-                if GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false clone --quiet "$url" "$dest" 2>/dev/null \
-                    && git -C "$dest" -c core.symlinks=false checkout --quiet "$ref" 2>/dev/null; then
+                if GIT_TERMINAL_PROMPT=0 git "${git_cfg[@]}" clone --quiet "$url" "$dest" 2>/dev/null \
+                    && git -C "$dest" "${git_cfg[@]}" checkout --quiet "$ref" 2>/dev/null; then
                     ok=1
                 fi
             fi
-        elif GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false clone --depth 1 --quiet "$url" "$dest" 2>/dev/null; then
+        elif GIT_TERMINAL_PROMPT=0 git "${git_cfg[@]}" clone --depth 1 --quiet "$url" "$dest" 2>/dev/null; then
             ok=1
         fi
         if [ "$ok" -ne 1 ]; then
