@@ -35,6 +35,19 @@ case "$sub" in
         { [ -n "$scope" ] && [ -n "$url" ]; } || die "usage: intelligence registry add @scope <registry-repo-url>"
         case "$scope" in @*/*) die "bind a scope (@acme), not a package name" ;; @*) ;; *) die "scope must start with @" ;; esac
         require_v2
+        # Validate at bind time, not at the first `add`: a registry is a git
+        # repo holding index.yaml, and a URL pointing at anything else (a pack
+        # repo, a typo) is a mistake worth hearing about now. The binding is
+        # still written — the registry may simply not be reachable yet.
+        index="$(_fetch_index "${url#git+}")"
+        if [ -n "$index" ]; then
+            n="$(qmap_keys "$index" "packages" | grep -c . || true)"
+            echo "  index.yaml reachable — $n package(s) offered"
+        else
+            echo "  WARN: no index.yaml found at $url — 'intelligence add $scope/<name>' will fail until it has one." >&2
+            echo "        A registry is a git repo with index.yaml at its root (see the README of" >&2
+            echo "        https://github.com/ainova-systems/intelligence-registry for the format)." >&2
+        fi
         qmap_set_value "$IP_ROOT/intelligence.yaml" "registries" "$scope" "$url"
         echo "$scope -> $url"
         ;;

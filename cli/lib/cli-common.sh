@@ -102,7 +102,11 @@ stage_engine_content() {
     rm -rf "$store"
     mkdir -p "$store"
     local d s name skip
-    for d in rules agents docs; do
+    # `scripts` travels too: engine-shipped skills reference `<module>/scripts/…`
+    # (adapters, docs) and `<module>` resolves here, so the paths they hand an
+    # agent must exist. Running that sync.sh directly is harmless — outside CLI
+    # mode it fails closed rather than generating against the wrong layout.
+    for d in rules agents docs scripts; do
         [ -d "$IS_ENGINE_DIR/$d" ] && cp -R "$IS_ENGINE_DIR/$d" "$store/$d"
     done
     if [ -d "$IS_ENGINE_DIR/skills" ]; then

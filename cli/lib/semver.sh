@@ -39,9 +39,12 @@ semver_match() {
         ""|"*"|latest) return 0 ;;
     esac
     local op="" base="$range"
+    # Both strip patterns are quoted: an unquoted `~` in ${range#~} is a tilde
+    # EXPANSION (it becomes $HOME), so the prefix never strips and every
+    # `~x.y.z` range silently matches nothing.
     case "$range" in
-        "^"*) op="^"; base="${range#^}" ;;
-        "~"*) op="~"; base="${range#~}" ;;
+        "^"*) op="^"; base="${range#'^'}" ;;
+        "~"*) op="~"; base="${range#'~'}" ;;
     esac
     base="${base#v}"
     semver_is_stable "$base" || return 1

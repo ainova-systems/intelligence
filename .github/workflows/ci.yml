@@ -43,10 +43,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Unit — semver over git tags
+        run: bash cli/tests/unit-semver.sh "$GITHUB_WORKSPACE"
+      - name: Unit — manifest editors and lockfile round-trip
+        run: bash cli/tests/unit-manifest.sh "$GITHUB_WORKSPACE"
       - name: Package lifecycle (add / install --frozen / update / remove / registry)
         run: bash cli/tests/e2e-packages.sh "$GITHUB_WORKSPACE"
       - name: Project lifecycle (init / migrate / doctor / upgrade / fresh-clone install)
         run: bash cli/tests/e2e-lifecycle.sh "$GITHUB_WORKSPACE"
+      - name: Negative paths (bad specs, frozen drift, migrate rollback, refusals)
+        run: bash cli/tests/e2e-negative.sh "$GITHUB_WORKSPACE"
 
   npm-pack-smoke:
     name: npm-pack-smoke (${{ matrix.os }})

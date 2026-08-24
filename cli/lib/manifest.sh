@@ -134,10 +134,13 @@ qmap_set() {
             if (c > 0 && substr(line, 1, c - 1) == field) { print fieldline(); done = 1; next }
             print; next
         }
-        { print }
+        { last = $0; print }
         END {
             flush_key(); flush_block()
             if (!blockseen) {
+                # A block appended to a file that does not end blank would
+                # otherwise glue itself onto the previous section.
+                if (last != "") print ""
                 print block ":"
                 print keyline()
                 print fieldline()
@@ -159,10 +162,14 @@ qmap_set_value() {
             s = substr($0, 4); q = index(s, "\"")
             if (q > 0 && substr(s, 1, q - 1) == key) { print entry(); done = 1; next }
         }
-        { print }
+        { last = $0; print }
         END {
             if (inb && !done) { print entry(); done = 1 }
-            if (!blockseen) { print block ":"; print entry() }
+            if (!blockseen) {
+                if (last != "") print ""
+                print block ":"
+                print entry()
+            }
         }
     '
 }
