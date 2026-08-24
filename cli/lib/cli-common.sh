@@ -19,6 +19,11 @@ die() {
     exit 1
 }
 
+source "$CLI_DIR/lib/manifest.sh"
+source "$CLI_DIR/lib/semver.sh"
+source "$CLI_DIR/lib/registry.sh"
+source "$CLI_DIR/lib/lockfile.sh"
+
 # Meta-skills that the CLI replaces with first-class commands — staging skips
 # them so a v2 project never carries a skill telling the agent to run a flow
 # the CLI already owns.
