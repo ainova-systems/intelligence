@@ -1,0 +1,71 @@
+#!/bin/bash
+# intelligence — the CLI for Intelligence Packages and the sync engine.
+#
+# Dispatcher only: each command lives in commands/<name>.sh so commands can be
+# ported to Node one at a time without touching the others. The engine is the
+# vendored bash engine bundled next to the CLI (npm package) or, when running
+# from the intelligence-sync repo itself, the repo's own module.
+
+set -euo pipefail
+
+CLI_DIR="$(cd "$(dirname "$0")" && pwd)"
+export CLI_DIR
+
+# Engine discovery, by role (scripts/sync.sh + scripts/VERSION), never by
+# guessing names beyond the two shipped layouts:
+#   1. npm package:  <pkg>/cli/intelligence + <pkg>/engine/scripts/
+#   2. this repo:    <repo>/cli/intelligence + <repo>/intelligence/sync/scripts/
+IS_ENGINE_DIR=""
+for _cand in "$CLI_DIR/../engine" "$CLI_DIR/../intelligence/sync"; do
+    if [ -f "$_cand/scripts/sync.sh" ] && [ -f "$_cand/scripts/VERSION" ]; then
+        IS_ENGINE_DIR="$(cd "$_cand" && pwd)"
+        break
+    fi
+done
+if [ -z "$IS_ENGINE_DIR" ]; then
+    echo "ERROR: bundled sync engine not found next to the CLI ($CLI_DIR)." >&2
+    echo "       Reinstall: npm i -g @ainova-systems/intelligence" >&2
+    exit 1
+fi
+export IS_ENGINE_DIR
+
+cmd="${1:-}"
+case "$cmd" in
+    ""|help|-h|--help)
+        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION")"
+        cat <<EOF
+intelligence — build, version and distribute AI agent intelligence
+(engine $engine_ver${INTELLIGENCE_NPM_VERSION:+, package $INTELLIGENCE_NPM_VERSION})
+
+Usage: intelligence <command> [args]
+
+  init                    Set up this project (manifest, content skeleton, targets)
+  add <spec>              Add a package: @scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]
+  remove <name>           Remove a package
+  install [--frozen]      Restore .intelligence/ exactly from intelligence.lock
+  update [name]           Re-resolve version ranges and rewrite the lockfile
+  upgrade                 Upgrade the project to this CLI's engine (restage + restamp)
+  list                    Installed packages with requested/locked versions
+  sync [target]           Render intelligence to every enabled tool (.claude, AGENTS.md, ...)
+  registry <list|add|remove>  Bind a scope to a registry index
+  migrate [--dry-run]     Convert a vendored (v1) setup to the CLI setup
+  doctor                  Check manifest, lockfile, store and engine consistency
+  status                  Project state at a glance
+  version                 Print CLI and engine versions
+EOF
+        exit 0
+        ;;
+    version|-v|--version)
+        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION")"
+        echo "${INTELLIGENCE_NPM_VERSION:-$engine_ver} (engine $engine_ver)"
+        exit 0
+        ;;
+esac
+shift
+
+cmd_file="$CLI_DIR/commands/$cmd.sh"
+if [ ! -f "$cmd_file" ]; then
+    echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2
+    exit 1
+fi
+exec bash "$cmd_file" "$@"
