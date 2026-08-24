@@ -56,9 +56,10 @@ An artifact shipped *by the engine* cannot write the umbrella's name down — th
 | Token | Expands to | Example |
 |---|---|---|
 | `<umbrella>` | repo-relative umbrella dir | `Intelligence` |
-| `<module>` | repo-relative engine module | `Intelligence/sync` |
+| `<module>` | repo-relative engine module | `Intelligence/sync` (CLI setup: `.intelligence/engine`) |
+| `<sync-cmd>` | how a reader re-runs the sync | vendored: `bash Intelligence/sync/scripts/sync.sh`; CLI setup: `intelligence sync` |
 
-Expansion covers frontmatter and body alike, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the project's real folder name. Project-authored artifacts may use the tokens too, but they have no reason to — they can simply name their own folders.
+Expansion covers frontmatter and body alike, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the project's real folder name. Project-authored artifacts may use the tokens too, but they have no reason to — they can simply name their own folders. `<sync-cmd>` exists because "run a sync" is spelled differently per setup: engine content says the token, and `IS_SYNC_CMD` (set by the CLI) picks the spelling; unset, it reproduces the vendored command string exactly.
 
 A custom adapter belongs in the umbrella's `adapters/`, never in the module's `sync/scripts/adapters/` — the module is replaced wholesale on every update, so an adapter written there disappears at the next one. See `docs/ADAPTERS.md`.
 
@@ -400,6 +401,19 @@ Structural changes to the module layout are handled by **versioned migrations**,
 Bash emits `IS_STATUS=<code> [IS_DETAIL=...]` on stdout and exits with the matching code; callers capture it with `cmd || rc=$?` (never `if ! cmd; then exit $?` — that loses the code). The skill branches on the code.
 
 **Module model.** The engine self-locates by its own path; it does not assume a folder name (`sync/` by convention). Each `<umbrella>/<module>/` is self-contained: its own `scripts/`(+`VERSION`), `skills/`, `INIT.md`, `docs/`. Modules update independently and never touch sibling modules or project content (`rules/`, `agents/`, non-meta `skills/`) nor `config.yaml` beyond the idempotent additive `sources.skills` line and the `sync_version` key.
+
+**CLI mode (0.11.0+).** The `intelligence` CLI drives the same engine from outside the repo (the npm install dir); the project arrives through an env contract honored only when `IS_CLI=1` — with every variable unset the engine behaves byte-identically to the vendored flow (CI's `legacy-golden` job asserts that):
+
+| Variable | CLI-mode value |
+|---|---|
+| `CONFIG_FILE` | `<root>/intelligence.yaml` (the root manifest) |
+| `REPO_ROOT` | project root |
+| `IS_UMBRELLA_REL` / `IS_MODULE_REL` | content dir (default `intelligence`) / `.intelligence/engine` |
+| `IS_SYNC_CMD` | `intelligence sync` (feeds the `<sync-cmd>` token) |
+| `IS_PROTECTED_DIRS` | colon-separated dirs `validate_output_path` must refuse — restores the source-tree protection a root manifest would otherwise disable |
+| `IS_SUPPRESS_CLI_NOTE` | silences the vendored-flow recommendation NOTE (stderr-only either way) |
+
+In CLI projects the `intelligence-sync` and `intelligence-update` meta-skills are not installed — `intelligence sync` / `intelligence update` replace them; the other meta-skills ship unchanged and reach outputs from `.intelligence/engine/skills`. `sync.sh` in CLI mode still never migrates: an outdated stamp exits `needs-update` and the CLI's own `upgrade` closes the gap. See `docs/CLI.md` for the full CLI surface.
 
 ## .gitignore Pattern
 

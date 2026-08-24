@@ -2,6 +2,8 @@
 
 The sync engine is already installed in this directory's `scripts/` subfolder. Your job: analyze this codebase, ask the user targeted questions, and generate the project-specific configuration and content.
 
+> **The intelligence CLI is the recommended setup for new projects.** If `intelligence --version` works on this machine (or `npm i -g @ainova-systems/intelligence` is acceptable), prefer `intelligence init` + `intelligence add <package>` over this document — it automates what this bootstrap does by hand and adds versioned packages with a lockfile (see `docs/CLI.md`). This document remains the authoritative bootstrap for the **vendored** setup, which stays fully supported; a vendored project can convert later with `intelligence migrate`.
+
 **Execute phases sequentially. Do not skip or combine phases. Each phase has a gate — wait for it before proceeding.**
 
 ## Bootstrap: install the engine if it isn't here yet

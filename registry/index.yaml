@@ -6,10 +6,17 @@
 # @org/name -> https://github.com/org/name.git, content at the repo root.
 # Organizations override or extend this per scope with `intelligence registry
 # add @scope <registry-repo-url>`.
+#
+# This copy travels inside the CLI package. The same index lives at
+# https://github.com/ainova-systems/intelligence-registry and can be bound
+# explicitly (`intelligence registry add @ainova-systems <url>`) to read the
+# newest entries without waiting for a CLI release.
 packages:
   "@ainova-systems/core":
     url: "https://github.com/ainova-systems/intelligence-dev-packs.git"
     path: "packs/core"
+    description: "Engineering discipline for AI-first development: context engineering, artifact-derived status, review and diagnosis loops."
   "@ainova-systems/spec":
     url: "https://github.com/ainova-systems/intelligence-dev-packs.git"
     path: "packs/spec"
+    description: "Spec-driven delivery: specifications, decision records, sliced execution."

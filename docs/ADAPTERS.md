@@ -110,9 +110,10 @@ The engine ships artifacts of its own — the `intelligence-authoring` rule and 
 | Token | Expands to |
 |---|---|
 | `<umbrella>` | repo-relative umbrella dir (e.g. `Intelligence`) |
-| `<module>` | repo-relative engine module (e.g. `Intelligence/sync`) |
+| `<module>` | repo-relative engine module (e.g. `Intelligence/sync`; CLI setup: `.intelligence/engine`) |
+| `<sync-cmd>` | the sync invocation — vendored: `bash <module>/scripts/sync.sh`, CLI setup: `intelligence sync` (`IS_SYNC_CMD`) |
 
-Values are exported by `sync.sh` (`IS_UMBRELLA_REL`, `IS_MODULE_REL`), derived from the detected layout. Expansion covers frontmatter and body, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` carrying the project's real folder name. A file written without `finalize_output_file` ships a literal `<umbrella>` into an IDE — CI fails the build if any generated output still contains a token.
+Values are exported by `sync.sh` (`IS_UMBRELLA_REL`, `IS_MODULE_REL`; `IS_SYNC_CMD` comes from the CLI in CLI mode), derived from the detected layout. Expansion covers frontmatter and body, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` carrying the project's real folder name. A file written without `finalize_output_file` ships a literal `<umbrella>` into an IDE — CI fails the build if any generated output still contains a token.
 
 ### Cleanup Contract
 

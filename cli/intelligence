@@ -46,6 +46,7 @@ Usage: intelligence <command> [args]
   update [name]           Re-resolve version ranges and rewrite the lockfile
   upgrade                 Upgrade the project to this CLI's engine (restage + restamp)
   list                    Installed packages with requested/locked versions
+  search [term]           What the registries offer, and what this project has
   sync [target]           Render intelligence to every enabled tool (.claude, AGENTS.md, ...)
   registry <list|add|remove>  Bind a scope to a registry index
   migrate [--dry-run]     Convert a vendored (v1) setup to the CLI setup
