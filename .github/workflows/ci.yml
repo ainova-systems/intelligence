@@ -24,6 +24,30 @@ jobs:
             -not -path '*/adapters/_template.sh' \
             -print0 | xargs -0 shellcheck --severity=warning
 
+  cli-shellcheck:
+    name: cli-shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run shellcheck over the CLI
+        run: |
+          shellcheck --severity=warning cli/intelligence
+          find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+
+  cli-e2e:
+    name: cli-e2e (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Package lifecycle (add / install --frozen / update / remove / registry)
+        run: bash cli/tests/e2e-packages.sh "$GITHUB_WORKSPACE"
+      - name: Project lifecycle (init / migrate / doctor / upgrade / fresh-clone install)
+        run: bash cli/tests/e2e-lifecycle.sh "$GITHUB_WORKSPACE"
+
   legacy-golden:
     name: legacy-golden (vendored outputs byte-identical vs main)
     runs-on: ubuntu-latest

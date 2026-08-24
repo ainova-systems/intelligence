@@ -34,7 +34,7 @@ lock_to_tsv() {
     [ -f "$lock" ] || return 0
     while IFS= read -r name; do
         [ -n "$name" ] || continue
-        printf "%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s\n" \
+        printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
             "$name" \
             "$(qmap_field "$lock" "packages" "$name" "requested")" \
             "$(qmap_field "$lock" "packages" "$name" "url")" \
@@ -75,7 +75,7 @@ lock_upsert() {
     local tsv="${TMPDIR:-/tmp}/intelligence-lock-$$.tsv"
     {
         lock_to_tsv "$lock" | awk -F"$LOCK_SEP" -v n="$name" '$1 != n'
-        printf "%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s$LOCK_SEP%s\n" \
+        printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
             "$name" "$requested" "$url" "$path" "$resolved" "$sha"
     } > "$tsv"
     lock_write_from_tsv "$lock" "$tsv"

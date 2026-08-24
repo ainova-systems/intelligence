@@ -92,14 +92,10 @@ bundled_engine_version() {
 # meta-skills / docs are staged into the package store so sources can reach
 # them as ordinary repo-relative dirs. Re-staged whenever the bundled engine
 # version differs from the `.version` stamp.
-ensure_engine_staged() {
-    local root="$1"
-    local store="$root/.intelligence/engine"
-    local bundled_ver staged_ver
-    bundled_ver="$(bundled_engine_version)"
-    staged_ver=""
-    [ -f "$store/.version" ] && staged_ver="$(tr -d ' \t\r\n' < "$store/.version")"
-    [ "$staged_ver" = "$bundled_ver" ] && return 0
+# stage_engine_content <dest-dir> — unconditional copy of the engine's own
+# content into <dest-dir> plus the `.version` stamp.
+stage_engine_content() {
+    local store="$1"
     rm -rf "$store"
     mkdir -p "$store"
     local d s name skip
@@ -119,7 +115,18 @@ ensure_engine_staged() {
             cp -R "$s" "$store/skills/$name"
         done
     fi
-    printf '%s\n' "$bundled_ver" > "$store/.version"
+    bundled_engine_version > "$store/.version"
+}
+
+ensure_engine_staged() {
+    local root="$1"
+    local store="$root/.intelligence/engine"
+    local bundled_ver staged_ver
+    bundled_ver="$(bundled_engine_version)"
+    staged_ver=""
+    [ -f "$store/.version" ] && staged_ver="$(tr -d ' \t\r\n' < "$store/.version")"
+    [ "$staged_ver" = "$bundled_ver" ] && return 0
+    stage_engine_content "$store"
     echo "  engine content staged: .intelligence/engine ($bundled_ver)"
 }
 
