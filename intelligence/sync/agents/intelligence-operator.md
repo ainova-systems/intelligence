@@ -42,7 +42,7 @@ answer.
 ## Build & Verify
 
 ```
-bash <module>/scripts/sync.sh          # expect IS_STATUS=ok
+<sync-cmd>          # expect IS_STATUS=ok
 ```
 
 Done is the invoked skill reporting its own success criteria met: `IS_STATUS=ok` (`migrated` counts,

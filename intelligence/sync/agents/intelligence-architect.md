@@ -35,7 +35,7 @@ The `intelligence-authoring` rule carries the constraints and loads whenever thi
 ## Build & verify
 
 ```
-bash <module>/scripts/sync.sh          # expect IS_STATUS=ok
+<sync-cmd>          # expect IS_STATUS=ok
 ```
 
 The per-artifact checks are procedure, so they live in the meta-skills rather than in the rule. Reach for the one that fits the change instead of re-deriving the checks:

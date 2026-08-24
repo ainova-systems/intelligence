@@ -29,7 +29,7 @@ Edit the sources listed in `config.yaml` — the `rules/`, `agents/` and `skills
 
 `<module>/` is the vendored engine. It owns its own rules, agents and meta-skills; `update.sh` replaces them wholesale, so a local edit there is lost at the next update. Fix it upstream instead.
 
-After any change: `bash <module>/scripts/sync.sh`. A change that was not synced does not exist for any tool.
+After any change: `<sync-cmd>`. A change that was not synced does not exist for any tool.
 
 ## Pick the right artifact
 
@@ -111,4 +111,4 @@ The goal is subtraction, above. These are only the line past which something is 
 
 The per-artifact checks are a procedure, not a constraint to hold in mind while doing other work — so they live in the meta-skills, not here. Invoke the one that matches what you are doing: `intelligence-add-rule`, `intelligence-add-agent`, `intelligence-add-skill`, `intelligence-extract-skill`, `intelligence-review-skills`, `intelligence-learn-from-context`, `intelligence-sync`, `intelligence-update`, `intelligence-install-adapter`, `intelligence-uninstall-adapter`.
 
-A change to this layer is done when `bash <module>/scripts/sync.sh` reports `IS_STATUS=ok` and the skill you invoked reports clean.
+A change to this layer is done when `<sync-cmd>` reports `IS_STATUS=ok` and the skill you invoked reports clean.

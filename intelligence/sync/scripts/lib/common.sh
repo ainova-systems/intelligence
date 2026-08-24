@@ -39,11 +39,16 @@ finalize_output_file() {
     local target="$1"
     local umb="${IS_UMBRELLA_REL:-intelligence}"
     local mod="${IS_MODULE_REL:-intelligence/sync}"
+    # `<sync-cmd>` is how engine content says "run a sync": vendored setups
+    # expand it to the script invocation (built from $mod, so it reproduces the
+    # exact pre-token string), the CLI overrides it via IS_SYNC_CMD
+    # (`intelligence sync`).
+    local sc="${IS_SYNC_CMD:-bash $mod/scripts/sync.sh}"
     local tmp_file="$target.tmp"
     # Literal (index-based) substitution, not gsub: a regex replacement would
     # give `&` in a path its special meaning, and POSIX awk has no way to pass a
     # replacement string verbatim.
-    awk -v umb="$umb" -v mod="$mod" '
+    awk -v umb="$umb" -v mod="$mod" -v sc="$sc" '
         function repl(s, from, to,   out, i) {
             out = ""
             while ((i = index(s, from)) > 0) {
@@ -54,6 +59,7 @@ finalize_output_file() {
         }
         {
             sub(/\r$/, "")
+            $0 = repl($0, "<sync-cmd>", sc)
             $0 = repl($0, "<module>", mod)
             $0 = repl($0, "<umbrella>", umb)
             print
@@ -1035,6 +1041,26 @@ validate_output_path() {
         esac
     fi
 
+    # Explicitly protected directories (colon-separated, repo-relative). In CLI
+    # mode the manifest sits at the repo root, so the parent-of-config
+    # derivation above degrades to a no-op — the CLI names the source tree and
+    # the package store here instead. Unset (every vendored setup) → inert.
+    if [ -n "${IS_PROTECTED_DIRS:-}" ]; then
+        local -a prot_arr=()
+        local prot
+        IFS=':' read -r -a prot_arr <<< "$IS_PROTECTED_DIRS"
+        for prot in "${prot_arr[@]+"${prot_arr[@]}"}"; do
+            [ -n "$prot" ] || continue
+            case "$rel" in
+                "$prot"|"$prot"/*)
+                    echo "ERROR: targets.$adapter.output points into a protected directory ('$prot'): '$rel'" >&2
+                    echo "  The adapter would overwrite or delete source or package content." >&2
+                    exit 1
+                    ;;
+            esac
+        done
+    fi
+
     # Reject any configured source directory (rules, agents, skills).
     local section src src_rel
     for section in rules agents skills; do
@@ -1261,17 +1287,26 @@ warn_unsynced() {
 
     # Derive the intelligence folder basename from config.yaml's location —
     # whatever the user named it (`intelligence`, `Intelligence`, `prompts`).
+    # In CLI mode the manifest sits at the repo root, so that derivation would
+    # yield the repo directory's own name and never match — the content dir
+    # comes from the env contract instead.
     local intel_basename
-    intel_basename="$(basename "$(dirname "$config_file")")"
+    if [ "${IS_CLI:-0}" = "1" ]; then
+        intel_basename="$(basename "${IS_UMBRELLA_REL:-intelligence}")"
+    else
+        intel_basename="$(basename "$(dirname "$config_file")")"
+    fi
 
     local warnings=0
 
     while IFS= read -r found_dir; do
         local rel_dir="${found_dir#$repo_root/}"
 
-        # Skip generated output directories and common excludes.
+        # Skip generated output directories and common excludes. The package
+        # store (.intelligence/) is CLI-managed content reached through its own
+        # sources entries — flagging it would warn on every installed package.
         case "$rel_dir" in
-            .claude/*|.cursor/*|.github/*|.codex/*|.agents/*|*/node_modules/*|*/vendor/*|*/dist/*) continue ;;
+            .claude/*|.cursor/*|.github/*|.codex/*|.agents/*|.intelligence/*|*/node_modules/*|*/vendor/*|*/dist/*) continue ;;
         esac
 
         # Skip ignore/submodule patterns.

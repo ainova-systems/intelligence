@@ -229,3 +229,9 @@ echo "  Updated:   $MODULE_NAME/{scripts,INIT.md,docs}, $MODULE_NAME/skills/inte
 echo "  Untouched: your <umbrella>/rules, <umbrella>/agents, project skills, <umbrella>/adapters."
 echo "             config.yaml only gains the engine's managed keys (sync_version, module sources)."
 echo "  Next: bash $MODULE_NAME/scripts/sync.sh"
+
+# The intelligence CLI is the recommended setup for new projects. stderr only,
+# so IS_STATUS stdout parsing (skills, CI) is untouched; suppressible for CI.
+if [ -z "${IS_SUPPRESS_CLI_NOTE:-}" ]; then
+    echo "NOTE: the intelligence CLI is now the recommended setup — 'npm i -g @ainova-systems/intelligence', then 'intelligence migrate'. This vendored flow keeps working." >&2
+fi

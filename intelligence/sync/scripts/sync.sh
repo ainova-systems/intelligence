@@ -29,11 +29,22 @@ INTELLIGENCE_DIR="$LS_UMBRELLA_DIR"
 # breaking-change gap is owned solely by the intelligence-update flow
 # (update.sh + skill). sync refuses to run across an un-applied gap so a
 # stale/mismatched engine can never generate against a newer layout.
-if [ "$LS_LAYOUT" != "modular" ]; then
+if [ "${IS_CLI:-0}" != "1" ] && [ "$LS_LAYOUT" != "modular" ]; then
     is_status needs-update "layout=$LS_LAYOUT"
     echo "ERROR: engine is not in the modular layout (layout=$LS_LAYOUT)." >&2
     echo "       Run the update flow: tell your agent \"Update intelligence-sync\"." >&2
     exit "$IS_RC_NEEDS_UPDATE"
+fi
+
+# CLI mode (IS_CLI=1): the engine runs from outside the repo (the npm install
+# dir), so detect_layout cannot see the project — the project arrives through
+# the environment instead: CONFIG_FILE names the root manifest, REPO_ROOT the
+# project. The layout gate above is bypassed and the manifest is required up
+# front, before the version gates read it.
+if [ "${IS_CLI:-0}" = "1" ] && { [ -z "${CONFIG_FILE:-}" ] || [ ! -f "$CONFIG_FILE" ]; }; then
+    is_status config-missing "cli-mode"
+    echo "ERROR: CLI mode requires CONFIG_FILE to point at an existing manifest." >&2
+    exit "$IS_RC_CONFIG_MISSING"
 fi
 
 # Schema version lives in config.yaml (the frozen contract key).
@@ -74,11 +85,24 @@ unset REPO_ROOT_RAW
 # Layout tokens for generated output (see finalize_output_file in common.sh).
 # Engine-shipped rules/agents cannot hardcode the umbrella's name — the project
 # chooses it — so they write `<umbrella>` / `<module>` and every adapter expands
-# them to these repo-relative paths on the way out.
-IS_UMBRELLA_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_UMBRELLA_DIR")"
-IS_MODULE_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_MODULE_DIR")"
-IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
-IS_MODULE_REL="${IS_MODULE_REL:-intelligence/sync}"
+# them to these repo-relative paths on the way out. In CLI mode both values are
+# part of the env contract: the umbrella is the project's content dir and the
+# module is the staged engine content inside the package store.
+if [ "${IS_CLI:-0}" = "1" ]; then
+    # Re-normalize CONFIG_FILE the same way REPO_ROOT is above — the CLI (or
+    # the Node shim behind it) may hand us `D:/...` while `cd && pwd` yields
+    # `/d/...`, and prefix comparisons downstream need one spelling.
+    CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
+    IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
+    IS_MODULE_REL="${IS_MODULE_REL:-.intelligence/engine}"
+    # Project-owned adapters keep their v1 home: <umbrella>/adapters/.
+    INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
+else
+    IS_UMBRELLA_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_UMBRELLA_DIR")"
+    IS_MODULE_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_MODULE_DIR")"
+    IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
+    IS_MODULE_REL="${IS_MODULE_REL:-intelligence/sync}"
+fi
 export IS_UMBRELLA_REL IS_MODULE_REL
 
 # Config: explicit env > config.yaml in the umbrella folder
@@ -273,6 +297,13 @@ warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
 # Report model overrides that drift from intelligence-sync defaults
 # (helpful when defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
 report_model_drift "$CONFIG_FILE"
+
+# The intelligence CLI is the recommended setup for new projects. Recommend it
+# to vendored setups — stderr only, so IS_STATUS stdout parsing (skills, CI)
+# is untouched, and suppressible for pipelines.
+if [ "${IS_CLI:-0}" != "1" ] && [ -z "${IS_SUPPRESS_CLI_NOTE:-}" ]; then
+    echo "NOTE: the intelligence CLI is now the recommended setup — 'npm i -g @ainova-systems/intelligence', then 'intelligence migrate'. This vendored flow keeps working." >&2
+fi
 
 echo ""
 # sync.sh never migrates (the update flow owns that), so success is always ok.
