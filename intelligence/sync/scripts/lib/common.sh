@@ -42,13 +42,16 @@ finalize_output_file() {
     # `<sync-cmd>` is how engine content says "run a sync": vendored setups
     # expand it to the script invocation (built from $mod, so it reproduces the
     # exact pre-token string), the CLI overrides it via IS_SYNC_CMD
-    # (`intelligence sync`).
+    # (`intelligence sync`). `<manifest>` names the project's config file the
+    # same way: `config.yaml` vendored, `intelligence.yaml` under the CLI
+    # (IS_MANIFEST_NAME).
     local sc="${IS_SYNC_CMD:-bash $mod/scripts/sync.sh}"
+    local mf="${IS_MANIFEST_NAME:-config.yaml}"
     local tmp_file="$target.tmp"
     # Literal (index-based) substitution, not gsub: a regex replacement would
     # give `&` in a path its special meaning, and POSIX awk has no way to pass a
     # replacement string verbatim.
-    awk -v umb="$umb" -v mod="$mod" -v sc="$sc" '
+    awk -v umb="$umb" -v mod="$mod" -v sc="$sc" -v mf="$mf" '
         function repl(s, from, to,   out, i) {
             out = ""
             while ((i = index(s, from)) > 0) {
@@ -60,6 +63,7 @@ finalize_output_file() {
         {
             sub(/\r$/, "")
             $0 = repl($0, "<sync-cmd>", sc)
+            $0 = repl($0, "<manifest>", mf)
             $0 = repl($0, "<module>", mod)
             $0 = repl($0, "<umbrella>", umb)
             print

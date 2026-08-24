@@ -24,10 +24,15 @@ source "$CLI_DIR/lib/semver.sh"
 source "$CLI_DIR/lib/registry.sh"
 source "$CLI_DIR/lib/lockfile.sh"
 
-# Meta-skills that the CLI replaces with first-class commands — staging skips
-# them so a v2 project never carries a skill telling the agent to run a flow
-# the CLI already owns.
-CLI_OBSOLETE_SKILLS="intelligence-update intelligence-sync"
+# The engine's own content as a package: OPTIONAL but auto-selected at init.
+# Package by UX (manifest entry, lockfile row, list/search/remove), bundle by
+# mechanics — at the version the CLI ships, it materializes from the npm
+# bundle without network; only a cross-version install reaches git. The pin
+# is held exactly at the bundled engine version and moved only by `upgrade`.
+SYNC_PKG_NAME="@ainova-systems/sync"
+SYNC_PKG_URL="https://github.com/ainova-systems/intelligence-sync.git"
+SYNC_PKG_PATH="intelligence/sync"
+SYNC_PKG_STORE=".intelligence/packages/@ainova-systems/sync"
 
 # --- Project detection ---------------------------------------------------
 # Sets: IP_MODE (v2|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.
@@ -90,51 +95,26 @@ bundled_engine_version() {
     tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION"
 }
 
-# --- Engine content staging ----------------------------------------------
-# The v2 project vendors no engine code; the engine's own rules / agents /
-# meta-skills / docs are staged into the package store so sources can reach
-# them as ordinary repo-relative dirs. Re-staged whenever the bundled engine
-# version differs from the `.version` stamp.
-# stage_engine_content <dest-dir> — unconditional copy of the engine's own
-# content into <dest-dir> plus the `.version` stamp.
-stage_engine_content() {
-    local store="$1"
-    rm -rf "$store"
-    mkdir -p "$store"
-    local d s name skip
-    # `scripts` travels too: engine-shipped skills reference `<module>/scripts/…`
-    # (adapters, docs) and `<module>` resolves here, so the paths they hand an
-    # agent must exist. Running that sync.sh directly is harmless — outside CLI
-    # mode it fails closed rather than generating against the wrong layout.
-    for d in rules agents docs scripts; do
-        [ -d "$IS_ENGINE_DIR/$d" ] && cp -R "$IS_ENGINE_DIR/$d" "$store/$d"
-    done
-    if [ -d "$IS_ENGINE_DIR/skills" ]; then
-        mkdir -p "$store/skills"
-        for s in "$IS_ENGINE_DIR"/skills/*/; do
-            [ -d "$s" ] || continue
-            name="$(basename "$s")"
-            skip=0
-            for d in $CLI_OBSOLETE_SKILLS; do
-                [ "$name" = "$d" ] && skip=1
-            done
-            [ "$skip" = "1" ] && continue
-            cp -R "$s" "$store/skills/$name"
-        done
-    fi
-    bundled_engine_version > "$store/.version"
+# --- The sync package's manifest/lock plumbing ---------------------------
+# sync_pkg_entry <manifest> — write/refresh the package's manifest entry:
+# name + exact pin + explicit url/path, so resolution never depends on any
+# registry (a project registry shadowing the name cannot brick the engine).
+sync_pkg_entry() {
+    local manifest="$1"
+    qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "version" "$(bundled_engine_version)"
+    qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "url" "$SYNC_PKG_URL"
+    qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "path" "$SYNC_PKG_PATH"
 }
 
-ensure_engine_staged() {
-    local root="$1"
-    local store="$root/.intelligence/engine"
-    local bundled_ver staged_ver
-    bundled_ver="$(bundled_engine_version)"
-    staged_ver=""
-    [ -f "$store/.version" ] && staged_ver="$(tr -d ' \t\r\n' < "$store/.version")"
-    [ "$staged_ver" = "$bundled_ver" ] && return 0
-    stage_engine_content "$store"
-    echo "  engine content staged: .intelligence/engine ($bundled_ver)"
+# sync_pkg_install <root> — materialize the package into the store and lock
+# it (offline at the bundled version — fetch_package's bundle-seed guard).
+sync_pkg_install() {
+    local root="$1" ver sha
+    ver="$(bundled_engine_version)"
+    sha="$(fetch_package "$SYNC_PKG_URL" "v$ver" "$SYNC_PKG_PATH" "$root/$SYNC_PKG_STORE")"
+    wire_package_sources "$root/intelligence.yaml" "$SYNC_PKG_NAME" "$SYNC_PKG_STORE" "$root"
+    lock_upsert "$root/intelligence.lock" "$SYNC_PKG_NAME" "$ver" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$ver" "$sha"
+    echo "  engine content installed: $SYNC_PKG_STORE (v$ver)"
 }
 
 # --- The engine env contract ---------------------------------------------
@@ -149,5 +129,6 @@ export_engine_env() {
     export IS_UMBRELLA_REL="$umbrella"
     export IS_MODULE_REL=".intelligence/engine"
     export IS_SYNC_CMD="intelligence sync"
+    export IS_MANIFEST_NAME="intelligence.yaml"
     export IS_PROTECTED_DIRS="$umbrella:.intelligence"
 }

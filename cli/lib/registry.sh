@@ -1,12 +1,18 @@
 #!/bin/bash
 # Name -> source resolution and package fetching.
 #
-# Resolution order (first hit wins):
-#   1. project `registries:` — a scope bound to a registry repo (a git repo
-#      holding index.yaml); private orgs override anything shipped
+# Resolution order (first registry to DECLARE the name wins):
+#   1. project `registries:` — a trust LIST of registry repos (git repos
+#      holding index.yaml), consulted in manifest order; adding one is an
+#      explicit, committed act of trust in the names it declares
 #   2. the bundled default index (registry/index.yaml next to the CLI)
 #   3. convention: @org/name -> https://github.com/org/name.git, content at
 #      the repo root — the zero-infrastructure default
+#
+# The NAME is the trust anchor a developer reasons with; source integrity is
+# a separate mechanism: the lock pins url+sha, a project-registry hit that
+# shadows a bundled name with a different url warns loudly, and doctor flags
+# resolution/lock url drift.
 #
 # An index is itself fetched with git (never curl): auth, proxies and private
 # hosting all come for free, and the CLI keeps the engine's bash+awk+git-only
@@ -46,22 +52,33 @@ resolve_package_source() {
     local scope="${name%%/*}" short="${name#*/}"
     RES_URL=""; RES_PATH=""; RES_VIA=""
 
+    local reg_url index bundled burl
+    bundled="$(default_index_file)"
     if [ -n "$manifest" ] && [ -f "$manifest" ]; then
-        local reg_url index
-        reg_url="$(qmap_value "$manifest" "registries" "$scope")"
-        if [ -n "$reg_url" ]; then
+        while IFS= read -r reg_url; do
+            [ -n "$reg_url" ] || continue
             index="$(_fetch_index "${reg_url#git+}")"
-            [ -n "$index" ] || die "registry for scope '$scope' is unreachable or has no index.yaml: $reg_url"
+            if [ -z "$index" ]; then
+                echo "  WARN: registry unreachable or missing index.yaml, skipped: $reg_url" >&2
+                continue
+            fi
             RES_URL="$(qmap_field "$index" "packages" "$name" "url")"
-            RES_PATH="$(qmap_field "$index" "packages" "$name" "path")"
-            [ -n "$RES_URL" ] || die "package '$name' not found in the '$scope' registry ($reg_url)"
-            RES_VIA="registry:$reg_url"
-            return 0
-        fi
+            if [ -n "$RES_URL" ]; then
+                RES_PATH="$(qmap_field "$index" "packages" "$name" "path")"
+                RES_VIA="registry:$reg_url"
+                # Shadowing a bundled name with a DIFFERENT source is legal
+                # (that is what overriding means) but never silent.
+                if [ -n "$bundled" ]; then
+                    burl="$(qmap_field "$bundled" "packages" "$name" "url")"
+                    if [ -n "$burl" ] && [ "$burl" != "$RES_URL" ]; then
+                        echo "  WARN: $name from this registry overrides the bundled source ($burl)" >&2
+                    fi
+                fi
+                return 0
+            fi
+        done < <(registries_list "$manifest")
     fi
 
-    local bundled
-    bundled="$(default_index_file)"
     if [ -n "$bundled" ]; then
         RES_URL="$(qmap_field "$bundled" "packages" "$name" "url")"
         if [ -n "$RES_URL" ]; then
@@ -77,6 +94,36 @@ resolve_package_source() {
     return 0
 }
 
+# suggest_similar <manifest-or-empty> <@scope/name> — "Did you mean" lines to
+# stderr, matched on the short name (singular/plural tolerant) across every
+# project registry and the bundled index.
+suggest_similar() {
+    local manifest="$1" name="$2"
+    local want cand cshort reg_url index seen=" "
+    want="${name#*/}"; want="${want%s}"
+    _suggest_from() {
+        local idx="$1"
+        [ -n "$idx" ] && [ -f "$idx" ] || return 0
+        while IFS= read -r cand; do
+            [ -n "$cand" ] || continue
+            case "$seen" in *" $cand "*) continue ;; esac
+            cshort="${cand#*/}"; cshort="${cshort%s}"
+            if [ "$cshort" = "$want" ] && [ "$cand" != "$name" ]; then
+                seen="$seen$cand "
+                echo "  Did you mean: intelligence add $cand" >&2
+            fi
+        done < <(qmap_keys "$idx" "packages")
+    }
+    if [ -n "$manifest" ] && [ -f "$manifest" ]; then
+        while IFS= read -r reg_url; do
+            [ -n "$reg_url" ] || continue
+            index="$(_fetch_index "${reg_url#git+}")"
+            _suggest_from "$index"
+        done < <(registries_list "$manifest")
+    fi
+    _suggest_from "$(default_index_file)"
+}
+
 # fetch_package <url> <ref> <subpath> <dest-dir>
 # Shallow-clones url@ref (tag, branch, or SHA fallback), copies <subpath>
 # (or the repo root) into <dest-dir>, prints the resolved commit sha.
@@ -84,6 +131,22 @@ resolve_package_source() {
 # store holds the bytes the package published.
 fetch_package() {
     local url="$1" ref="$2" subpath="$3" dest="$4"
+    # Bundle seed: the engine-content package at the CLI's own version copies
+    # from the npm bundle — no network, which keeps init / fresh-clone install
+    # / migrate offline exactly like the staging they replace. Keyed on the
+    # full (url, path, ref) triple; any other version or source falls through
+    # to the normal clone.
+    if [ "$url" = "$SYNC_PKG_URL" ] && [ "$subpath" = "$SYNC_PKG_PATH" ] \
+        && [ "${ref#v}" = "$(bundled_engine_version)" ]; then
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        cp -R "$IS_ENGINE_DIR/." "$dest/"
+        rm -rf "$dest/.git"
+        if [ -f "$IS_ENGINE_DIR/scripts/ENGINE_SHA" ]; then
+            tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/ENGINE_SHA"
+        fi
+        return 0
+    fi
     local tmp sha src
     local -a branch_arg=()
     [ -n "$ref" ] && branch_arg=(--branch "$ref")

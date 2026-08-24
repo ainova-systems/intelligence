@@ -7,11 +7,11 @@ agent: intelligence-operator
 
 # Uninstall Adapter
 
-The umbrella is whatever directory holds `config.yaml` (`intelligence/`, `Intelligence/`, a codename — never assume the name or casing); the engine module is the directory under it holding `scripts/sync.sh` (conventionally `sync/`).
+The project's config is `<manifest>`; the content dir is `<umbrella>/` (never assume the name or casing); the engine's own files live under `<module>/` — these paths are localized to this project at sync time.
 
 ## Steps
 
-1. Set `enabled: false` for the target in `config.yaml`.
+1. Set `enabled: false` for the target in `<manifest>`.
 
 2. **Remove only the paths the adapter owns — never the output root.** Several adapters write into a shared root that also holds files nobody generated: `.github/` holds `workflows/`, `.claude/` holds `settings.json`, `.opencode/` holds `opencode.json`. Deleting the root destroys hand-authored work, and no adapter ever does that on re-sync.
 

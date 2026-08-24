@@ -111,11 +111,8 @@ sync_version: "$ENGINE_VER"
 sources:
   rules:
     - "intelligence/rules"
-    - ".intelligence/engine/rules"
   agents:
-    - ".intelligence/engine/agents"
   skills:
-    - ".intelligence/engine/skills"
 
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
@@ -129,10 +126,26 @@ cp "$PROJ/intelligence.yaml" "$OUT/manifest.s1"
 xfail "expected @scope/name" "$PROJ" add not-a-spec
 chk cmp -s "$OUT/manifest.s1" "$PROJ/intelligence.yaml"
 
-echo "== 12a. registry add + list =="
-xok "" "$PROJ" registry add @acme "file://$REG"
-chk grep -q '"@acme": "file://' "$PROJ/intelligence.yaml"
-xok "@acme -> file://" "$PROJ" registry list
+echo "== 12a. registry add + list (trust list, no scope labels) =="
+xok "package(s)" "$PROJ" registry add "file://$REG"
+chk grep -q -- "- \"file://" "$PROJ/intelligence.yaml"
+xok "file://" "$PROJ" registry list
+# idempotent: adding the same URL twice records it once
+xok "" "$PROJ" registry add "file://$REG"
+n="$(grep -c -- "- \"file://$REG\"" "$PROJ/intelligence.yaml" || true)"
+[ "$n" = "1" ] || { echo "FAIL: expected 1 registry entry, got $n"; fail=1; }
+
+echo "== 12c. registry add refuses a url with no index.yaml, --force overrides =="
+# $PACK is a package repo, not a registry — the mistake the refusal exists for.
+cp "$PROJ/intelligence.yaml" "$OUT/manifest.reg"
+xfail "no index.yaml found" "$PROJ" registry add "file://$PACK"
+chk cmp -s "$OUT/manifest.reg" "$PROJ/intelligence.yaml"
+xok "file://" "$PROJ" registry add "file://$PACK" --force
+chk grep -q -- "$PACK\"" "$PROJ/intelligence.yaml"
+xok "removed" "$PROJ" registry remove "file://$PACK"
+chknot grep -q -- "$PACK\"" "$PROJ/intelligence.yaml"
+# a scope argument is guided to the right command
+xfail "added by URL" "$PROJ" registry add @acme
 
 echo "== 2. no tag satisfies the range =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.s2"
@@ -180,7 +193,7 @@ mkdir -p "$CLONE"
 cp -r "$PROJ/intelligence" "$CLONE/intelligence"
 cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$CLONE/"
 git -C "$CLONE" init --quiet
-xfail "engine content not staged" "$CLONE" doctor
+xfail "not installed" "$CLONE" doctor
 xok "" "$CLONE" install
 xok "all good." "$CLONE" doctor
 
@@ -259,7 +272,7 @@ chk test -f "$LEG2/intelligence.yaml"
 chk test -f "$LEG2/intelligence.lock"
 chknot test -f "$LEG2/intelligence/config.yaml"
 chknot test -d "$LEG2/intelligence/sync"
-chk test -d "$LEG2/.intelligence/engine"
+chk test -d "$LEG2/.intelligence/packages/@ainova-systems/sync"
 chk test -f "$LEG2/.intelligence/backup/config.yaml"
 chk test -f "$LEG2/AGENTS.md"
 
@@ -273,13 +286,67 @@ xok "vendored" "$LEG1" status
 xok "No intelligence project" "$EMPTY" status
 
 echo "== 12b. registry remove =="
-xok "unbound" "$PROJ" registry remove @acme
-chknot grep -q '"@acme": ' "$PROJ/intelligence.yaml"
+xok "removed" "$PROJ" registry remove "file://$REG"
+chknot grep -q -- "- \"file://$REG\"" "$PROJ/intelligence.yaml"
 xok "(none)" "$PROJ" registry list
-if printf '%s\n' "$OUTPUT" | grep -qF -- "@acme -> "; then
-    echo "FAIL: registry list still shows @acme after remove"
+if printf '%s\n' "$OUTPUT" | grep -qF -- "file://$REG —"; then
+    echo "FAIL: registry list still shows the registry after remove"
     fail=1
 fi
+
+echo "== 13. engine-content package: auto-add, guards, upgrade migration =="
+P13="$OUT/p13"
+mkdir -p "$P13"
+git -C "$P13" init --quiet
+xok "engine content installed" "$P13" init
+chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
+chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
+chk test -d "$P13/.claude/skills/intelligence-update"
+xok "owns it" "$P13" update
+xfail "--force" "$P13" remove @ainova-systems/sync
+chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
+xok "" "$P13" remove @ainova-systems/sync --force
+chknot grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
+chknot test -d "$P13/.intelligence/packages/@ainova-systems/sync"
+
+B13="$OUT/b13"
+mkdir -p "$B13"
+git -C "$B13" init --quiet
+xok "bare setup" "$B13" init --bare
+chknot grep -q '"@ainova-systems/sync"' "$B13/intelligence.yaml"
+
+# A pre-package manifest (staged .intelligence/engine sources): sync fails
+# closed with the upgrade hint; upgrade migrates it onto the package.
+U13="$OUT/u13"
+mkdir -p "$U13/intelligence/rules" "$U13/.intelligence/engine/rules"
+printf '# Ctx\n\nu13 context\n' > "$U13/intelligence/rules/context.md"
+cat > "$U13/intelligence.yaml" <<EOF
+project:
+  name: u13
+
+sync_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+    - ".intelligence/engine/rules"
+  agents:
+    - ".intelligence/engine/agents"
+  skills:
+    - ".intelligence/engine/skills"
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  claude: { enabled: true, output: ".claude" }
+EOF
+git -C "$U13" init --quiet
+xfail "intelligence upgrade" "$U13" sync
+xok "" "$U13" upgrade
+chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
+chknot test -d "$U13/.intelligence/engine"
+chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"
+chk test -d "$U13/.intelligence/packages/@ainova-systems/sync/rules"
+xok "IS_STATUS=ok" "$U13" sync
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

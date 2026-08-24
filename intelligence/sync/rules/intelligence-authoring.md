@@ -25,9 +25,9 @@ Three ways to shorten, in order of what they are worth:
 
 ## Source of truth
 
-Edit the sources listed in `config.yaml` — the `rules/`, `agents/` and `skills/` directories it names — and `config.yaml` itself. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
+Edit the sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. A source that arrived from the engine or an installed package is not yours to edit either — it is replaced on the next update or install; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
 
-`<module>/` is the vendored engine. It owns its own rules, agents and meta-skills; `update.sh` replaces them wholesale, so a local edit there is lost at the next update. Fix it upstream instead.
+`<module>/` is the engine's own content. It owns its own rules, agents and meta-skills, and every engine update replaces it wholesale, so a local edit there is lost. Fix it upstream instead.
 
 After any change: `<sync-cmd>`. A change that was not synced does not exist for any tool.
 
@@ -84,11 +84,11 @@ The verb just names the action — `add-`, `run-`, `review-`, `extract-`, `plan-
 
 Two verbs are told apart by what already exists. **`add-` puts one new member into a set that is already there** — a field on an existing type, a record among records, a component in the inventory the project keeps — so the noun names the member, and the number of files it takes to land is not the point. **`create-` brings the container itself into existence**, where nothing hosted it before. Neither verb describes how a skill is factored inside, so splitting a skill's internals never renames it.
 
-`intelligence-` is **reserved** for the engine's own artifacts. A project skill carrying that prefix is pruned by the updater — rename it.
+`intelligence-` is **reserved** for the engine's own artifacts. A project skill carrying that prefix collides with engine ownership — everything under the prefix is the engine's to replace or remove on update — rename it.
 
 ### Shape
 
-- **A skill is executed, so it must not hardcode what can move.** Its steps are followed literally: a path, a command or a project name baked into a procedure breaks the moment the layout moves. Resolve them from a rule or from `config.yaml` instead. This does **not** apply to rules and agents — a rule's job is to *describe* the repository, so naming a path in prose is exactly right. Naming a path is description; baking one into a procedure is a defect waiting to fire.
+- **A skill is executed, so it must not hardcode what can move.** Its steps are followed literally: a path, a command or a project name baked into a procedure breaks the moment the layout moves. Resolve them from a rule or from `<manifest>` instead. This does **not** apply to rules and agents — a rule's job is to *describe* the repository, so naming a path in prose is exactly right. Naming a path is description; baking one into a procedure is a defect waiting to fire.
 - **Keep everything the skill needs inside the skill's own folder.** The Agent Skills standard lets a skill ship `scripts/`, `references/` and `assets/` beside `SKILL.md`, and sync copies the whole directory, so a bundled helper travels with the skill to every tool. That is the default.
 - **Promote a helper out of the skill folder only when a second skill needs it** — then it belongs beside the source groups, and every skill resolves it the same way. The dividing line is reuse, not repetition: one skill's helper stays with that skill however often it runs.
 - **A helper is code.** It gets what code gets — a test, and a way to run it that does not assume one person's machine.

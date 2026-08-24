@@ -37,11 +37,8 @@ sync_version: "$ENGINE_VER"
 sources:
   rules:
     - "intelligence/rules"
-    - ".intelligence/engine/rules"
   agents:
-    - ".intelligence/engine/agents"
   skills:
-    - ".intelligence/engine/skills"
 
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
@@ -100,8 +97,8 @@ EOF
 git -C "$REG" init --quiet
 git -C "$REG" -c user.email=t@t -c user.name=t add -A
 git -C "$REG" -c user.email=t@t -c user.name=t commit --quiet -m idx
-(cd "$PROJ" && bash "$CLI" registry add @acme "file://$REG")
-chk grep -q '"@acme": "file://' "$PROJ/intelligence.yaml"
+(cd "$PROJ" && bash "$CLI" registry add "file://$REG")
+chk grep -q -- "- \"file://$REG\"" "$PROJ/intelligence.yaml"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" add @acme/via-registry --no-sync)
 chk test -f "$PROJ/.intelligence/packages/@acme/via-registry/pack-do-thing/SKILL.md"
 chk grep -q '"@acme/via-registry"' "$PROJ/intelligence.lock"

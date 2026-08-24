@@ -5,7 +5,9 @@
 #
 # Nothing here is written by hand in practice: `intelligence init` generates
 # it and `intelligence add` maintains packages: and the store's sources
-# entries.
+# entries. The engine's own content (@ainova-systems/sync) is an ordinary
+# package too — auto-added by init, pinned to the engine version, moved by
+# `intelligence upgrade`.
 project:
   name: cli-project
 
@@ -14,15 +16,15 @@ sync_version: "0.11.0"
 sources:
   rules:
     - "intelligence/rules"
-    - ".intelligence/engine/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - ".intelligence/packages/@ainova-systems/core/rules"
   agents:
     - "intelligence/agents"
-    - ".intelligence/engine/agents"
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - ".intelligence/packages/@ainova-systems/core/agents"
   skills:
     - "intelligence/skills"
-    - ".intelligence/engine/skills"
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - ".intelligence/packages/@ainova-systems/core/skills"
 
 targets:
@@ -32,9 +34,14 @@ targets:
 
 # CLI-owned blocks — the engine never reads below this line.
 packages:
+  "@ainova-systems/sync":
+    version: "0.11.0"
+    url: "https://github.com/ainova-systems/intelligence-sync.git"
+    path: "intelligence/sync"
   "@ainova-systems/core":
     version: "^0.3.0"
 
-# Optional: bind a scope to a private registry (a git repo holding index.yaml).
+# Registries are a trust list: git repos holding an index.yaml, consulted in
+# order before the CLI's bundled index and the @org/name GitHub convention.
 # registries:
-#   "@acme": "https://github.com/acme/intelligence-registry.git"
+#   - "https://github.com/acme/intelligence-registry.git"

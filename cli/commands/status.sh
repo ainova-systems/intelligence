@@ -13,12 +13,13 @@ case "$IP_MODE" in
         else
             echo "Lockfile: none (no packages added yet)"
         fi
-        if [ -f "$IP_ROOT/.intelligence/engine/.version" ]; then
-            echo "Store:    .intelligence/engine at $(tr -d ' \t\r\n' < "$IP_ROOT/.intelligence/engine/.version")"
+        sync_locked="$(qmap_field "$IP_ROOT/intelligence.lock" "packages" "$SYNC_PKG_NAME" "resolved")"
+        if [ -n "$sync_locked" ]; then
+            echo "Content:  $SYNC_PKG_NAME at $sync_locked"
         else
-            echo "Store:    not staged — run 'intelligence install'"
+            echo "Content:  no $SYNC_PKG_NAME (bare setup)"
         fi
-        echo "Engine:   $(bundled_engine_version) (bundled)"
+        echo "Engine:   $(bundled_engine_version) (bundled with the CLI)"
         ;;
     legacy)
         echo "Project:  $IP_ROOT (vendored v1 setup)"

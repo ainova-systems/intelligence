@@ -194,6 +194,85 @@ qmap_delete_key() {
     '
 }
 
+# --- registries: a trust LIST, not a scope map -----------------------------
+# The block holds registry repo URLs in trust order. Two shapes are read so
+# early manifests keep working: the list form (`- "url"`) and the retired
+# flat-map form (`"@scope": "url"` — the scope label is ignored, the URL is
+# simply another registry).
+
+# registries_list <file> — registry URLs, one per line, manifest order.
+registries_list() {
+    [ -f "$1" ] || return 0
+    awk '
+        { sub(/\r$/, "") }
+        /^registries:[ \t]*$/ { inb = 1; next }
+        inb && /^[^ #]/ { inb = 0 }
+        inb {
+            line = $0
+            if (line ~ /^[ \t]*-[ \t]*/) {
+                sub(/^[ \t]*-[ \t]*/, "", line)
+            } else if (line ~ /^  "/) {
+                c = index(line, ":")
+                if (c == 0) next
+                line = substr(line, c + 1)
+            } else next
+            sub(/^[ \t]+/, "", line)
+            gsub(/["\x27]/, "", line)
+            sub(/[ \t]+#.*$/, "", line)
+            sub(/[ \t]+$/, "", line)
+            if (line != "") print line
+        }
+    ' "$1"
+}
+
+# registries_add <file> <url> — idempotent append in list form.
+registries_add() {
+    local file="$1" url="$2" existing
+    while IFS= read -r existing; do
+        [ "$existing" = "$url" ] && return 0
+    done < <(registries_list "$file")
+    _qmap_stage "$file" -v url="$url" '
+        function entry() { return "  - \"" url "\"" }
+        { sub(/\r$/, "") }
+        /^registries:[ \t]*$/ { blockseen = 1; inb = 1; print; next }
+        inb && /^[^ #]/ { if (!done) { print entry(); done = 1 }; inb = 0 }
+        { last = $0; print }
+        END {
+            if (inb && !done) { print entry(); done = 1 }
+            if (!blockseen) {
+                if (last != "") print ""
+                print "registries:"
+                print entry()
+            }
+        }
+    '
+}
+
+# registries_remove <file> <url> — drop the entry, either shape.
+registries_remove() {
+    local file="$1" url="$2"
+    [ -f "$file" ] || return 0
+    _qmap_stage "$file" -v url="$url" '
+        { sub(/\r$/, "") }
+        /^registries:[ \t]*$/ { inb = 1; print; next }
+        inb && /^[^ #]/ { inb = 0 }
+        inb {
+            line = $0
+            v = ""
+            if (line ~ /^[ \t]*-[ \t]*/) { v = line; sub(/^[ \t]*-[ \t]*/, "", v) }
+            else if (line ~ /^  "/) { c = index(line, ":"); if (c > 0) v = substr(line, c + 1) }
+            if (v != "") {
+                sub(/^[ \t]+/, "", v)
+                gsub(/["\x27]/, "", v)
+                sub(/[ \t]+#.*$/, "", v)
+                sub(/[ \t]+$/, "", v)
+                if (v == url) next
+            }
+        }
+        { print }
+    '
+}
+
 # sources_remove_entry <file> <section> <entry> — remove `- "entry"` from
 # sources.<section>. Inverse of the engine-side _mig_add_source.
 sources_remove_entry() {

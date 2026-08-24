@@ -19,6 +19,11 @@ cp "$ROOT/npm/bin/intelligence.js" "$DIST/bin/intelligence.js"
 cp -R "$ROOT/cli" "$DIST/cli"
 rm -rf "$DIST/cli/tests"
 cp -R "$ROOT/intelligence/sync" "$DIST/engine"
+# The commit this build came from: bundle-seeded lock entries for the
+# @ainova-systems/sync package carry it as their sha.
+if sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"; then
+    printf '%s\n' "$sha" > "$DIST/engine/scripts/ENGINE_SHA"
+fi
 cp -R "$ROOT/registry" "$DIST/registry"
 cp "$ROOT/npm/README.md" "$DIST/README.md"
 cp "$ROOT/LICENSE" "$DIST/LICENSE"

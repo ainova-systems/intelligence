@@ -33,6 +33,9 @@ pkg_state() {
 
 seen=" "
 rows=0
+# emit_index <index-file> <origin-label>
+# Registries are consulted in trust order; the first to declare a name wins,
+# so a name already seen is not repeated (that IS the resolution order).
 emit_index() {
     local index="$1" origin="$2" name desc state
     [ -n "$index" ] && [ -f "$index" ] || return 0
@@ -56,17 +59,15 @@ emit_index() {
 }
 
 if [ -n "$manifest" ]; then
-    while IFS= read -r scope; do
-        [ -n "$scope" ] || continue
-        url="$(qmap_value "$manifest" "registries" "$scope")"
+    while IFS= read -r url; do
         [ -n "$url" ] || continue
         index="$(_fetch_index "${url#git+}")"
         if [ -z "$index" ]; then
-            echo "  WARN: registry for $scope is unreachable or has no index.yaml: $url" >&2
+            echo "  WARN: registry unreachable or missing index.yaml: $url" >&2
             continue
         fi
-        emit_index "$index" "$scope -> $url"
-    done < <(qmap_keys "$manifest" "registries")
+        emit_index "$index" "$url"
+    done < <(registries_list "$manifest")
 fi
 emit_index "$(default_index_file)" "bundled"
 
@@ -81,4 +82,4 @@ if [ "$rows" -eq 0 ]; then
 fi
 
 echo ""
-echo "add one: intelligence add <name>   |   private registry: intelligence registry add @scope <repo-url>"
+echo "add one: intelligence add <name>   |   private registry: intelligence registry add <repo-url>"

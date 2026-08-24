@@ -21,7 +21,7 @@ The original negative pattern stays in the rule body as an illustrative example 
 
 ## Phase A — Analyze (read-only)
 
-1. **Read authoring conventions first.** Discover the paths, never assume them: the umbrella is the directory holding `config.yaml` (`intelligence/`, `Intelligence/`, a codename), and the engine module is the directory under it holding both `scripts/sync.sh` and `scripts/VERSION` (conventionally `sync/`). The meta-skills live in `<module>/skills/`, not directly under the umbrella. Load `<module>/skills/intelligence-add-rule/SKILL.md`, `<module>/skills/intelligence-add-skill/SKILL.md`, `<module>/skills/intelligence-add-agent/SKILL.md`, and `<module>/docs/CONVENTIONS.md` (Authoring Discipline section). This skill writes nothing on its own — it delegates to the add-* skills, which carry the authoring conventions.
+1. **Read authoring conventions first.** The paths below are localized to this project at sync time: `<umbrella>/` is the content dir, `<module>/` the engine's own files, `<manifest>` the config. The meta-skills live in `<module>/skills/`, not directly under the umbrella. Load `<module>/skills/intelligence-add-rule/SKILL.md`, `<module>/skills/intelligence-add-skill/SKILL.md`, `<module>/skills/intelligence-add-agent/SKILL.md`, and `<module>/docs/CONVENTIONS.md` (Authoring Discipline section). This skill writes nothing on its own — it delegates to the add-* skills, which carry the authoring conventions.
 
 2. **Capture the lesson** from session context or user input. Strip session-specific detail, keep the underlying pattern.
 

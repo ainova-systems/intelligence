@@ -81,6 +81,23 @@ if [ "$mode" = "registry" ]; then
     echo "  resolving $name via $RES_VIA -> $url${path:+ ($path)}"
 fi
 
+# The source must exist before anything else is attempted — a name that fell
+# through to the convention is often just a typo, and that must say so, not
+# die mid-pipeline with no message.
+if ! GIT_TERMINAL_PROMPT=0 git ls-remote "$url" >/dev/null 2>&1; then
+    echo "ERROR: no reachable repository at $url" >&2
+    if [ "${RES_VIA:-}" = "convention" ]; then
+        echo "  No registry declares '$name', so it resolved by convention to github.com/${name#@}." >&2
+        echo "  Either the name is misspelled ('intelligence search' lists what registries offer)," >&2
+        echo "  the repo is private (check your git credentials), or its registry is not added yet:" >&2
+        echo "    intelligence registry add <registry-repo-url>" >&2
+        suggest_similar "$manifest" "$name"
+    else
+        echo "  Declared by ${RES_VIA:-the manifest} — check the URL and your git access." >&2
+    fi
+    exit 1
+fi
+
 # Pick the version: an explicit ref pins; otherwise the highest stable tag
 # matching the range (npm's behaviour, `^highest` becoming the requested range
 # when none was given).

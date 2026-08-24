@@ -9,15 +9,15 @@ argument-hint: <domain> <verb-noun> [description]
 ## Steps
 
 1. **Determine domain prefix** (the scope is required):
-   - **Reuse the existing domain when one fits**: list `intelligence/skills/` and `intelligence/agents/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
+   - **Reuse the existing domain when one fits**: list `<umbrella>/skills/` and `<umbrella>/agents/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
    - **When no existing domain fits**, derive from repo structure:
-     - Single / root project → use the project codename from `intelligence/config.yaml` → `project.name`
+     - Single / root project → use the project codename from `<manifest>` → `project.name`
      - Backend service / API component → `backend-`
      - Frontend / web / UI component → `frontend-`
      - Infrastructure, IaC, CI/CD, deployment → `devops-`
      - Shared library / common / cross-cutting code → `core-`
      - Test suites (e2e, integration) → `tests-`
-     - Tool-internal (intelligence-sync itself) → `intelligence-`
+     - Tool-internal (intelligence-sync itself) → `intelligence-` (only inside the intelligence-sync repo — downstream projects must not use this prefix)
    - If the repo is a monorepo with named components (e.g., `apps/billing`, `services/auth`), prefer the component name as the domain (`billing-`, `auth-`).
    - **Every skill needs a domain prefix.** If the scope is unclear, ask the user before proceeding.
 
@@ -28,13 +28,13 @@ argument-hint: <domain> <verb-noun> [description]
    - `run-` — executes an operation (tests, build, sync)
    - `review-` — read-only analysis
 
-3. **Check for existing agent**: Find an agent in `intelligence/agents/` matching the domain
+3. **Check for existing agent**: Find an agent in `<umbrella>/agents/` matching the domain
    - If found — this skill will be linked to that agent
    - If not — ask user whether to create a new agent via `/intelligence-add-agent` first
 
 4. **Analyze codebase patterns**: Read existing implementations to extract the repeatable steps this skill should automate. Each step must come from actual code patterns, not generic knowledge.
 
-5. **Create skill**: Write `intelligence/skills/<full-name>/SKILL.md` with frontmatter:
+5. **Create skill**: Write `<umbrella>/skills/<full-name>/SKILL.md` (create the directory if missing — no config edit needed) with frontmatter:
    ```yaml
    ---
    name: <full-name>

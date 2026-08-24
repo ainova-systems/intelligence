@@ -56,7 +56,8 @@ An artifact shipped *by the engine* cannot write the umbrella's name down — th
 | Token | Expands to | Example |
 |---|---|---|
 | `<umbrella>` | repo-relative umbrella dir | `Intelligence` |
-| `<module>` | repo-relative engine module | `Intelligence/sync` (CLI setup: `.intelligence/engine`) |
+| `<module>` | repo-relative engine module | `Intelligence/sync` (CLI setup: `.intelligence/packages/@ainova-systems/sync`) |
+| `<manifest>` | the project's config file, by name | vendored: `config.yaml`; CLI setup: `intelligence.yaml` |
 | `<sync-cmd>` | how a reader re-runs the sync | vendored: `bash Intelligence/sync/scripts/sync.sh`; CLI setup: `intelligence sync` |
 
 Expansion covers frontmatter and body alike, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the project's real folder name. Project-authored artifacts may use the tokens too, but they have no reason to — they can simply name their own folders. `<sync-cmd>` exists because "run a sync" is spelled differently per setup: engine content says the token, and `IS_SYNC_CMD` (set by the CLI) picks the spelling; unset, it reproduces the vendored command string exactly.
@@ -408,12 +409,13 @@ Bash emits `IS_STATUS=<code> [IS_DETAIL=...]` on stdout and exits with the match
 |---|---|
 | `CONFIG_FILE` | `<root>/intelligence.yaml` (the root manifest) |
 | `REPO_ROOT` | project root |
-| `IS_UMBRELLA_REL` / `IS_MODULE_REL` | content dir (default `intelligence`) / `.intelligence/engine` |
+| `IS_UMBRELLA_REL` / `IS_MODULE_REL` | content dir (default `intelligence`) / `.intelligence/packages/@ainova-systems/sync` |
+| `IS_MANIFEST_NAME` | `intelligence.yaml` — feeds the `<manifest>` token (vendored default: `config.yaml`) |
 | `IS_SYNC_CMD` | `intelligence sync` (feeds the `<sync-cmd>` token) |
 | `IS_PROTECTED_DIRS` | colon-separated dirs `validate_output_path` must refuse — restores the source-tree protection a root manifest would otherwise disable |
 | `IS_SUPPRESS_CLI_NOTE` | silences the vendored-flow recommendation NOTE (stderr-only either way) |
 
-In CLI projects the `intelligence-sync` and `intelligence-update` meta-skills are not installed — `intelligence sync` / `intelligence update` replace them; the other meta-skills ship unchanged and reach outputs from `.intelligence/engine/skills`. `sync.sh` in CLI mode still never migrates: an outdated stamp exits `needs-update` and the CLI's own `upgrade` closes the gap. See `docs/CLI.md` for the full CLI surface.
+In CLI projects the engine's content is the `@ainova-systems/sync` package (auto-added by `init`, pinned to the engine version, moved only by `intelligence upgrade`), so **every** meta-skill ships in both modes: `intelligence-sync` runs `<sync-cmd>` wherever it lands, and `intelligence-update` self-redirects to `intelligence upgrade` when it finds a root `intelligence.yaml`. `sync.sh` in CLI mode still never migrates: an outdated stamp exits `needs-update` and the CLI's own `upgrade` closes the gap. See `docs/CLI.md` for the full CLI surface.
 
 ## .gitignore Pattern
 

@@ -35,6 +35,12 @@ They never run shell commands by hand — you do.
 
 ## Steps
 
+### 0. Vendored setups only
+If the project has a root `intelligence.yaml` (a CLI setup), **stop** — this
+flow is vendored-only. There the engine ships inside the CLI package: run
+`npm i -g @ainova-systems/intelligence@latest`, then `intelligence upgrade`,
+and verify with `intelligence doctor`.
+
 ### 1. Locate the umbrella & discover the engine
 Find the dir containing `config.yaml` → `<umbrella>`. Then find the engine by
 role: search `<umbrella>` (one level deep) for a directory `<M>` with both

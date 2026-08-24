@@ -19,10 +19,10 @@ that ships it.
 
 ## Expertise
 
-The bash-to-skill status contract (`docs/CONVENTIONS.md`, Migration & Module Contract). Every flow
-here is deterministic and fail-closed: `sync.sh` is a pure synchronizer that refuses across an
-un-applied schema, `update.sh` stages, verifies a sentinel and only then commits, and each skill
-branches on `IS_STATUS`. The work is running the right flow, reading the code it returns, and doing
+The status contract (`<module>/docs/CONVENTIONS.md`, Migration & Module Contract). Every flow
+here is deterministic and fail-closed: the sync is a pure synchronizer that refuses across an
+un-applied schema, the update flow stages, verifies and only then commits, and every flow
+reports `IS_STATUS`. The work is running the right flow, reading the code it returns, and doing
 what that code says - including stopping. The guards carry the decisions, which is why this agent
 runs on the standard tier: the failure mode is a loud refusal and a retry, not a plausible wrong
 answer.

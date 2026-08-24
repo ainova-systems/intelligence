@@ -12,6 +12,10 @@
 # explicitly (`intelligence registry add @ainova-systems <url>`) to read the
 # newest entries without waiting for a CLI release.
 packages:
+  "@ainova-systems/sync":
+    url: "https://github.com/ainova-systems/intelligence-sync.git"
+    path: "intelligence/sync"
+    description: "The engine's own content: authoring rule, engine agents and the intelligence-* meta-skills. Auto-installed by init; pinned to the engine version."
   "@ainova-systems/core":
     url: "https://github.com/ainova-systems/intelligence-dev-packs.git"
     path: "packs/core"

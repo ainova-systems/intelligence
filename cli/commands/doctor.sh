@@ -43,14 +43,23 @@ else
     ok "sync_version $stamp matches the engine"
 fi
 
-if [ -f "$IP_ROOT/.intelligence/engine/.version" ]; then
-    staged="$(tr -d ' \t\r\n' < "$IP_ROOT/.intelligence/engine/.version")"
-    [ "$staged" = "$eng" ] && ok "engine content staged ($staged)" || warn "staged engine content is $staged, bundled is $eng — run 'intelligence install'"
-else
-    warn "engine content not staged — run 'intelligence install'"
+# The engine-content package must sit at the bundled engine version — the
+# content documents exactly the scripts the CLI executes.
+sync_locked="$(qmap_field "$lock" "packages" "$SYNC_PKG_NAME" "resolved")"
+if [ -n "$sync_locked" ]; then
+    if [ "${sync_locked#v}" = "$eng" ]; then
+        ok "$SYNC_PKG_NAME at $sync_locked (matches the engine)"
+    else
+        warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence upgrade'"
+    fi
+fi
+if [ -d "$IP_ROOT/.intelligence/engine" ]; then
+    warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence upgrade'"
 fi
 
-# Manifest packages: names valid, locked, installed.
+# Manifest packages: names valid, locked, installed — and the lock's source
+# still the one resolution would pick today (a registry silently re-pointing
+# an installed name is the dependency-confusion tail this check cuts off).
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     assert_valid_pkg_name "$name"
@@ -60,6 +69,13 @@ while IFS= read -r name; do
         warn "$name is locked but not installed — run 'intelligence install'"
     else
         ok "$name @ $(qmap_field "$lock" "packages" "$name" "resolved")"
+        if [ -z "$(qmap_field "$manifest" "packages" "$name" "url")" ]; then
+            locked_url="$(qmap_field "$lock" "packages" "$name" "url")"
+            resolve_package_source "$manifest" "$name" 2>/dev/null || true
+            if [ -n "${RES_URL:-}" ] && [ -n "$locked_url" ] && [ "$RES_URL" != "$locked_url" ]; then
+                warn "$name now resolves to $RES_URL but the lock pins $locked_url — a registry re-pointed the name; verify before 'intelligence update'"
+            fi
+        fi
     fi
 done < <(qmap_keys "$manifest" "packages")
 
@@ -85,8 +101,13 @@ for section in rules agents skills; do
         esac
         if [ ! -d "$IP_ROOT/$src" ]; then
             case "$src" in
+                # Store content is restorable state: absent means un-installed.
                 .intelligence/*) warn "sources.$section '$src' missing — run 'intelligence install'" ;;
-                *) warn "sources.$section '$src' does not exist" ;;
+                # A project-owned dir that does not exist yet is a legitimate
+                # state — a project consuming only packages authors nothing of
+                # its own — and the engine simply skips it. Declared up front so
+                # authoring later needs no config edit.
+                *) ok "sources.$section '$src' — not created yet (optional)" ;;
             esac
         fi
     done < <(read_yaml_list "$manifest" "$section")

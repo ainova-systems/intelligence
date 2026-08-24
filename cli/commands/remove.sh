@@ -6,15 +6,27 @@ source "$CLI_DIR/lib/cli-common.sh"
 name="${1:-}"
 [ -n "$name" ] || die "usage: intelligence remove <@scope/name>"
 shift || true
-no_sync=0
+no_sync=0 force=0
 for a in "$@"; do
     case "$a" in
         --no-sync) no_sync=1 ;;
+        --force) force=1 ;;
         *) die "unknown option '$a'" ;;
     esac
 done
 
 require_v2
+
+# Removing the engine-content package guts the outputs (meta-skills, the
+# authoring rule, both engine agents disappear) while everything still
+# reports ok — legal, but never by accident.
+if [ "$name" = "$SYNC_PKG_NAME" ] && [ "$force" -eq 0 ]; then
+    echo "ERROR: $SYNC_PKG_NAME is the engine's own content — removing it drops every" >&2
+    echo "  intelligence-* meta-skill, the authoring rule and the engine agents from" >&2
+    echo "  the outputs. The sync engine itself keeps working (it ships with the CLI)." >&2
+    echo "  If that is what you want: intelligence remove $SYNC_PKG_NAME --force" >&2
+    exit 1
+fi
 assert_valid_pkg_name "$name"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"

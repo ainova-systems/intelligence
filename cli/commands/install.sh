@@ -22,8 +22,6 @@ require_v2
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 
-ensure_engine_staged "$IP_ROOT"
-
 # Manifest packages missing from the lock: resolve them now (npm install
 # semantics). Under --frozen that is an error instead.
 missing=""
@@ -36,6 +34,12 @@ done < <(qmap_keys "$manifest" "packages")
 if [ -n "$missing" ]; then
     [ "$frozen" -eq 1 ] && die "lockfile is missing packages:$missing — run 'intelligence install' without --frozen"
     for name in $missing; do
+        # The engine-content package needs no remote resolution: its pin IS
+        # the bundled engine version and it seeds from the bundle, offline.
+        if [ "$name" = "$SYNC_PKG_NAME" ]; then
+            sync_pkg_install "$IP_ROOT"
+            continue
+        fi
         url="$(qmap_field "$manifest" "packages" "$name" "url")"
         path="$(qmap_field "$manifest" "packages" "$name" "path")"
         ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
@@ -67,7 +71,9 @@ if [ -f "$lock" ]; then
             continue
         fi
         got="$(fetch_package "$url" "$resolved" "$path" "$IP_ROOT/$rel")"
-        if [ -n "$sha" ] && [ "$got" != "$sha" ]; then
+        # An empty sha (bundle-seeded content on a dev build) means unknown,
+        # not moved — only two known-and-different shas are a finding.
+        if [ -n "$sha" ] && [ -n "$got" ] && [ "$got" != "$sha" ]; then
             if [ "$frozen" -eq 1 ]; then
                 die "$name: fetched $got but the lock pins $sha — the ref moved; refusing under --frozen"
             fi

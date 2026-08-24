@@ -25,6 +25,10 @@ moved=0 checked=0
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     [ -n "$only" ] && [ "$name" != "$only" ] && continue
+    if [ "$name" = "$SYNC_PKG_NAME" ]; then
+        echo "  $name: engine content moves with the engine — 'intelligence upgrade' owns it"
+        continue
+    fi
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
     [ -n "$ref" ] && { echo "  $name: pinned to ref '$ref' — skipped"; continue; }
     range="$(qmap_field "$manifest" "packages" "$name" "version")"

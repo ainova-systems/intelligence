@@ -59,7 +59,9 @@ trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
 
 echo "== staging =="
-stage_engine_content "$stage/.intelligence/engine"
+# Engine content arrives as the @ainova-systems/sync package, seeded from the
+# bundle (fetch_package's guard — no network).
+sync_pkg_sha="$(fetch_package "$SYNC_PKG_URL" "v$eng" "$SYNC_PKG_PATH" "$stage/$SYNC_PKG_STORE")"
 
 # Legacy pack name -> v2 package name (@org/repo derived from the url), plus
 # per-pack source facts. Recorded as rows for the config rewrite and the lock.
@@ -117,7 +119,7 @@ rewrite_source_value() {
     local v="$1" pack name rest
     case "$v" in
         "$module_rel"/rules|"$module_rel"/agents|"$module_rel"/skills)
-            printf '.intelligence/engine/%s' "${v##*/}"
+            printf '%s/%s' "$SYNC_PKG_STORE" "${v##*/}"
             return 0 ;;
         @*)
             rest="${v#@}"
@@ -167,6 +169,13 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     qmap_set "$manifest_stage" "packages" "$name" "url" "$url"
     [ -n "$ref" ] && qmap_set "$manifest_stage" "packages" "$name" "ref" "$ref"
 done < "$pack_rows"
+
+# The engine's own content rides along as a package, pinned to the engine.
+qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "version" "$eng"
+qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "url" "$SYNC_PKG_URL"
+qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "path" "$SYNC_PKG_PATH"
+printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
+    "$SYNC_PKG_NAME" "$eng" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$eng" "$sync_pkg_sha" >> "$lock_rows"
 
 # ---- Verify ---------------------------------------------------------------
 echo "== verifying staged state =="

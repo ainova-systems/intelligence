@@ -26,7 +26,7 @@ Both end at the same artifact format. Extract starts from observed behavior, so 
    - Behavioral preference / constraint / pattern to default to → **rule** (use `intelligence-learn-from-context` for single preferences from session)
    - Knowledge area / persona / expertise scope → **agent**
 
-4. **Determine domain prefix** (for skill / agent): reuse the existing domain when one fits — list `intelligence/skills/` and `intelligence/agents/`. Derive from repo structure only when no existing domain matches.
+4. **Determine domain prefix** (for skill / agent): reuse the existing domain when one fits — list `<umbrella>/skills/` and `<umbrella>/agents/`. Derive from repo structure only when no existing domain matches.
 
 5. **Determine naming** (for skill): `<domain>-<verb>-<noun>` with convention verbs — `add-` (one new member of a set that already exists), `create-` (the container itself, where nothing hosted it), `update-` (revise what is there), `run-` (execute), `review-` (read-only analysis).
 
@@ -38,7 +38,7 @@ Both end at the same artifact format. Extract starts from observed behavior, so 
 
 ## Authoring guidance
 
-Follow the **Authoring Discipline** section in `docs/CONVENTIONS.md` when writing the artifact body — size budgets (<500 lines for SKILL.md body), imperative form, explain WHY, reserve absolute language for true invariants, lead with positive defaults.
+Follow the **Authoring Discipline** section in `<module>/docs/CONVENTIONS.md` when writing the artifact body — size budgets (<500 lines for SKILL.md body), imperative form, explain WHY, reserve absolute language for true invariants, lead with positive defaults.
 
 ## Related skills
 
