@@ -66,18 +66,14 @@ jobs:
           bash npm/build.sh 0.0.0-ci
           cd npm/dist && npm pack --silent
       - name: Global install into a spaced prefix, then init + sync through the shim
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           PREFIX="$RUNNER_TEMP/np spaced"
           mkdir -p "$PREFIX"
           npm install -g --prefix "$PREFIX" npm/dist/ainova-systems-intelligence-0.0.0-ci.tgz
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            BIN="$PREFIX"
-          else
-            BIN="$PREFIX/bin"
-          fi
-          export PATH="$BIN:$PATH"
+          export PATH="$PREFIX/bin:$PATH"
           intelligence version
           PROJ="$RUNNER_TEMP/shim-proj"
           mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
@@ -85,13 +81,32 @@ jobs:
           grep -q '^IS_STATUS=ok' < <(intelligence sync) || { echo "sync via shim failed"; exit 1; }
           grep -q 'intelligence sync' AGENTS.md
           test -f intelligence.yaml && test -d .claude
-      - name: Windows PowerShell entry (the cmd shim npm generates)
+      # Windows goes through native npm/pwsh end to end: bash-side path
+      # spellings must never touch the install, only the shim's own bash
+      # discovery — which is exactly what this proves.
+      - name: Windows — spaced-prefix install, init + sync via the cmd shim
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $prefix = Join-Path $env:RUNNER_TEMP "np spaced"
+          New-Item -ItemType Directory -Force $prefix | Out-Null
+          $tgz = (Get-Item "npm/dist/*.tgz").FullName
+          npm install -g --prefix "$prefix" "$tgz"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           & "$prefix\intelligence.cmd" version
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          $proj = Join-Path $env:RUNNER_TEMP "shim-proj"
+          New-Item -ItemType Directory -Force $proj | Out-Null
+          Set-Location $proj
+          git init -q .
+          & "$prefix\intelligence.cmd" init
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $sync = & "$prefix\intelligence.cmd" sync
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if (-not ($sync -match 'IS_STATUS=ok')) { Write-Error "sync via shim did not report ok" }
+          if (-not (Select-String -Path AGENTS.md -Pattern 'intelligence sync' -Quiet)) { Write-Error "AGENTS.md lacks the CLI sync command" }
+          if (-not (Test-Path "intelligence.yaml") -or -not (Test-Path ".claude")) { Write-Error "outputs missing" }
 
   legacy-golden:
     name: legacy-golden (vendored outputs byte-identical vs main)

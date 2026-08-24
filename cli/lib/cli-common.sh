@@ -31,6 +31,9 @@ CLI_OBSOLETE_SKILLS="intelligence-update intelligence-sync"
 
 # --- Project detection ---------------------------------------------------
 # Sets: IP_MODE (v2|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.
+# These ARE this lib's public API — every command reads them after calling
+# detect_project, which per-file shellcheck cannot see.
+# shellcheck disable=SC2034
 # v2 wins: the nearest ancestor holding intelligence.yaml. Legacy is a git
 # repo holding an umbrella (a dir with config.yaml) whose module is identified
 # by role — scripts/sync.sh + scripts/VERSION — never by name.

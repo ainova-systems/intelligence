@@ -38,7 +38,9 @@ _fetch_index() {
 }
 
 # resolve_package_source <manifest-or-empty> <@scope/name>
-# Sets RES_URL, RES_PATH (may be empty = repo root), RES_VIA.
+# Sets RES_URL, RES_PATH (may be empty = repo root), RES_VIA — the caller's
+# result contract, invisible to per-file shellcheck.
+# shellcheck disable=SC2034
 resolve_package_source() {
     local manifest="$1" name="$2"
     local scope="${name%%/*}" short="${name#*/}"

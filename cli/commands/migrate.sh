@@ -31,7 +31,6 @@ root="$IP_ROOT"
 umbrella="$IP_UMBRELLA"
 module_dir="$IP_MODULE_DIR"
 config="$umbrella/config.yaml"
-umbrella_rel="${umbrella#"$root"/}"
 module_rel="${module_dir#"$root"/}"
 
 [ -f "$root/intelligence.yaml" ] && die "intelligence.yaml already exists at the root — half-migrated state; resolve it manually"
@@ -115,7 +114,7 @@ done < "$pack_rows"
 # / converted); sources entries are rewritten onto the store.
 manifest_stage="$stage/intelligence.yaml"
 rewrite_source_value() {
-    local v="$1" row pack name rest
+    local v="$1" pack name rest
     case "$v" in
         "$module_rel"/rules|"$module_rel"/agents|"$module_rel"/skills)
             printf '.intelligence/engine/%s' "${v##*/}"

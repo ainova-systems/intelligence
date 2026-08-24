@@ -29,7 +29,7 @@ done < <(qmap_keys "$manifest" "packages")
 unwire_package_sources "$manifest" "$rel"
 qmap_delete_key "$manifest" "packages" "$name"
 lock_remove "$lock" "$name"
-rm -rf "$IP_ROOT/$rel"
+rm -rf "${IP_ROOT:?}/$rel"
 # Drop the now-empty scope dir so the store stays tidy.
 rmdir "$IP_ROOT/.intelligence/packages/${name%%/*}" 2>/dev/null || true
 echo "- $name"
