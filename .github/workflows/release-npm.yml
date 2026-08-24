@@ -1,0 +1,78 @@
+name: release-npm
+
+# Publishes @ainova-systems/intelligence.
+#
+#   channel=next    — prerelease from ANY ref (feature branches included):
+#                     version <engine>-rc.<n>, npm dist-tag `next`. The
+#                     prerelease suffix exists ONLY in the npm version — the
+#                     engine VERSION and sync_version never carry one.
+#   channel=latest  — stable: must be dispatched from the vX.Y.Z tag matching
+#                     the engine VERSION; npm dist-tag `latest`.
+#
+# Needs the NPM_TOKEN repo secret (granular token with publish rights on the
+# ainova-systems npm org).
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "next (prerelease from this ref) or latest (stable from the vX.Y.Z tag)"
+        required: true
+        type: choice
+        options: [next, latest]
+      rc:
+        description: "rc number for channel=next"
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Determine version
+        id: ver
+        run: |
+          set -euo pipefail
+          ENGINE="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          if [ "${{ inputs.channel }}" = "next" ]; then
+            VER="$ENGINE-rc.${{ inputs.rc }}"
+            TAG="next"
+          else
+            VER="$ENGINE"
+            TAG="latest"
+            if [ "$GITHUB_REF_NAME" != "v$ENGINE" ]; then
+              echo "channel=latest must be dispatched from tag v$ENGINE (got '$GITHUB_REF_NAME')" >&2
+              exit 1
+            fi
+          fi
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: bash npm/build.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke the built package before publishing
+        run: |
+          set -euo pipefail
+          cd npm/dist && npm pack --silent
+          PREFIX="$RUNNER_TEMP/verify-prefix"
+          npm install -g --prefix "$PREFIX" ./*.tgz
+          "$PREFIX/bin/intelligence" version
+          PROJ="$RUNNER_TEMP/verify-proj"
+          mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
+          "$PREFIX/bin/intelligence" init | grep -q '^IS_STATUS=ok'
+
+      - name: Publish
+        run: cd npm/dist && npm publish --tag "${{ steps.ver.outputs.tag }}" --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
