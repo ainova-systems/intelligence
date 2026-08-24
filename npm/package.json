@@ -1,0 +1,39 @@
+{
+  "name": "@ainova-systems/intelligence",
+  "version": "0.0.0-dev",
+  "description": "Build, version and distribute AI agent intelligence across your organization — one CLI, versioned Intelligence Packages, and a sync engine for Claude Code, Cursor, Copilot, Codex, Pi and OpenCode.",
+  "bin": {
+    "intelligence": "bin/intelligence.js"
+  },
+  "files": [
+    "bin",
+    "cli",
+    "engine",
+    "registry"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ainova-systems/intelligence-sync.git"
+  },
+  "homepage": "https://github.com/ainova-systems/intelligence-sync#readme",
+  "bugs": {
+    "url": "https://github.com/ainova-systems/intelligence-sync/issues"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "cursor",
+    "copilot",
+    "codex",
+    "agents-md",
+    "rules",
+    "skills",
+    "prompt-engineering",
+    "package-manager"
+  ]
+}

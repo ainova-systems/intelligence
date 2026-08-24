@@ -48,6 +48,51 @@ jobs:
       - name: Project lifecycle (init / migrate / doctor / upgrade / fresh-clone install)
         run: bash cli/tests/e2e-lifecycle.sh "$GITHUB_WORKSPACE"
 
+  npm-pack-smoke:
+    name: npm-pack-smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build and pack
+        shell: bash
+        run: |
+          bash npm/build.sh 0.0.0-ci
+          cd npm/dist && npm pack --silent
+      - name: Global install into a spaced prefix, then init + sync through the shim
+        shell: bash
+        run: |
+          set -euo pipefail
+          PREFIX="$RUNNER_TEMP/np spaced"
+          mkdir -p "$PREFIX"
+          npm install -g --prefix "$PREFIX" npm/dist/ainova-systems-intelligence-0.0.0-ci.tgz
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            BIN="$PREFIX"
+          else
+            BIN="$PREFIX/bin"
+          fi
+          export PATH="$BIN:$PATH"
+          intelligence version
+          PROJ="$RUNNER_TEMP/shim-proj"
+          mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
+          intelligence init
+          grep -q '^IS_STATUS=ok' < <(intelligence sync) || { echo "sync via shim failed"; exit 1; }
+          grep -q 'intelligence sync' AGENTS.md
+          test -f intelligence.yaml && test -d .claude
+      - name: Windows PowerShell entry (the cmd shim npm generates)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $prefix = Join-Path $env:RUNNER_TEMP "np spaced"
+          & "$prefix\intelligence.cmd" version
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   legacy-golden:
     name: legacy-golden (vendored outputs byte-identical vs main)
     runs-on: ubuntu-latest

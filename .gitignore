@@ -14,3 +14,7 @@ Thumbs.db
 
 # Temp dirs from intelligence/sync/scripts/update.sh (mktemp fallback)
 .tmp/
+
+# npm package assembly (npm/build.sh output)
+npm/dist/
+*.tgz
