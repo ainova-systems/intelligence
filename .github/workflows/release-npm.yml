@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
@@ -74,5 +74,28 @@ jobs:
 
       - name: Publish
         run: cd npm/dist && npm publish --tag "${{ steps.ver.outputs.tag }}" --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # npm pins `latest` to the FIRST version a package ever publishes,
+      # whatever `--tag` said — so a package whose first release was a
+      # prerelease serves that prerelease to every plain `npm i -g` until a
+      # stable ships. While `latest` still points at a prerelease, keep it on
+      # the newest one; the first stable publish takes it over for good.
+      - name: Keep `latest` off a stale prerelease
+        if: inputs.channel == 'next'
+        run: |
+          set -euo pipefail
+          PKG="@ainova-systems/intelligence"
+          CURRENT="$(npm view "$PKG" dist-tags.latest 2>/dev/null || true)"
+          case "$CURRENT" in
+            *-*)
+              npm dist-tag add "$PKG@${{ steps.ver.outputs.version }}" latest
+              echo "latest: $CURRENT -> ${{ steps.ver.outputs.version }} (no stable release yet)"
+              ;;
+            *)
+              echo "latest is $CURRENT (stable) — left alone"
+              ;;
+          esac
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
