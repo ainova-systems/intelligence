@@ -186,7 +186,7 @@ jobs:
           # confusing exit 6. Assert lockstep here for a precise early signal.
           V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
           fail=0
-          for cf in examples/*/config.yaml; do
+          for cf in examples/*/config.yaml examples/*/intelligence.yaml; do
             stamp="$(awk -F'"' '/^sync_version:/ {print $2; exit}' "$cf")"
             if [ "$stamp" != "$V" ]; then
               echo "STAMP DRIFT: $cf has sync_version=\"$stamp\", expected \"$V\""; fail=1
