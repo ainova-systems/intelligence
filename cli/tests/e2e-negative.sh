@@ -189,7 +189,9 @@ xfail "refusing under --frozen" "$PROJ" install --frozen
 
 echo "== 6b. --frozen refuses manifest/lock drift =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.6b"
-sed -i 's|version: "\^1.0.0"|version: "^2.0.0"|' "$PROJ/intelligence.yaml"
+# portable in-place edit (BSD sed -i differs) — awk to temp, then move
+awk '{ gsub(/version: "\^1\.0\.0"/, "version: \"^2.0.0\""); print }' \
+    "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp" && mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
 xfail "requests" "$PROJ" install --frozen
 cp "$OUT/manifest.6b" "$PROJ/intelligence.yaml"
 

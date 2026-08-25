@@ -36,6 +36,8 @@ _EPKG="$CLI_DIR/engine-package.yaml"
 SYNC_PKG_NAME="$(top_scalar "$_EPKG" "name")"
 SYNC_PKG_URL="$(top_scalar "$_EPKG" "url")"
 SYNC_PKG_PATH="$(top_scalar "$_EPKG" "path")"
+# Read by commands (init seeds it) — per-file shellcheck cannot see that.
+# shellcheck disable=SC2034
 DEFAULT_REGISTRY_URL="$(top_scalar "$_EPKG" "default_registry")"
 [ -n "$SYNC_PKG_NAME" ] || die "corrupt CLI installation: $_EPKG is missing or has no 'name'"
 SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"

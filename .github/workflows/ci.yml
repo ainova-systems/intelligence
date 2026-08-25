@@ -106,7 +106,7 @@ jobs:
           New-Item -ItemType Directory -Force $proj | Out-Null
           Set-Location $proj
           git init -q .
-          & "$prefix\intelligence.cmd" init
+          & "$prefix\intelligence.cmd" init --targets claude
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $sync = & "$prefix\intelligence.cmd" sync
           if ($LASTEXITCODE -ne 0) { exit 1 }
