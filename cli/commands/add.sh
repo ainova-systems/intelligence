@@ -2,9 +2,9 @@
 # intelligence add <spec> [--name @scope/name] [--no-sync]
 #
 # Specs:
-#   @scope/name[@range]            resolved via registries / index / convention
-#   github:org/repo[#path]         direct from GitHub, no registry involved
-#   git+<url>[@ref][#path]         direct from any git host
+#   @scope/name[@range]            resolved ONLY through the manifest's trusted registries
+#   github:org/repo[#path]         explicit source: direct from GitHub, no registry involved
+#   git+<url>[@ref][#path]         explicit source: direct from any git host
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 

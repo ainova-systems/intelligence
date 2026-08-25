@@ -38,9 +38,9 @@ intelligence install
 | `intelligence update [pkg]` | Re-resolve version ranges, rewrite the lock |
 | `intelligence sync [target]` | Render intelligence to every enabled tool |
 | `intelligence list` / `doctor` / `status` | Inspect and verify |
-| `intelligence registry add @scope <url>` | Bind a scope to a private registry index |
+| `intelligence registry add <repo-url>` | Trust a registry (a git repo with an `index.yaml`) |
 | `intelligence migrate` | Convert a vendored intelligence-sync setup to the CLI |
 
-Any git repo with `rules/`, `agents/` or `skills/` at its root is already an Intelligence Package: `intelligence add @your-org/your-repo` resolves it straight from GitHub — versions come from its `x.y.z` git tags. A monorepo of packages needs one line in a registry index.
+Any git repo with `rules/`, `agents/` or `skills/` at its root is already an Intelligence Package: install it from an explicit source — `intelligence add github:your-org/your-repo` — with versions from its `x.y.z` git tags. Names (`@scope/name`) resolve only through registries this project explicitly trusts; a monorepo of packages needs one line in such an index.
 
 Requires `git` (and on Windows the bash it ships with — Git for Windows). Engine and docs: [ainova-systems/intelligence-sync](https://github.com/ainova-systems/intelligence-sync).

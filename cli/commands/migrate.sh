@@ -164,8 +164,19 @@ while IFS= read -r line || [ -n "$line" ]; do
             *"- "*)
                 indent="${line%%-*}"
                 v="${line#*- }"
+                # A trailing inline comment survives the rewrite — split it
+                # off before touching quotes, or it would be mangled into the
+                # value.
+                trail=""
+                case "$v" in
+                    *[[:space:]]"#"*)
+                        trail=" #${v#*[[:space:]]#}"
+                        v="${v%%[[:space:]]#*}"
+                        ;;
+                esac
+                v="${v%"${v##*[![:space:]]}"}"
                 v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
-                echo "$indent- \"$(rewrite_source_value "$v")\""
+                echo "$indent- \"$(rewrite_source_value "$v")\"$trail"
                 continue
                 ;;
         esac

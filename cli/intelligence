@@ -48,7 +48,7 @@ Usage: intelligence <command> [args]
   list                    Installed packages with requested/locked versions
   search [term]           What the registries offer, and what this project has
   sync [target]           Render intelligence to every enabled tool (.claude, AGENTS.md, ...)
-  registry <list|add|remove>  Bind a scope to a registry index
+  registry <list|add|remove>  Manage the trusted registry list (add <repo-url>)
   migrate [--dry-run]     Convert a vendored (v1) setup to the CLI setup
   doctor                  Check manifest, lockfile, store and engine consistency
   status                  Project state at a glance
