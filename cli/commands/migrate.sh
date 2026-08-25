@@ -44,19 +44,30 @@ stamp="$(read_engine_stamp "$config")"
 eng="$(bundled_engine_version)"
 [ -n "$stamp" ] && _ver_gt "$stamp" "$eng" && die "project schema $stamp is newer than this CLI's engine $eng — update the CLI first"
 
-# A schema gap is closed by the engine's own proven chain before conversion.
-if [ "$dry_run" -eq 0 ] && { [ -z "$stamp" ] || _ver_gt "$eng" "$stamp"; }; then
-    echo "== applying the engine migration chain ($stamp -> $eng) =="
-    run_migrations "$umbrella" "$(basename "$module_dir")" "" || die "engine migration chain failed (IS_STATUS above) — nothing converted"
-    stamp_version "$config" "$eng"
-fi
-
 # ---- Stage ----------------------------------------------------------------
 stage="$root/.intelligence-migrate-stage.$$"
 [ "$dry_run" -eq 1 ] && stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
 cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
+
+# A schema gap is closed by the engine's own proven chain before conversion.
+# Dry-run must preview the SAME pipeline, so it runs the chain too — against
+# a staged copy of the umbrella, leaving the project untouched.
+if [ -z "$stamp" ] || _ver_gt "$eng" "$stamp"; then
+    if [ "$dry_run" -eq 1 ]; then
+        echo "== applying the engine migration chain ($stamp -> $eng) to a staged copy =="
+        cp -R "$umbrella" "$stage/umbrella"
+        run_migrations "$stage/umbrella" "$(basename "$module_dir")" "" > "$stage/chain.log" 2>&1 \
+            || { tail -5 "$stage/chain.log" >&2; die "engine migration chain failed in the staged copy — a real migrate would fail the same way"; }
+        stamp_version "$stage/umbrella/config.yaml" "$eng"
+        config="$stage/umbrella/config.yaml"
+    else
+        echo "== applying the engine migration chain ($stamp -> $eng) =="
+        run_migrations "$umbrella" "$(basename "$module_dir")" "" || die "engine migration chain failed (IS_STATUS above) — nothing converted"
+        stamp_version "$config" "$eng"
+    fi
+fi
 
 echo "== staging =="
 # Engine content arrives as the @ainova-systems/sync package, seeded from the
@@ -212,6 +223,13 @@ fi
 
 # ---- Commit ---------------------------------------------------------------
 echo "== committing =="
+# .gitignore is part of the transaction: rollback must leave it exactly as
+# found, absent included.
+gitignore_existed=0
+if [ -f "$root/.gitignore" ]; then
+    gitignore_existed=1
+    cp "$root/.gitignore" "$stage/gitignore.orig"
+fi
 if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
     {
         [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
@@ -221,6 +239,11 @@ if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore
 fi
 rollback() {
     rm -rf "$root/.intelligence" "$root/intelligence.yaml" "$root/intelligence.lock"
+    if [ "$gitignore_existed" -eq 1 ]; then
+        cp "$stage/gitignore.orig" "$root/.gitignore"
+    else
+        rm -f "$root/.gitignore"
+    fi
     echo "rolled back — the vendored setup is untouched" >&2
 }
 mv "$stage/.intelligence" "$root/.intelligence"

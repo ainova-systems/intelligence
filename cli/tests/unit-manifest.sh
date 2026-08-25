@@ -284,5 +284,25 @@ lock_remove "$LOCK" "@acme/two"
 chknot test -f "$LOCK"                          # last removal deletes the file
 chk lock_remove "$OUT/absent.lock" "@x/y"       # missing lock: rc 0
 
+echo "== pkg-name segment guards (names become rm -rf paths) =="
+for bad in "@scope/" "@/x" "@a/.." "@../x" "@a/." "@./x"; do
+    if ( assert_valid_pkg_name "$bad" ) >/dev/null 2>&1; then
+        echo "FAIL: accepted dangerous name '$bad'"; fail=1
+    fi
+done
+
+echo "== sources_add_entry_first: package entries precede project entries =="
+SRC="$OUT/src-order.yaml"
+printf 'sources:\n  rules:\n    - "intelligence/rules"\n' > "$SRC"
+sources_add_entry_first "$SRC" "rules" ".intelligence/packages/@a/p/rules"
+chk grep -q '.intelligence/packages/@a/p/rules' "$SRC"
+first_entry="$(grep -m1 '^    - ' "$SRC")"
+[ "$first_entry" = '    - ".intelligence/packages/@a/p/rules"' ] || { echo "FAIL: package entry is not first: $first_entry"; fail=1; }
+sources_add_entry_first "$SRC" "rules" ".intelligence/packages/@a/p/rules"
+n="$(grep -c '@a/p/rules' "$SRC")"
+[ "$n" = "1" ] || { echo "FAIL: sources_add_entry_first not idempotent ($n entries)"; fail=1; }
+sources_add_entry_first "$SRC" "skills" ".intelligence/packages/@a/p/skills"
+chk grep -q '  skills:' "$SRC"
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

@@ -182,14 +182,14 @@ fetch_package() {
 
 # wire_package_sources <manifest> <@scope/name> <store-rel-dir>
 # The provides convention: whichever of rules/agents/skills the installed
-# package has becomes a sources entry. Reuses the engine's idempotent,
-# comment-preserving _mig_add_source.
+# package has becomes a sources entry — inserted FIRST in its section, so
+# project-owned entries come later and win on same-named artifacts.
 wire_package_sources() {
     local manifest="$1" name="$2" rel="$3" root="$4"
     local section
     for section in rules agents skills; do
         if [ -d "$root/$rel/$section" ]; then
-            _mig_add_source "$manifest" "$section" "$rel/$section"
+            sources_add_entry_first "$manifest" "$section" "$rel/$section"
         fi
     done
 }

@@ -22,8 +22,44 @@ require_v2
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 
+# --frozen is the reproducibility contract: the lock must agree with the
+# manifest on the package SET and on every requested-source field before a
+# single byte is restored. Anything less lets a manifest edit ride on a stale
+# lock — the exact drift the flag exists to refuse.
+if [ "$frozen" -eq 1 ]; then
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        [ -n "$(qmap_field "$lock" "packages" "$name" "url")" ] \
+            || die "--frozen: $name is in the manifest but not in intelligence.lock"
+        m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
+        m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
+        m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
+        m_path="$(qmap_field "$manifest" "packages" "$name" "path")"
+        l_req="$(qmap_field "$lock" "packages" "$name" "requested")"
+        l_res="$(qmap_field "$lock" "packages" "$name" "resolved")"
+        l_url="$(qmap_field "$lock" "packages" "$name" "url")"
+        l_path="$(qmap_field "$lock" "packages" "$name" "path")"
+        [ -z "$m_ver" ] || [ "$m_ver" = "$l_req" ] \
+            || die "--frozen: $name requests '$m_ver' but the lock recorded '$l_req' — run 'intelligence install' without --frozen"
+        [ -z "$m_ref" ] || [ "$m_ref" = "$l_res" ] \
+            || die "--frozen: $name pins ref '$m_ref' but the lock resolved '$l_res'"
+        [ -z "$m_url" ] || [ "$m_url" = "$l_url" ] \
+            || die "--frozen: $name declares url '$m_url' but the lock recorded '$l_url'"
+        [ -z "$m_path" ] || [ "$m_path" = "$l_path" ] \
+            || die "--frozen: $name declares path '$m_path' but the lock recorded '$l_path'"
+    done < <(qmap_keys "$manifest" "packages")
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        found=0
+        while IFS= read -r m; do
+            [ "$m" = "$name" ] && found=1
+        done < <(qmap_keys "$manifest" "packages")
+        [ "$found" -eq 1 ] || die "--frozen: $name is locked but absent from the manifest"
+    done < <(qmap_keys "$lock" "packages")
+fi
+
 # Manifest packages missing from the lock: resolve them now (npm install
-# semantics). Under --frozen that is an error instead.
+# semantics). Under --frozen the drift gate above has already refused.
 missing=""
 while IFS= read -r name; do
     [ -n "$name" ] || continue
@@ -32,7 +68,6 @@ while IFS= read -r name; do
     fi
 done < <(qmap_keys "$manifest" "packages")
 if [ -n "$missing" ]; then
-    [ "$frozen" -eq 1 ] && die "lockfile is missing packages:$missing — run 'intelligence install' without --frozen"
     for name in $missing; do
         # The engine-content package needs no remote resolution: its pin IS
         # the bundled engine version and it seeds from the bundle, offline.
@@ -70,16 +105,25 @@ if [ -f "$lock" ]; then
         if [ -d "$IP_ROOT/$rel" ] && [ "$force" -eq 0 ]; then
             continue
         fi
-        got="$(fetch_package "$url" "$resolved" "$path" "$IP_ROOT/$rel")"
+        # Fetch into staging and commit to the store only after the integrity
+        # verdict: content that violates the lock must never be left where a
+        # re-run (whose dir-exists check skips verification) would sync it.
+        staging="$IP_ROOT/.intelligence/.staging-$$"
+        rm -rf "$staging"
+        got="$(fetch_package "$url" "$resolved" "$path" "$staging")"
         # An empty sha (bundle-seeded content on a dev build) means unknown,
         # not moved — only two known-and-different shas are a finding.
         if [ -n "$sha" ] && [ -n "$got" ] && [ "$got" != "$sha" ]; then
             if [ "$frozen" -eq 1 ]; then
+                rm -rf "$staging"
                 die "$name: fetched $got but the lock pins $sha — the ref moved; refusing under --frozen"
             fi
             echo "  WARN: $name resolved to $got, lock had $sha — updating the lock" >&2
             lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$resolved" "$got"
         fi
+        rm -rf "${IP_ROOT:?}/$rel"
+        mkdir -p "$(dirname "$IP_ROOT/$rel")"
+        mv "$staging" "$IP_ROOT/$rel"
         wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
         echo "= $name@${resolved:-HEAD}"
     done < <(lock_to_tsv "$lock")

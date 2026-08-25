@@ -124,7 +124,11 @@ sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
 
 # Manifest entry: a registry package records its range; a direct one records
-# its source so resolution never has to guess it again.
+# its source so resolution never has to guess it again. The entry is replaced
+# WHOLE — re-adding under a different spec must not leave the old spec's
+# fields behind (a stale ref: would freeze update, a stale url: would pin the
+# old source).
+qmap_delete_key "$manifest" "packages" "$name"
 if [ "$mode" = "registry" ]; then
     qmap_set "$manifest" "packages" "$name" "version" "$requested"
 else

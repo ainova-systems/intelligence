@@ -178,9 +178,17 @@ rm -rf "$PROJ/.intelligence/packages"
 xfail "refusing under --frozen" "$PROJ" install --frozen
 sha_frozen="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
 [ "$sha_before" = "$sha_frozen" ] || { echo "FAIL: --frozen modified the lock sha"; fail=1; }
-# The refused fetch landed in the store — reset it so the plain install
-# demonstrably re-fetches and re-locks the moved ref.
-rm -rf "$PROJ/.intelligence/packages"
+# The refused content must NOT be committed to the store: a second --frozen
+# would otherwise see the directory, skip verification, and sync it.
+chknot test -d "$PROJ/.intelligence/packages/@acme/mover"
+xfail "refusing under --frozen" "$PROJ" install --frozen
+
+echo "== 6b. --frozen refuses manifest/lock drift =="
+cp "$PROJ/intelligence.yaml" "$OUT/manifest.6b"
+sed -i 's|version: "\^1.0.0"|version: "^2.0.0"|' "$PROJ/intelligence.yaml"
+xfail "requests" "$PROJ" install --frozen
+cp "$OUT/manifest.6b" "$PROJ/intelligence.yaml"
+
 xok "" "$PROJ" install
 sha_after="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
 chk test -n "$sha_after"
@@ -235,6 +243,9 @@ chk test -d "$LEG1/intelligence/sync"
 chknot test -f "$LEG1/intelligence.yaml"
 chknot test -f "$LEG1/intelligence.lock"
 chknot test -d "$LEG1/.intelligence"
+# .gitignore is part of the transaction: the fixture had none, rollback must
+# not leave one behind.
+chknot test -f "$LEG1/.gitignore"
 
 echo "== 9. migrate dirty-tree refusal + --force =="
 LEG2="$OUT/leg2"

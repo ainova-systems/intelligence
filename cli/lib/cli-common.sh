@@ -127,7 +127,7 @@ export_engine_env() {
     export CONFIG_FILE="$root/intelligence.yaml"
     export REPO_ROOT="$root"
     export IS_UMBRELLA_REL="$umbrella"
-    export IS_MODULE_REL=".intelligence/engine"
+    export IS_MODULE_REL="$SYNC_PKG_STORE"
     export IS_SYNC_CMD="intelligence sync"
     export IS_MANIFEST_NAME="intelligence.yaml"
     export IS_PROTECTED_DIRS="$umbrella:.intelligence"

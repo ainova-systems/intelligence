@@ -94,7 +94,7 @@ if [ "${IS_CLI:-0}" = "1" ]; then
     # `/d/...`, and prefix comparisons downstream need one spelling.
     CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
     IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
-    IS_MODULE_REL="${IS_MODULE_REL:-.intelligence/engine}"
+    IS_MODULE_REL="${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
     # Project-owned adapters keep their v1 home: <umbrella>/adapters/.
     INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
 else

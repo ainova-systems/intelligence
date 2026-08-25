@@ -85,6 +85,23 @@ chk grep -q 'resolved: "v1.2.0"' "$PROJ/intelligence.lock"
 chknot grep -q 'resolved: "v2.0.0"' "$PROJ/intelligence.lock"
 chk grep -q 'PACK_RULE_MARKER_12' "$PROJ/AGENTS.md"
 
+echo "== update to a version that DROPPED a section dir =="
+git -C "$PACK" rm -rq skills
+git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -m drop-skills
+git -C "$PACK" tag v1.3.0
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update)
+chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
+chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
+out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
+echo "$out13" | grep -q '^IS_STATUS=ok' || { echo "FAIL: sync after shape-changing update"; fail=1; }
+
+echo "== project file overrides a same-named package file =="
+printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync >/dev/null)
+chk grep -q 'PROJECT_WINS' "$PROJ/.claude/rules/pack-rule.md"
+chknot grep -q 'PACK_RULE_MARKER' "$PROJ/.claude/rules/pack-rule.md"
+rm -f "$PROJ/intelligence/rules/pack-rule.md"
+
 echo "== registry binding =="
 REG="$OUT/registry"
 mkdir -p "$REG"

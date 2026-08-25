@@ -24,6 +24,16 @@ assert_valid_pkg_name() {
     case "$1" in
         *[!@/A-Za-z0-9._-]*|*/*/*) die "invalid package name '$1' — allowed: letters, digits, . _ -, one '/'" ;;
     esac
+    # Both segments become store path components fed to rm -rf: an empty one
+    # ('@scope/') resolves to the whole scope dir, and a dot segment walks the
+    # tree — either would turn one bad --name into deleting other packages.
+    local scope="${1%%/*}" short="${1#*/}"
+    case "${scope#@}" in
+        ""|.|..) die "invalid package name '$1' — empty or dot scope" ;;
+    esac
+    case "$short" in
+        ""|.|..) die "invalid package name '$1' — empty or dot name" ;;
+    esac
 }
 
 # qmap_keys <file> <block> — quoted keys, one per line.
@@ -270,6 +280,35 @@ registries_remove() {
             }
         }
         { print }
+    '
+}
+
+# sources_add_entry_first <file> <section> <entry> — idempotent insert at the
+# TOP of sources.<section> (creating sources:/section as needed). Package
+# entries go through this so project-owned entries stay later in the list —
+# adapters copy sources in order and the last write wins, which is exactly
+# the documented "your file overrides the package's" behavior.
+sources_add_entry_first() {
+    local file="$1" section="$2" entry="$3"
+    _mig_has_source "$file" "$entry" && return 0
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" '
+        function line() { return "    - \"" entry "\"" }
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; sourceseen = 1; print; next }
+        ins && /^[^ #]/ {
+            if (!secseen && !done) { print "  " section ":"; print line(); done = 1 }
+            ins = 0
+        }
+        ins && $0 ~ "^  " section ":[ \t]*$" { secseen = 1; print; print line(); done = 1; next }
+        { print }
+        END {
+            if (ins && !secseen && !done) { print "  " section ":"; print line(); done = 1 }
+            if (!sourceseen) {
+                print "sources:"
+                print "  " section ":"
+                print line()
+            }
+        }
     '
 }
 

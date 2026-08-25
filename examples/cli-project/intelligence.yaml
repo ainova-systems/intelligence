@@ -13,19 +13,22 @@ project:
 
 sync_version: "0.11.0"
 
+# Package sources come first, project sources last: adapters copy in order
+# and the last write wins, so a project file overrides a same-named package
+# artifact.
 sources:
   rules:
-    - "intelligence/rules"
-    - ".intelligence/packages/@ainova-systems/sync/rules"
     - ".intelligence/packages/@ainova-systems/core/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "intelligence/rules"
   agents:
-    - "intelligence/agents"
-    - ".intelligence/packages/@ainova-systems/sync/agents"
     - ".intelligence/packages/@ainova-systems/core/agents"
+    - ".intelligence/packages/@ainova-systems/sync/agents"
+    - "intelligence/agents"
   skills:
-    - "intelligence/skills"
-    - ".intelligence/packages/@ainova-systems/sync/skills"
     - ".intelligence/packages/@ainova-systems/core/skills"
+    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "intelligence/skills"
 
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
