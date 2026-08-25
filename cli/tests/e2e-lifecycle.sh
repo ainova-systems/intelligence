@@ -13,6 +13,8 @@ chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
 mkdir -p "$FRESH/.cursor"
+printf "# Claude marker
+" > "$FRESH/CLAUDE.md"
 git -C "$FRESH" init --quiet
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init)
 chk test -f "$FRESH/intelligence.yaml"

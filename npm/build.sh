@@ -1,7 +1,8 @@
 #!/bin/bash
 # Assemble the publishable npm package into npm/dist.
 #
-# The repo is the single source: cli/ and registry/ ship as-is, the engine is
+# The repo is the single source: cli/ ships as-is (engine-package.yaml — the
+# distribution's data — included), the engine is
 # a verbatim copy of intelligence/sync/, and the version is injected into
 # package.json (engine VERSION by default; release-npm passes an explicit one
 # for prereleases — engine VERSION itself never carries a prerelease suffix).
@@ -24,7 +25,6 @@ cp -R "$ROOT/intelligence/sync" "$DIST/engine"
 if sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"; then
     printf '%s\n' "$sha" > "$DIST/engine/scripts/ENGINE_SHA"
 fi
-cp -R "$ROOT/registry" "$DIST/registry"
 cp "$ROOT/npm/README.md" "$DIST/README.md"
 cp "$ROOT/LICENSE" "$DIST/LICENSE"
 awk -v ver="$VERSION" '{

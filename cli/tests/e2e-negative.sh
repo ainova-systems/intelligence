@@ -159,6 +159,10 @@ xfail "must be versioned" "$PROJ" add @acme/notags
 chknot test -d "$PROJ/.intelligence/packages/@acme/notags"
 chknot test -f "$PROJ/intelligence.lock"
 
+echo "== 3b. a name NO trusted registry declares is refused (no guessing) =="
+xfail "no trusted registry declares" "$PROJ" add @nobody/nothing
+chknot test -d "$PROJ/.intelligence/packages/@nobody"
+
 echo "== 4. remove a never-added package =="
 xfail "not in the manifest" "$PROJ" remove @acme/never-added
 
@@ -308,6 +312,8 @@ fi
 echo "== 13. engine-content package: auto-add, guards, upgrade migration =="
 P13="$OUT/p13"
 mkdir -p "$P13"
+printf "# Claude marker
+" > "$P13/CLAUDE.md"
 git -C "$P13" init --quiet
 xok "engine content installed" "$P13" init
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"

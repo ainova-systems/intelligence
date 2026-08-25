@@ -27,7 +27,7 @@ No engine code lives in the project. The engine's *scripts* ship inside the npm 
 
 | Command | Does |
 |---|---|
-| `init [--targets a,b] [--dir d] [--bare] [--no-sync]` | Detect tools by their marker dirs, write a minimal self-documenting root manifest, `.gitignore` the store, install `@ainova-systems/sync` (unless `--bare`), first sync. No dirs are created — authoring one later needs no config edit. |
+| `init [--targets a,b] [--dir d] [--bare] [--no-sync]` | Enable `agents` (the tool-neutral AGENTS.md) plus every tool DETECTED by repo markers (`.claude`/`CLAUDE.md`, `.cursor`, `.codex`, `.pi`, `.opencode`, `.github/instructions`) or named via `--targets` — a tool is never invented. Writes a minimal self-documenting root manifest, `.gitignore`s the store, installs `@ainova-systems/sync` (unless `--bare`), first sync. No dirs are created. |
 | `add <spec> [--name @s/n] [--no-sync]` | Resolve → fetch → wire sources → manifest entry → lock → sync. Specs: `@scope/name[@range]`, `github:org/repo[#path]`, `git+<url>[@ref][#path]`. |
 | `remove <name> [--force]` | Inverse of add: manifest, sources, lock, store. |
 | `install [--frozen] [--force]` | Restore the store exactly from the lock; resolve manifest packages the lock lacks (`--frozen` refuses instead, and fails on sha drift). |
@@ -44,11 +44,7 @@ No engine code lives in the project. The engine's *scripts* ship inside the npm 
 
 **Names are global.** The name is the trust anchor a developer reasons with — the same `@scope/name` means the same package in every project, every lock and every conversation. A registry never renames anything, and two versions of one name cannot coexist in a project: intelligence artifacts land in each tool's flat namespace (`.claude/skills/<name>/`, the `AGENTS.md` tables), so duplicates would collide file-by-file. Need pieces of two versions? That is a different package — fork it under a different name. Need to override one artifact? Put a same-named file in your own content dir; project sources are listed after package sources.
 
-**Name → repo resolution** — the first registry to *declare* the name wins:
-
-1. `registries:` in the manifest — a **trust list** of registry repos (git repos holding an `index.yaml`), consulted in order. Adding one is an explicit, committed, reviewable act of trust in the names it declares; private registries are just private repos, git auth covers access. A project-registry hit that shadows a bundled name with a *different* source warns loudly, and `doctor` flags a name whose current resolution url no longer matches the lock.
-2. The bundled default index (`registry/index.yaml`) — needed exactly when a name is not a repo (monorepos: `@ainova-systems/core` → `intelligence-dev-packs` at `packs/core`).
-3. Convention: `@org/name` → `https://github.com/org/name.git`, content at the repo root. Zero infrastructure: any repo with the three dirs is already a package.
+**Name → repo resolution: the trust list is the ONLY resolver.** `registries:` in the manifest holds registry repos (git repos with an `index.yaml`), consulted in order — the first to declare the name wins. There is deliberately **no built-in catalog and no `@org/name` → github guessing**: the CLI core knows no vendor, and a name nobody explicitly trusted never turns into an install from an invented URL. A name no trusted registry declares is refused with suggestions. Installs without a registry are always **explicit sources**: `github:org/repo`, `git+<url>[@ref][#path]`. Vendor defaults exist only as lines `init` seeds into the manifest — visible, reviewable, deletable (`doctor` still flags a name whose current resolution url no longer matches the lock).
 
 **Versions are git tags.** Ranges (`^1.2.0`, `~1.2.0`, exact, `latest`) match stable `x.y.z` tags (optional `v` prefix) listed via `git ls-remote` — no clone to resolve. `add` without a range picks the highest stable tag and records `^that`. A branch or commit pin is `ref:`, the escape hatch that ranges never touch. Prerelease-suffixed tags are invisible to ranges by design.
 

@@ -78,23 +78,24 @@ assert_valid_pkg_name "$name"
 if [ "$mode" = "registry" ]; then
     resolve_package_source "$manifest" "$name"
     url="$RES_URL"; path="$RES_PATH"
+    if [ -z "$url" ]; then
+        echo "ERROR: no trusted registry declares '$name'." >&2
+        echo "  A name installs only through a registry this project added explicitly" >&2
+        echo "  ('intelligence registry list' shows them). Either add its registry:" >&2
+        echo "    intelligence registry add <registry-repo-url>" >&2
+        echo "  or install from an explicit source you name yourself:" >&2
+        echo "    intelligence add github:org/repo   |   intelligence add git+<url>[@ref][#path]" >&2
+        suggest_similar "$manifest" "$name"
+        exit 1
+    fi
     echo "  resolving $name via $RES_VIA -> $url${path:+ ($path)}"
 fi
 
-# The source must exist before anything else is attempted — a name that fell
-# through to the convention is often just a typo, and that must say so, not
-# die mid-pipeline with no message.
+# The source must exist before anything else is attempted — never die
+# mid-pipeline with no message.
 if ! GIT_TERMINAL_PROMPT=0 git ls-remote "$url" >/dev/null 2>&1; then
     echo "ERROR: no reachable repository at $url" >&2
-    if [ "${RES_VIA:-}" = "convention" ]; then
-        echo "  No registry declares '$name', so it resolved by convention to github.com/${name#@}." >&2
-        echo "  Either the name is misspelled ('intelligence search' lists what registries offer)," >&2
-        echo "  the repo is private (check your git credentials), or its registry is not added yet:" >&2
-        echo "    intelligence registry add <registry-repo-url>" >&2
-        suggest_similar "$manifest" "$name"
-    else
-        echo "  Declared by ${RES_VIA:-the manifest} — check the URL and your git access." >&2
-    fi
+    echo "  Declared by ${RES_VIA:-the spec} — check the URL and your git access." >&2
     exit 1
 fi
 

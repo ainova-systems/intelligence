@@ -8,8 +8,7 @@
   "files": [
     "bin",
     "cli",
-    "engine",
-    "registry"
+    "engine"
   ],
   "engines": {
     "node": ">=18"

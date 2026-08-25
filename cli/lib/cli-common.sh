@@ -24,15 +24,21 @@ source "$CLI_DIR/lib/semver.sh"
 source "$CLI_DIR/lib/registry.sh"
 source "$CLI_DIR/lib/lockfile.sh"
 
-# The engine's own content as a package: OPTIONAL but auto-selected at init.
-# Package by UX (manifest entry, lockfile row, list/search/remove), bundle by
-# mechanics — at the version the CLI ships, it materializes from the npm
-# bundle without network; only a cross-version install reaches git. The pin
-# is held exactly at the bundled engine version and moved only by `upgrade`.
-SYNC_PKG_NAME="@ainova-systems/sync"
-SYNC_PKG_URL="https://github.com/ainova-systems/intelligence-sync.git"
-SYNC_PKG_PATH="intelligence/sync"
-SYNC_PKG_STORE=".intelligence/packages/@ainova-systems/sync"
+# The engine-content package: OPTIONAL but auto-selected at init. Package by
+# UX (manifest entry, lockfile row, list/search/remove), bundle by mechanics —
+# at the version the CLI ships, it materializes from the npm bundle without
+# network; only a cross-version install reaches git. The pin is held exactly
+# at the bundled engine version and moved only by `upgrade`.
+#
+# Its identity is DATA shipped with the distribution (cli/engine-package.yaml),
+# never a name compiled into cli code — a fork edits the file.
+_EPKG="$CLI_DIR/engine-package.yaml"
+SYNC_PKG_NAME="$(top_scalar "$_EPKG" "name")"
+SYNC_PKG_URL="$(top_scalar "$_EPKG" "url")"
+SYNC_PKG_PATH="$(top_scalar "$_EPKG" "path")"
+DEFAULT_REGISTRY_URL="$(top_scalar "$_EPKG" "default_registry")"
+[ -n "$SYNC_PKG_NAME" ] || die "corrupt CLI installation: $_EPKG is missing or has no 'name'"
+SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
 
 # --- Project detection ---------------------------------------------------
 # Sets: IP_MODE (v2|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.

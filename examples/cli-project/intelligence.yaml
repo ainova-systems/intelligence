@@ -44,7 +44,8 @@ packages:
   "@ainova-systems/core":
     version: "^0.3.0"
 
-# Registries are a trust list: git repos holding an index.yaml, consulted in
-# order before the CLI's bundled index and the @org/name GitHub convention.
-# registries:
-#   - "https://github.com/acme/intelligence-registry.git"
+# Registries are this project's trust list — the only way names resolve:
+# git repos holding an index.yaml, consulted in order. init seeds the default;
+# delete a line to distrust that catalog.
+registries:
+  - "https://github.com/ainova-systems/intelligence-registry.git"

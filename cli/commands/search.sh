@@ -4,7 +4,7 @@
 # "what does this project depend on", `search` answers "what could it".
 #
 # Sources, in resolution order (a name found earlier wins, exactly as `add`
-# resolves it): every scope bound in the manifest, then the bundled index.
+# resolves it): the manifest's trusted registries, in order.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -69,15 +69,13 @@ if [ -n "$manifest" ]; then
         emit_index "$index" "$url"
     done < <(registries_list "$manifest")
 fi
-emit_index "$(default_index_file)" "bundled"
-
 if [ "$rows" -eq 0 ]; then
     if [ -n "$term" ]; then
-        echo "Nothing matching '$term' in the configured registries."
+        echo "Nothing matching '$term' in this project's trusted registries."
     else
-        echo "No registries hold any packages."
+        echo "No trusted registries (or they offer nothing) — intelligence registry add <repo-url>."
     fi
-    echo "Any git repo with rules/, agents/ or skills/ is a package: intelligence add @org/repo"
+    echo "Explicit installs need no registry: intelligence add github:org/repo"
     exit 0
 fi
 

@@ -33,15 +33,24 @@ esac
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 root="$(cd "$root" && pwd)"
 
-targets="agents claude"
+# Never invent a tool the project shows no trace of: every per-tool target is
+# DETECTED from repo markers or named explicitly via --targets. Only `agents`
+# (AGENTS.md, the tool-neutral standard every AGENTS-reading tool shares, and
+# the invariant-required carrier once any of them is on) is unconditional.
+targets="agents"
 if [ -n "$targets_arg" ]; then
     targets="agents $(printf '%s' "$targets_arg" | tr ',' ' ')"
 else
+    if [ -d "$root/.claude" ] || [ -f "$root/CLAUDE.md" ]; then targets="$targets claude"; fi
     [ -d "$root/.cursor" ] && targets="$targets cursor"
     [ -d "$root/.codex" ] && targets="$targets codex"
     [ -d "$root/.pi" ] && targets="$targets pi"
     [ -d "$root/.opencode" ] && targets="$targets opencode"
     [ -d "$root/.github" ] && [ -d "$root/.github/instructions" ] && targets="$targets copilot"
+    if [ "$targets" = "agents" ]; then
+        echo "  NOTE: no tool markers found (.claude/, CLAUDE.md, .cursor/, …) — only AGENTS.md is enabled." >&2
+        echo "        Name your tools explicitly: intelligence init --targets claude,cursor  (or edit targets: later)" >&2
+    fi
 fi
 
 manifest="$root/intelligence.yaml"
@@ -88,14 +97,20 @@ manifest="$root/intelligence.yaml"
     echo "#   \"@ainova-systems/core\":"
     echo "#     version: \"^0.3.0\""
     echo ""
-    echo "# Registries are a TRUST LIST: git repos holding an index.yaml, consulted"
-    echo "# in order — the first to declare a name wins, then the CLI's bundled index,"
-    echo "# then the @org/name -> github.com/org/name convention. Adding one is a"
-    echo "# committed, reviewable act of trust in the names it declares; sources are"
-    echo "# pinned by url+sha in intelligence.lock, and overriding a bundled name"
-    echo "# warns loudly. Managed with 'intelligence registry add|remove'."
-    echo "# registries:"
-    echo "#   - \"https://github.com/acme/intelligence-registry.git\""
+    echo "# Registries are this project's TRUST LIST — the ONLY way a package name"
+    echo "# resolves (there is no built-in catalog and no name->github guessing;"
+    echo "# registry-less installs are always explicit: github:org/repo, git+<url>)."
+    echo "# Git repos holding an index.yaml, consulted in order; first to declare a"
+    echo "# name wins; sources are then pinned by url+sha in intelligence.lock."
+    echo "# Managed with 'intelligence registry add|remove'. Delete a line to"
+    echo "# distrust that catalog — including the default seeded below."
+    if [ "$bare" -eq 1 ] || [ -z "$DEFAULT_REGISTRY_URL" ]; then
+        echo "# registries:"
+        echo "#   - \"https://github.com/acme/intelligence-registry.git\""
+    else
+        echo "registries:"
+        echo "  - \"$DEFAULT_REGISTRY_URL\""
+    fi
 } > "$manifest"
 
 # The package store is restorable state, never committed — the npm model.

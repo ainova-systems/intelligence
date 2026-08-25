@@ -83,7 +83,7 @@ jobs:
           intelligence version
           PROJ="$RUNNER_TEMP/shim-proj"
           mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
-          intelligence init
+          intelligence init --targets claude
           grep -q '^IS_STATUS=ok' < <(intelligence sync) || { echo "sync via shim failed"; exit 1; }
           grep -q 'intelligence sync' AGENTS.md
           test -f intelligence.yaml && test -d .claude
@@ -119,6 +119,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The skip marker is searched across origin/main..HEAD; a shallow
+          # clone grafts HEAD parentless and blinds that range to every
+          # earlier branch commit.
+          fetch-depth: 0
       - name: Sync each smoke example with the main engine and this engine, byte-diff outputs
         run: |
           set -euo pipefail

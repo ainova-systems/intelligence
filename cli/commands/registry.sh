@@ -28,15 +28,7 @@ case "$sub" in
             done < <(registries_list "$IP_ROOT/intelligence.yaml")
             [ "$found" -eq 0 ] && echo "  (none)"
         fi
-        bundled="$(default_index_file)"
-        if [ -n "$bundled" ]; then
-            echo "Bundled index:"
-            while IFS= read -r name; do
-                [ -n "$name" ] || continue
-                echo "  $name -> $(qmap_field "$bundled" "packages" "$name" "url")"
-            done < <(qmap_keys "$bundled" "packages")
-        fi
-        echo "Fallback: @org/name -> https://github.com/org/name.git"
+        echo "Names resolve ONLY through the list above. Registry-less installs are explicit: github:org/repo, git+<url>."
         ;;
     add)
         url="${2:-}"

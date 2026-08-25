@@ -35,6 +35,11 @@ while IFS= read -r name; do
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
     [ -n "$ref" ] && { echo "  $name: pinned to ref '$ref' — skipped"; continue; }
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
+    # An exact version is a pin, same as ref: — update never moves pins.
+    if [ -n "$range" ] && semver_is_stable "$range"; then
+        echo "  $name: pinned to $range — edit the manifest to move it"
+        continue
+    fi
     url="$(qmap_field "$manifest" "packages" "$name" "url")"
     path="$(qmap_field "$manifest" "packages" "$name" "path")"
     if [ -z "$url" ]; then

@@ -1,28 +1,22 @@
 #!/bin/bash
 # Name -> source resolution and package fetching.
 #
-# Resolution order (first registry to DECLARE the name wins):
-#   1. project `registries:` — a trust LIST of registry repos (git repos
-#      holding index.yaml), consulted in manifest order; adding one is an
-#      explicit, committed act of trust in the names it declares
-#   2. the bundled default index (registry/index.yaml next to the CLI)
-#   3. convention: @org/name -> https://github.com/org/name.git, content at
-#      the repo root — the zero-infrastructure default
+# A name resolves ONLY through the manifest's `registries:` trust list (git
+# repos holding index.yaml, consulted in order; the first to declare the name
+# wins). There is deliberately no built-in catalog and no name->github
+# convention: the CLI core knows no vendor, and a name nobody explicitly
+# trusted must never silently turn into an install from a guessed URL.
+# Sources without a registry are always EXPLICIT: github:org/repo, git+<url>.
+# Vendor defaults exist only as lines `init` writes into the manifest —
+# visible, reviewable, deletable.
 #
 # The NAME is the trust anchor a developer reasons with; source integrity is
-# a separate mechanism: the lock pins url+sha, a project-registry hit that
-# shadows a bundled name with a different url warns loudly, and doctor flags
+# a separate mechanism: the lock pins url+sha, and doctor flags
 # resolution/lock url drift.
 #
 # An index is itself fetched with git (never curl): auth, proxies and private
 # hosting all come for free, and the CLI keeps the engine's bash+awk+git-only
 # dependency footprint.
-
-default_index_file() {
-    local f="$CLI_DIR/../registry/index.yaml"
-    [ -f "$f" ] && printf '%s' "$f"
-    return 0
-}
 
 # _fetch_index <registry-repo-url> — clones the registry repo (shallow) and
 # prints the path of its index.yaml; empty on failure. Cached per run+url.
@@ -49,11 +43,9 @@ _fetch_index() {
 # shellcheck disable=SC2034
 resolve_package_source() {
     local manifest="$1" name="$2"
-    local scope="${name%%/*}" short="${name#*/}"
     RES_URL=""; RES_PATH=""; RES_VIA=""
 
-    local reg_url index bundled burl
-    bundled="$(default_index_file)"
+    local reg_url index
     if [ -n "$manifest" ] && [ -f "$manifest" ]; then
         while IFS= read -r reg_url; do
             [ -n "$reg_url" ] || continue
@@ -66,37 +58,18 @@ resolve_package_source() {
             if [ -n "$RES_URL" ]; then
                 RES_PATH="$(qmap_field "$index" "packages" "$name" "path")"
                 RES_VIA="registry:$reg_url"
-                # Shadowing a bundled name with a DIFFERENT source is legal
-                # (that is what overriding means) but never silent.
-                if [ -n "$bundled" ]; then
-                    burl="$(qmap_field "$bundled" "packages" "$name" "url")"
-                    if [ -n "$burl" ] && [ "$burl" != "$RES_URL" ]; then
-                        echo "  WARN: $name from this registry overrides the bundled source ($burl)" >&2
-                    fi
-                fi
                 return 0
             fi
         done < <(registries_list "$manifest")
     fi
-
-    if [ -n "$bundled" ]; then
-        RES_URL="$(qmap_field "$bundled" "packages" "$name" "url")"
-        if [ -n "$RES_URL" ]; then
-            RES_PATH="$(qmap_field "$bundled" "packages" "$name" "path")"
-            RES_VIA="index"
-            return 0
-        fi
-    fi
-
-    RES_URL="https://github.com/${scope#@}/$short.git"
-    RES_PATH=""
-    RES_VIA="convention"
+    # No trusted registry declares the name. Deliberately NOT an invented
+    # URL: the caller reports it, with suggestions.
     return 0
 }
 
 # suggest_similar <manifest-or-empty> <@scope/name> — "Did you mean" lines to
 # stderr, matched on the short name (singular/plural tolerant) across every
-# project registry and the bundled index.
+# trusted registry.
 suggest_similar() {
     local manifest="$1" name="$2"
     local want cand cshort reg_url index seen=" "
@@ -121,7 +94,6 @@ suggest_similar() {
             _suggest_from "$index"
         done < <(registries_list "$manifest")
     fi
-    _suggest_from "$(default_index_file)"
 }
 
 # fetch_package <url> <ref> <subpath> <dest-dir>
