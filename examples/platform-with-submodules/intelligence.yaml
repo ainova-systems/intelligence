@@ -10,19 +10,19 @@ sync_version: "0.11.0"
 
 sources:
   rules:
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
     - "api/intelligence/rules"
     - "web/intelligence/rules"
     - "deploy/intelligence/rules"
-    - "intelligence/sync/rules"
   agents:
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
     - "api/intelligence/agents"
     - "web/intelligence/agents"
-    - "intelligence/sync/agents"
   skills:
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
-    - "intelligence/sync/skills"
     - "api/intelligence/skills"
     - "web/intelligence/skills"
 
@@ -47,3 +47,12 @@ ignore:
 submodules:
   - "libs/shared-sdk"
   - "tools/ci-runner"
+
+# CLI-owned blocks — the engine never reads below this line. The engine's own
+# content is an ordinary package, pinned to the engine and restored offline
+# from the CLI bundle.
+packages:
+  "@ainova-systems/sync":
+    version: "0.11.0"
+    url: "https://github.com/ainova-systems/intelligence.git"
+    path: "packages/sync"

@@ -9,14 +9,14 @@ sync_version: "0.11.0"
 
 sources:
   rules:
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
-    - "intelligence/sync/rules"
   agents:
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
-    - "intelligence/sync/agents"
   skills:
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
-    - "intelligence/sync/skills"
 
 targets:
   agents:
@@ -30,3 +30,12 @@ targets:
       **Full context**: [`intelligence/rules/context.md`](intelligence/rules/context.md)
   codex: { enabled: true, output: ".codex" }
   pi: { enabled: true, output: ".pi" }
+
+# CLI-owned blocks — the engine never reads below this line. The engine's own
+# content is an ordinary package, pinned to the engine and restored offline
+# from the CLI bundle.
+packages:
+  "@ainova-systems/sync":
+    version: "0.11.0"
+    url: "https://github.com/ainova-systems/intelligence.git"
+    path: "packages/sync"

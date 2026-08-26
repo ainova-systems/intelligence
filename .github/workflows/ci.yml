@@ -15,12 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Run shellcheck
+      - name: Run shellcheck over the engine
         run: |
           shellcheck --version
           # Skip the adapter template — `<name>` placeholders are parsed as
           # input redirection by bash/shellcheck.
-          find intelligence/sync/scripts -name '*.sh' \
+          find engine -name '*.sh' \
             -not -path '*/adapters/_template.sh' \
             -print0 | xargs -0 shellcheck --severity=warning
 
@@ -87,6 +87,10 @@ jobs:
           grep -q '^IS_STATUS=ok' < <(intelligence sync) || { echo "sync via shim failed"; exit 1; }
           grep -q 'intelligence sync' AGENTS.md
           test -f intelligence.yaml && test -d .claude
+          # The bundle seeds the engine-content package offline — and seeds
+          # CONTENT, never engine scripts.
+          test -d .intelligence/packages/@ainova-systems/sync/skills
+          test ! -e .intelligence/packages/@ainova-systems/sync/sync.sh
       # Windows goes through native npm/pwsh end to end: bash-side path
       # spellings must never touch the install, only the shim's own bash
       # discovery — which is exactly what this proves.
@@ -114,382 +118,50 @@ jobs:
           if (-not (Select-String -Path AGENTS.md -Pattern 'intelligence sync' -Quiet)) { Write-Error "AGENTS.md lacks the CLI sync command" }
           if (-not (Test-Path "intelligence.yaml") -or -not (Test-Path ".claude")) { Write-Error "outputs missing" }
 
-  legacy-golden-code:
-    name: legacy-golden-code (engine script changes are byte-neutral, never skipped)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - name: main's content synced by main's scripts vs by this branch's scripts
-        run: |
-          set -euo pipefail
-          # The content skip below cannot hide an un-gated engine change: this
-          # job holds CONTENT fixed at main (so branch-only tokens never leak)
-          # and swaps only intelligence/sync/scripts between main and this
-          # branch. Any difference is a script change that altered vendored
-          # (IS_CLI=0) output — exactly what the env gating must prevent. Runs
-          # unconditionally, on every branch and on main (where it is a no-op
-          # equality).
-          git fetch --quiet origin main
-          BASE="$RUNNER_TEMP/base"; git worktree add --quiet "$BASE" origin/main
-
-          stage() {  # $1 = project dir, $2 = scripts source tree
-            mkdir -p "$1"
-            cp -r "$BASE/intelligence" "$1/intelligence"
-            rm -rf "$1/intelligence/sync/scripts"
-            cp -r "$2/intelligence/sync/scripts" "$1/intelligence/sync/scripts"
-            cp "$BASE/examples/go-api/config.yaml" "$1/intelligence/config.yaml"
-            # Stamp the config to THIS side's engine version — main and the
-            # branch may sit at different VERSIONs (pre-merge), and a mismatch
-            # would trip the needs-update gate, not the code path under test.
-            # sync_version is never rendered into output, so the comparison
-            # stays valid.
-            v="$(tr -d ' \t\r\n' < "$2/intelligence/sync/scripts/VERSION")"
-            sed -i "s/^sync_version:.*/sync_version: \"$v\"/" "$1/intelligence/config.yaml"
-            mkdir -p "$1/intelligence/rules"
-            printf '# Ctx\n\nx\n' > "$1/intelligence/rules/context.md"
-            ( cd "$1" && git init -q . && \
-              bash intelligence/sync/scripts/sync.sh > out.txt 2> err.txt )
-          }
-          stage "$RUNNER_TEMP/a" "$BASE"
-          stage "$RUNNER_TEMP/b" "$GITHUB_WORKSPACE"
-          fail=0
-          for out in .claude .cursor .github .codex .agents .pi .opencode AGENTS.md; do
-            [ ! -e "$RUNNER_TEMP/a/$out" ] && [ ! -e "$RUNNER_TEMP/b/$out" ] && continue
-            diff -ruN "$RUNNER_TEMP/a/$out" "$RUNNER_TEMP/b/$out" || { echo "CODE GOLDEN DIFF: $out"; fail=1; }
-          done
-          diff <(grep '^IS_STATUS=' "$RUNNER_TEMP/a/out.txt") <(grep '^IS_STATUS=' "$RUNNER_TEMP/b/out.txt") || { echo "IS_STATUS differs"; fail=1; }
-          [ "$fail" -eq 0 ] && echo "OK: engine script changes are byte-neutral for vendored output"
-          exit "$fail"
-
-  legacy-golden:
-    name: legacy-golden (vendored outputs byte-identical vs main)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          # The skip marker is searched across origin/main..HEAD; a shallow
-          # clone grafts HEAD parentless and blinds that range to every
-          # earlier branch commit.
-          fetch-depth: 0
-      - name: Sync each smoke example with the main engine and this engine, byte-diff outputs
-        run: |
-          set -euo pipefail
-          # The vendored flow is the compatibility contract: engine changes on
-          # a branch must not alter a single generated byte for legacy
-          # projects. A branch that intentionally changes generated output
-          # declares it ONCE with [golden-skip] in any commit message — the
-          # diff is taken against main, so the declaration must cover the
-          # whole branch range, not just HEAD. On main the range is empty and
-          # the comparison (of identical trees) always runs.
-          git fetch --quiet origin main
-          if git log origin/main..HEAD --format=%B | grep -qF '[golden-skip]'; then
-            echo "golden-skip marker found in the branch range — skipping"; exit 0
-          fi
-          BASE="$RUNNER_TEMP/main-src"
-          git worktree add --quiet "$BASE" origin/main
-
-          stage_and_sync() {
-            local engine_src="$1" proj="$2" example="$3"
-            mkdir -p "$proj"
-            cp -r "$engine_src/intelligence" "$proj/intelligence"
-            cp "$engine_src/examples/$example/config.yaml" "$proj/intelligence/config.yaml"
-            mkdir -p "$proj/intelligence/rules" "$proj/intelligence/agents" \
-                     "$proj/intelligence/skills/backend-add-endpoint/references"
-            printf '# Project Context\n\nAlways-on context.\n' > "$proj/intelligence/rules/context.md"
-            printf -- '---\npaths:\n  - "backend/**"\n---\n# Backend rules\n\nScoped rule body.\n' \
-              > "$proj/intelligence/rules/backend.md"
-            printf -- '---\nname: backend-developer\ndescription: Implements backend endpoints\ntier: standard\naccess: full\n---\nBackend developer persona.\n' \
-              > "$proj/intelligence/agents/backend-developer.md"
-            printf -- '---\nname: backend-add-endpoint\ndescription: Add a REST endpoint\nargument-hint: [route-name]\n---\nSee [template](references/endpoint-template.md).\n' \
-              > "$proj/intelligence/skills/backend-add-endpoint/SKILL.md"
-            printf 'REFERENCE_MARKER template body\n' \
-              > "$proj/intelligence/skills/backend-add-endpoint/references/endpoint-template.md"
-            ( cd "$proj" && git init --quiet . && \
-              bash intelligence/sync/scripts/sync.sh > sync-stdout.txt 2> sync-stderr.txt )
-          }
-
-          fail=0
-          for example in go-api dotnet-api-with-react-frontend platform-with-submodules; do
-            A="$RUNNER_TEMP/golden/$example/a"; B="$RUNNER_TEMP/golden/$example/b"
-            stage_and_sync "$BASE" "$A" "$example"
-            stage_and_sync "$GITHUB_WORKSPACE" "$B" "$example"
-            for out in .claude .cursor .github .codex .agents .pi .opencode AGENTS.md; do
-              [ ! -e "$A/$out" ] && [ ! -e "$B/$out" ] && continue
-              if ! diff -ruN "$A/$out" "$B/$out"; then
-                echo "GOLDEN DIFF: $example/$out differs from the main engine's output"
-                fail=1
-              fi
-            done
-            if ! diff <(grep '^IS_STATUS=' "$A/sync-stdout.txt") <(grep '^IS_STATUS=' "$B/sync-stdout.txt"); then
-              echo "GOLDEN DIFF: $example IS_STATUS differs"
-              fail=1
-            fi
-          done
-          [ "$fail" -eq 0 ] && echo "OK: all legacy outputs byte-identical vs main"
-          exit "$fail"
-
   repo-purity:
-    name: repo-purity (no flat twin / zero duplication)
+    name: repo-purity (one layout, stamps in lockstep)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Repo must be pure-modular — no flat bridge
+      - name: The v1 vendored layout must not come back
         shell: bash
         run: |
           set -euo pipefail
           fail=0
-          for p in intelligence/scripts intelligence/INIT.md; do
-            if [ -e "$p" ]; then echo "DUPLICATION: $p must not exist"; fail=1; fi
+          # The engine is an executable at engine/, its content is a package at
+          # packages/sync/. A reappearing intelligence/sync/ would mean the two
+          # roles merged again — the exact coupling the v2 split removed.
+          for p in intelligence/sync intelligence/scripts engine/scripts packages/sync/scripts; do
+            if [ -e "$p" ]; then echo "LAYOUT: $p must not exist"; fail=1; fi
           done
-          if [ -n "$(find intelligence/skills -maxdepth 1 -name 'intelligence-*' 2>/dev/null)" ]; then
-            echo "DUPLICATION: intelligence/skills/intelligence-* must live only in intelligence/sync/skills/"; fail=1
-          fi
-          test -f intelligence/sync/scripts/sync.sh
-          test -f intelligence/sync/scripts/VERSION
-          # Vendored docs must mirror the doc source exactly.
-          diff -rq docs intelligence/sync/docs
-          [ "$fail" -eq 0 ] && echo "OK: pure-modular, single source, no duplication"
+          test -f engine/sync.sh
+          test -f engine/VERSION
+          test -d packages/sync/skills
+          [ "$fail" -eq 0 ] && echo "OK: single layout, engine and content separated"
           exit $fail
 
-      - name: Example fixtures must be stamped at the engine VERSION
+      - name: Example manifests must be stamped at the engine VERSION
         shell: bash
         run: |
           set -euo pipefail
-          # Examples are "ready-to-sync at the current engine" fixtures: the
-          # smoke job copies the fresh engine alongside them and expects
-          # IS_STATUS=ok. sync.sh fails closed when stamp < engine, so a bumped
-          # VERSION with an un-bumped example silently turns smoke into a
-          # confusing exit 6. Assert lockstep here for a precise early signal.
-          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          # Examples are "ready-to-sync at the current engine" fixtures: smoke
+          # runs them against the engine in this tree, and sync fails closed
+          # when stamp < engine, so a bumped VERSION with an un-bumped example
+          # turns smoke into a confusing exit 6. Assert lockstep here instead.
+          V="$(tr -d ' \t\r\n' < engine/VERSION)"
           fail=0
-          for cf in examples/*/config.yaml examples/*/intelligence.yaml; do
+          for cf in examples/*/intelligence.yaml; do
             stamp="$(awk -F'"' '/^sync_version:/ {print $2; exit}' "$cf")"
             if [ "$stamp" != "$V" ]; then
               echo "STAMP DRIFT: $cf has sync_version=\"$stamp\", expected \"$V\""; fail=1
             fi
+            pin="$(awk -F'"' '/^    version: / {print $2; exit}' "$cf")"
+            if [ -n "$pin" ] && [ "$pin" != "$V" ]; then
+              echo "PIN DRIFT: $cf pins the sync package at \"$pin\", expected \"$V\""; fail=1
+            fi
           done
-          [ "$fail" -eq 0 ] && echo "OK: all examples stamped at $V"
+          [ "$fail" -eq 0 ] && echo "OK: all examples stamped and pinned at $V"
           exit $fail
-
-  packs:
-    name: packs (declare + mirror + track)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: A declared pack mirrors into the repo, and a bump is a readable diff
-        shell: bash
-        run: |
-          set -euo pipefail
-          PACK=$RUNNER_TEMP/shared-intel
-          PROJ=$RUNNER_TEMP/proj
-
-          # A pack repo served over file:// — no network, same code path as https.
-          mkdir -p "$PACK/rules" "$PACK/skills/shared-do-thing"
-          printf -- '---\nname: shared-baseline\n---\n\nBe careful.\n' > "$PACK/rules/shared-baseline.md"
-          printf -- '---\nname: shared-do-thing\ndescription: "Does it"\n---\n\nSteps.\n' > "$PACK/skills/shared-do-thing/SKILL.md"
-          printf 'not intelligence content\n' > "$PACK/README.md"
-          git -C "$PACK" init -q
-          git -C "$PACK" add -A
-          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v1
-          git -C "$PACK" tag v1.0.0
-
-          mkdir -p "$PROJ/intelligence/rules"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          mkdir -p "$PROJ/intelligence/agents"
-          printf -- '---\nname: local\n---\n\nLocal context.\n' > "$PROJ/intelligence/rules/context.md"
-          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
-          cat > "$PROJ/intelligence/config.yaml" <<YAML
-          project:
-            name: ext-test
-          sync_version: "$V"
-          packs:
-            shared-intel:
-              url: file://$PACK
-              ref: v1.0.0
-              mirror: "intelligence/external/shared-intel"
-          sources:
-            rules:
-              - "intelligence/rules"
-              - "@shared-intel/rules"
-            agents:
-              - "intelligence/agents"
-            skills:
-              - "@shared-intel/skills"
-          targets:
-            agents: { enabled: true, output: "AGENTS.md" }
-            claude: { enabled: true, output: ".claude" }
-          YAML
-          git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -qm init
-
-          cd "$PROJ"
-          out=$(bash intelligence/sync/scripts/sync.sh)
-          case "$out" in *"IS_STATUS=ok"*) ;; *) echo "$out"; echo "missing IS_STATUS=ok"; exit 1 ;; esac
-
-          # Referenced subpaths only — no README, and never a nested .git.
-          test -f intelligence/external/shared-intel/.pack
-          test -f intelligence/external/shared-intel/rules/shared-baseline.md
-          test -f intelligence/external/shared-intel/skills/shared-do-thing/SKILL.md
-          test ! -e intelligence/external/shared-intel/README.md
-          test ! -e intelligence/external/shared-intel/.git
-          grep -q "^url=file://$PACK\$" intelligence/external/shared-intel/.pack
-          # The pack still reaches the IDE channels, exactly as a local source would.
-          test -f .claude/skills/shared-do-thing/SKILL.md
-
-          # Idempotent: a second run must not dirty the tree.
-          git add -A && git -c user.email=ci@example.com -c user.name=ci commit -qm packs
-          bash intelligence/sync/scripts/sync.sh >/dev/null
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "NOT IDEMPOTENT:"; git status --porcelain; exit 1
-          fi
-
-          # Bumping the pin must surface as a content diff, and drop removed files.
-          printf -- '---\nname: shared-baseline\n---\n\nBe careful AND explicit.\n' > "$PACK/rules/shared-baseline.md"
-          rm -rf "$PACK/skills/shared-do-thing"
-          mkdir -p "$PACK/skills/shared-ship-it"
-          printf -- '---\nname: shared-ship-it\ndescription: "Ships"\n---\n\nShip.\n' > "$PACK/skills/shared-ship-it/SKILL.md"
-          git -C "$PACK" add -A
-          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v11
-          git -C "$PACK" tag v1.1.0
-          # The pin lives in ONE place — the pack declaration, not each source.
-          sed -i 's/ref: v1.0.0/ref: v1.1.0/' intelligence/config.yaml
-          bash intelligence/sync/scripts/sync.sh >/dev/null
-          git diff --stat -- intelligence/external
-          git diff -- intelligence/external | grep -q '^+Be careful AND explicit\.$'
-          git diff -- intelligence/external | grep -q '^+ref=v1.1.0$'
-          test ! -e intelligence/external/shared-intel/skills/shared-do-thing
-          test -f intelligence/external/shared-intel/skills/shared-ship-it/SKILL.md
-
-          # A MOVED upstream (same pack, new url) refreshes the mirror. The
-          # mirror is declared per pack, so a stamped directory stays this
-          # pack's even after its url changes — freezing it at the old content
-          # while the generated output follows the new repo would break exactly
-          # the reviewability the mirror exists for, and do it silently.
-          git add -A && git -c user.email=ci@example.com -c user.name=ci commit -qm bumped
-          MOVED=$RUNNER_TEMP/moved-intel
-          git clone -q "$PACK" "$MOVED"
-          printf -- '---\nname: shared-baseline\n---\n\nFrom the moved repo.\n' > "$MOVED/rules/shared-baseline.md"
-          git -C "$MOVED" add -A
-          git -C "$MOVED" -c user.email=ci@example.com -c user.name=ci commit -qm moved
-          # Same pin, new home — the clone carries the tags, so move v1.1.0 onto
-          # the moved commit rather than adding a ref the config does not use.
-          git -C "$MOVED" tag -f v1.1.0 >/dev/null
-          sed -i "s|url: file://$PACK\$|url: file://$MOVED|" intelligence/config.yaml
-          out=$(bash intelligence/sync/scripts/sync.sh 2>&1)
-          case "$out" in *"not a pack's"*) echo "$out"; echo "a moved upstream must refresh, not freeze"; exit 1 ;; esac
-          grep -q "^url=file://$MOVED\$" intelligence/external/shared-intel/.pack
-          grep -q '^From the moved repo\.$' intelligence/external/shared-intel/rules/shared-baseline.md
-          git checkout -- intelligence/config.yaml
-
-          # A directory that is not ours is never cleared.
-          rm -rf intelligence/external
-          mkdir -p intelligence/external/shared-intel
-          echo precious > intelligence/external/shared-intel/PRECIOUS.md
-          bash intelligence/sync/scripts/sync.sh >/dev/null
-          test -f intelligence/external/shared-intel/PRECIOUS.md
-
-          # A mirror inside a configured source is refused, not obeyed.
-          git checkout -- intelligence/config.yaml
-          sed -i 's|mirror: "intelligence/external/shared-intel"|mirror: "intelligence/rules/packs"|' intelligence/config.yaml
-          rc=0; bash intelligence/sync/scripts/sync.sh >/dev/null 2>&1 || rc=$?
-          [ "$rc" -eq 1 ] || { echo "expected exit 1 for a mirror inside a source, got $rc"; exit 1; }
-
-          # An undeclared pack reference FAILS the run — it must never degrade
-          # into a silently skipped source the way a missing local path does.
-          git checkout -- intelligence/config.yaml
-          sed -i 's|"@shared-intel/rules"|"@typo-pack/rules"|' intelligence/config.yaml
-          rc=0; err=$(bash intelligence/sync/scripts/sync.sh 2>&1 >/dev/null) || rc=$?
-          [ "$rc" -eq 1 ] || { echo "expected exit 1 for an undeclared pack, got $rc"; exit 1; }
-          case "$err" in *"typo-pack"*) ;; *) echo "$err"; echo "error must name the pack"; exit 1 ;; esac
-
-          # Two packs sharing one mirror FAILS the run. The wipe is claimed per
-          # directory, so the second pack would skip the ownership check and the
-          # shared clear, then `rm -rf` its own subpath over the first pack's
-          # files — leaving one directory holding both packs' content under a
-          # single `.pack` that names only one of them.
-          git checkout -- intelligence/config.yaml
-          awk '
-            /^  shared-intel:/ { print; inp = 1; next }
-            inp && /^sources:/ {
-              print "  twin-intel:"
-              print "    url: file://'"$PACK"'"
-              print "    mirror: \"intelligence/external/shared-intel\""
-              inp = 0
-            }
-            { print }
-          ' intelligence/config.yaml > intelligence/config.tmp && mv intelligence/config.tmp intelligence/config.yaml
-          rc=0; err=$(bash intelligence/sync/scripts/sync.sh 2>&1 >/dev/null) || rc=$?
-          [ "$rc" -eq 1 ] || { echo "expected exit 1 for a shared mirror, got $rc"; exit 1; }
-          case "$err" in *twin-intel*shared-intel*) ;; *) echo "$err"; echo "error must name BOTH packs"; exit 1 ;; esac
-
-          # A pack with no mirror keeps working and leaves NOTHING in the repo.
-          git checkout -- intelligence/config.yaml
-          sed -i '/mirror: "intelligence\/external\/shared-intel"/d' intelligence/config.yaml
-          rm -rf intelligence/external
-          bash intelligence/sync/scripts/sync.sh >/dev/null
-          test ! -e intelligence/external
-          test -f .claude/rules/shared-baseline.md
-
-          echo "OK: packs declare once, mirror, refresh, and fail closed on a bad reference"
-
-      - name: A mirrored pack is LF even when the host checks out CRLF
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Reproduce the Windows default on Linux. With core.autocrlf=true the
-          # pack clone materializes CRLF for any pack that declares no
-          # attributes, and materialize_pack copies bytes verbatim — so the
-          # mirror lands CRLF inside the project repo and reappears as a dirty
-          # tree after every sync. The engine pins the clone instead of trusting
-          # the host, which is what this asserts.
-          git config --global core.autocrlf true
-
-          PACK=$RUNNER_TEMP/eol-intel
-          PROJ=$RUNNER_TEMP/eol-proj
-          mkdir -p "$PACK/rules"
-          printf -- '---\nname: eol-baseline\n---\n\nLF only.\n' > "$PACK/rules/eol-baseline.md"
-          git -C "$PACK" init -q
-          git -C "$PACK" add -A
-          git -C "$PACK" -c user.email=ci@example.com -c user.name=ci commit -qm v1
-
-          mkdir -p "$PROJ/intelligence/rules" "$PROJ/intelligence/agents"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          printf -- '---\nname: local\n---\n\nLocal context.\n' > "$PROJ/intelligence/rules/context.md"
-          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
-          cat > "$PROJ/intelligence/config.yaml" <<YAML
-          project:
-            name: eol-test
-          sync_version: "$V"
-          packs:
-            eol-intel:
-              url: file://$PACK
-              mirror: "intelligence/external/eol-intel"
-          sources:
-            rules:
-              - "intelligence/rules"
-              - "@eol-intel/rules"
-            agents:
-              - "intelligence/agents"
-          targets:
-            agents: { enabled: true, output: "AGENTS.md" }
-            claude: { enabled: true, output: ".claude" }
-          YAML
-          git -C "$PROJ" init -q
-
-          cd "$PROJ"
-          bash intelligence/sync/scripts/sync.sh >/dev/null
-          test -f intelligence/external/eol-intel/rules/eol-baseline.md
-          crlf=""
-          while IFS= read -r f; do
-            [ "$(tr -cd '\r' < "$f" | wc -c)" -eq 0 ] || crlf="$crlf $f"
-          done < <(find intelligence/external -type f)
-          [ -z "$crlf" ] || { echo "CRLF reached the mirror:$crlf"; exit 1; }
-
-          git config --global --unset core.autocrlf
-          echo "OK: the mirror is LF whatever the host's core.autocrlf says"
 
   smoke:
     name: smoke (sync against examples)
@@ -501,14 +173,13 @@ jobs:
         example: [go-api, dotnet-api-with-react-frontend, platform-with-submodules]
     steps:
       - uses: actions/checkout@v6
-      - name: Stage example as project root (modular layout)
+      - name: Stage the example as a v2 project
         shell: bash
         run: |
           set -euo pipefail
           PROJ=$RUNNER_TEMP/proj
-          mkdir -p "$PROJ/intelligence"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          cp examples/${{ matrix.example }}/config.yaml "$PROJ/intelligence/config.yaml"
+          mkdir -p "$PROJ"
+          cp examples/${{ matrix.example }}/intelligence.yaml "$PROJ/intelligence.yaml"
 
           mkdir -p "$PROJ/intelligence/rules" "$PROJ/intelligence/agents" "$PROJ/intelligence/skills"
 
@@ -567,11 +238,17 @@ jobs:
           git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
           echo "PROJ=$PROJ" >> "$GITHUB_ENV"
 
-      - name: Run sync
+      - name: Install the engine-content package from the bundle, then sync
         shell: bash
         run: |
+          set -euo pipefail
           cd "$PROJ"
-          out=$(bash intelligence/sync/scripts/sync.sh)
+          # The pin equals this tree's engine VERSION, so the package is seeded
+          # from the checkout with no network — the same path a released CLI
+          # takes from its npm bundle.
+          bash "$GITHUB_WORKSPACE/cli/intelligence" install
+          test -d .intelligence/packages/@ainova-systems/sync/rules
+          out=$(bash "$GITHUB_WORKSPACE/cli/intelligence" sync)
           echo "$out"
           case "$out" in *"IS_STATUS=ok"*) ;; *) echo "missing IS_STATUS=ok"; exit 1 ;; esac
 
@@ -583,6 +260,7 @@ jobs:
           grep -q "Use this for project-wide standards" "$PROJ/AGENTS.md"
           grep -q "backend-developer" "$PROJ/AGENTS.md"
           grep -q "backend-add-endpoint" "$PROJ/AGENTS.md"
+          grep -q "intelligence sync" "$PROJ/AGENTS.md"
 
       - name: Skill frontmatter is quoted in every channel (argument-hint must be a string)
         shell: bash
@@ -599,15 +277,15 @@ jobs:
             echo "  ok: $f"
           done
 
-      - name: Engine-owned rule + agent reach the outputs, with layout tokens expanded
+      - name: Package-owned rule + agent reach the outputs, with layout tokens expanded
         shell: bash
         run: |
           set -euo pipefail
           cd "$PROJ"
-          # The engine ships intelligence-authoring (rule) + intelligence-architect
-          # (agent). They must arrive via sources, and every `<umbrella>` /
-          # `<module>` token must be gone: a literal token in an output means an
-          # adapter wrote a file without finalize_output_file().
+          # The sync package ships intelligence-authoring (rule) +
+          # intelligence-architect (agent). They must arrive through the store,
+          # and every layout token must be gone: a literal token in an output
+          # means an adapter wrote a file without finalize_output_file().
           grep -q "intelligence-authoring" AGENTS.md
           grep -q "intelligence-architect" AGENTS.md
           if [ -d .claude ]; then
@@ -615,13 +293,13 @@ jobs:
             test -f .claude/agents/intelligence-architect.md
             grep -q '"intelligence/\*\*"' .claude/rules/intelligence-authoring.md
           fi
-          leaked=$(grep -rl -e '<umbrella>' -e '<module>' \
+          leaked=$(grep -rl -e '<umbrella>' -e '<module>' -e '<manifest>' -e '<sync-cmd>' \
             .claude .cursor .github/instructions .github/agents .github/skills \
             .codex .agents .pi .opencode AGENTS.md 2>/dev/null || true)
           if [ -n "$leaked" ]; then
             echo "UNEXPANDED LAYOUT TOKEN shipped into generated output:"; echo "$leaked"; exit 1
           fi
-          echo "OK: engine rule/agent present, no unexpanded tokens"
+          echo "OK: package rule/agent present, no unexpanded tokens"
 
       - name: Verify Claude / Cursor / Copilot / Codex outputs (if enabled)
         shell: bash
@@ -664,410 +342,34 @@ jobs:
               "$PROJ/.agents/skills/backend-add-endpoint/references/endpoint-template.md"
           fi
 
-  remote-sources:
-    name: remote-sources (git+ sources, hermetic file://)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Remote git source is cloned once per repo@ref and synced
+      - name: A second sync changes nothing
         shell: bash
         run: |
           set -euo pipefail
-
-          # A local "shared intelligence" git repo — no network involved.
-          SHARED=$RUNNER_TEMP/shared-intel
-          mkdir -p "$SHARED/shared/skills/demo-skill/references" "$SHARED/shared/rules"
-          cat > "$SHARED/shared/skills/demo-skill/SKILL.md" <<'EOF'
-          ---
-          name: demo-skill
-          description: "Remote demo skill pulled from git"
-          ---
-          # Demo skill
-          Steps from the shared repo. See references/notes.md.
-          EOF
-          cat > "$SHARED/shared/skills/demo-skill/references/notes.md" <<'EOF'
-          REMOTE_REFERENCE_MARKER bundled resource from the shared repo.
-          EOF
-          cat > "$SHARED/shared/rules/demo-rule.md" <<'EOF'
-          # Shared remote rule
-          REMOTE_RULE_MARKER always-on guidance from the shared repo.
-          EOF
-          # A hostile symlink in the remote repo, pointing at a host file.
-          ln -s /etc/hosts "$SHARED/shared/rules/evil.md"
-          git -C "$SHARED" init -q
-          git -C "$SHARED" add -A
-          git -C "$SHARED" -c user.email=ci@example.com -c user.name=ci commit -q -m shared
-          URL="file://$SHARED"
-
-          # A project that references that repo via TWO subpaths (rules + skills)
-          # of the SAME repo@ref, plus a forbidden ext:: transport.
-          V="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
-          PROJ=$RUNNER_TEMP/proj
-          mkdir -p "$PROJ/intelligence/rules" "$PROJ/intelligence/agents" "$PROJ/intelligence/skills"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          printf '# Local context\nLocal always-on standards.\n' > "$PROJ/intelligence/rules/context.md"
-          cat > "$PROJ/intelligence/config.yaml" <<EOF
-          project:
-            name: remote-demo
-          sync_version: "$V"
-          sources:
-            rules:
-              - "intelligence/rules"
-              - "git+$URL#shared/rules"
-            agents:
-              - "intelligence/agents"
-            skills:
-              - "intelligence/skills"
-              - "git+$URL#shared/skills"
-              - "git+ext::FAKE#x"
-              - "git+$URL#../../etc"
-          targets:
-            agents:
-              enabled: true
-              output: "AGENTS.md"
-              header: |
-                # Remote demo
-            claude: { enabled: true, output: ".claude" }
-          EOF
-          git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
-
           cd "$PROJ"
-          out=$(bash intelligence/sync/scripts/sync.sh 2>&1)
-          echo "$out"
-          case "$out" in *"IS_STATUS=ok"*) ;; *) echo "missing IS_STATUS=ok"; exit 1 ;; esac
-
-          # Same repo@ref (two subpaths) is cloned EXACTLY once.
-          n=$(printf '%s\n' "$out" | grep -c 'remote: cloned') || true
-          [ "$n" -eq 1 ] || { echo "expected 1 clone, got $n"; exit 1; }
-
-          # ext:: transport is refused (never reaches git); sync still succeeds.
-          case "$out" in *"rejected (unsupported scheme)"*) ;; *) echo "ext:: not rejected"; exit 1 ;; esac
-
-          # `..` traversal in #subpath is refused before any escape.
-          case "$out" in *"subpath traversal"*) ;; *) echo "traversal not rejected"; exit 1 ;; esac
-
-          # A hostile symlink in the remote repo must not leak host files —
-          # core.symlinks=false checks it out as an inert text file.
-          if [ -f .claude/rules/evil.md ] && grep -qiE 'localhost|127\.0\.0\.1' .claude/rules/evil.md; then
-            echo "host file leaked via remote symlink"; exit 1
+          git add -A && git -c user.email=ci@example.com -c user.name=ci commit -q -m synced
+          bash "$GITHUB_WORKSPACE/cli/intelligence" sync > /dev/null
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "NOT IDEMPOTENT: a second sync produced a diff"; git status --porcelain; exit 1
           fi
-
-          # Remote skill + remote (always-on) rule materialized into outputs,
-          # including the skill's bundled resources.
-          test -f .claude/skills/demo-skill/SKILL.md
-          grep -q 'REMOTE_REFERENCE_MARKER' .claude/skills/demo-skill/references/notes.md
-          test -f .claude/rules/demo-rule.md
-          grep -q 'demo-skill' AGENTS.md
-          grep -q 'REMOTE_RULE_MARKER' AGENTS.md
-
-          # Run-scoped clone cache is removed on exit (no leftover temp dirs).
-          if find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'intelligence-sync-remotes-*' 2>/dev/null | grep -q .; then
-            echo "temp clone cache not cleaned up"; exit 1
-          fi
-          echo "OK: remote git sources cloned once, synced, ext:: refused, cache cleaned"
-
-  migration:
-    name: migration (legacy -> sync, idempotent, fail-closed)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: Stage a pre-0.3.1 flat project (helper)
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/stage.sh" <<'STAGE'
-          stage_legacy() {
-            local proj="$1"
-            mkdir -p "$proj/intelligence"/{rules,agents,skills}
-            # Simulate pre-0.3.1 flat layout using the current engine.
-            cp -r intelligence/sync/scripts "$proj/intelligence/scripts"
-            cp    intelligence/sync/INIT.md "$proj/intelligence/INIT.md"
-            cp -r intelligence/sync/skills/intelligence-sync   "$proj/intelligence/skills/"
-            cp -r intelligence/sync/skills/intelligence-update  "$proj/intelligence/skills/"
-            # A project skill that MUST survive untouched.
-            mkdir -p "$proj/intelligence/skills/backend-add-endpoint"
-            printf -- '---\nname: backend-add-endpoint\ndescription: "Add endpoint"\n---\n# Add endpoint\n' \
-              > "$proj/intelligence/skills/backend-add-endpoint/SKILL.md"
-            printf '# Always-on context\n' > "$proj/intelligence/rules/context.md"
-            cat > "$proj/intelligence/config.yaml" <<'EOF'
-          project:
-            name: legacy
-          sources:
-            rules:
-              - "intelligence/rules"
-            agents:
-              - "intelligence/agents"
-            skills:
-              - "intelligence/skills"
-          targets:
-            agents:
-              enabled: true
-              output: "AGENTS.md"
-              header: |
-                # Legacy
-          EOF
-            git -C "$proj" init -q
-            git -C "$proj" add -A
-            git -C "$proj" -c user.email=ci@example.com -c user.name=ci commit -q -m init
-          }
-          STAGE
-          echo "STAGE_LIB=$RUNNER_TEMP/stage.sh" >> "$GITHUB_ENV"
-
-      - name: sync.sh on legacy fails closed with needs-update (never migrates)
-        shell: bash
-        run: |
-          set -euo pipefail
-          source "$STAGE_LIB"
-          PROJ=$RUNNER_TEMP/legacy1
-          stage_legacy "$PROJ"
-          cd "$PROJ"
-          set +e
-          out=$(bash intelligence/scripts/sync.sh); rc=$?
-          set -e
-          echo "$out"
-          [ "$rc" -eq 6 ] || { echo "expected exit 6 (needs-update), got $rc"; exit 1; }
-          case "$out" in *"IS_STATUS=needs-update"*) ;; *) echo "missing needs-update"; exit 1 ;; esac
-          # sync.sh must NOT migrate or generate anything.
-          test -d intelligence/scripts
-          test -d intelligence/skills/intelligence-sync
-          ! test -d intelligence/sync
-          ! test -f AGENTS.md
-
-      - name: update.sh migrates (config-key stamp) + idempotent re-run
-        shell: bash
-        run: |
-          set -euo pipefail
-          source "$STAGE_LIB"
-          PROJ=$RUNNER_TEMP/legacy2
-          stage_legacy "$PROJ"
-          cd "$PROJ"
-
-          out=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/scripts/update.sh --yes)
-          echo "$out"
-          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected IS_STATUS=migrated"; exit 1 ;; esac
-          test -f intelligence/sync/scripts/sync.sh
-          # Schema version is a config.yaml key (not a dotfile).
-          ! test -e intelligence/sync/.intelligence-sync-version
-          grep -Eq '^sync_version: *"[0-9]' intelligence/config.yaml
-          test "$(grep -c '^sync_version:' intelligence/config.yaml)" -eq 1
-          ! test -d intelligence/scripts
-          [ -z "$(find intelligence/skills -maxdepth 1 -name 'intelligence-*')" ]
-          test -f intelligence/skills/backend-add-endpoint/SKILL.md
-          test "$(grep -c '"intelligence/sync/skills"' intelligence/config.yaml)" -eq 1
-
-          out2=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
-          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected IS_STATUS=ok on re-run"; exit 1 ;; esac
-          test "$(grep -c '^sync_version:' intelligence/config.yaml)" -eq 1
-          # Now modular & current → sync.sh works and is ok.
-          s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
-          test -f AGENTS.md
-
-      - name: 0.10.0 converts inline git+ sources into declared packs
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROJ=$RUNNER_TEMP/packmig
-          mkdir -p "$PROJ/intelligence"/{rules,agents,skills}
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          printf '# Always-on context\n' > "$PROJ/intelligence/rules/context.md"
-          # A 0.9.0-shaped config: one global external dir, the pack identity
-          # duplicated per section, and one UNPINNED spec — the case where ref
-          # is absent but a subpath is present.
-          cat > "$PROJ/intelligence/config.yaml" <<'EOF'
-          project:
-            name: packmig
-          sync_version: "0.9.0"
-          external:
-            dir: "intelligence/external"
-          sources:
-            rules:
-              - "intelligence/rules"
-              - "git+https://example.invalid/org/shared.git@v1.2.0#rules"
-            agents:
-              - "intelligence/agents"
-            skills:
-              - "intelligence/skills"
-              - 'git+https://example.invalid/org/shared.git@v1.2.0#skills'
-              - "git+https://example.invalid/org/other.git#skills"
-          targets:
-            agents:
-              enabled: true
-              output: "AGENTS.md"
-              header: |
-                # Packmig
-          EOF
-          git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
-
-          cd "$PROJ"
-          out=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
-          echo "$out"
-          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected IS_STATUS=migrated"; exit 1 ;; esac
-
-          # Post-conditions of the breaking change.
-          ! grep -q '^external:' intelligence/config.yaml
-          grep -q '^packs:' intelligence/config.yaml
-          ! grep -qE '^[[:space:]]*-[[:space:]]*["'\'']?git\+' intelligence/config.yaml
-          # One declaration per distinct repo, each carrying its own pin.
-          test "$(grep -c '^    url: ' intelligence/config.yaml)" -eq 2
-          test "$(grep -c '^    ref: v1.2.0$' intelligence/config.yaml)" -eq 1
-          # external.dir became a per-pack mirror, so vendored content keeps
-          # landing where it already is.
-          grep -q '^    mirror: "intelligence/external/shared"$' intelligence/config.yaml
-          # An unpinned spec keeps its subpath and gains NO ref — the field is
-          # optional, and a subpath read as a ref would clone a missing branch.
-          grep -q '"@other/skills"' intelligence/config.yaml
-          test "$(grep -c '^    ref: ' intelligence/config.yaml)" -eq 1
-          # Both sections reference the same pack by name — the pin has one home.
-          test "$(grep -c '"@shared/' intelligence/config.yaml)" -eq 2
-
-          # Idempotent: the whole chain re-runs without touching the config.
-          cp intelligence/config.yaml "$RUNNER_TEMP/packmig.yaml"
-          out2=$(REPO_URL="file://$GITHUB_WORKSPACE" bash intelligence/sync/scripts/update.sh --yes)
-          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected IS_STATUS=ok on re-run"; exit 1 ;; esac
-          diff -u "$RUNNER_TEMP/packmig.yaml" intelligence/config.yaml
-
-          # An unreachable pack degrades to a warning, exactly as an unreachable
-          # inline spec did — the local sources still sync.
-          s=$(bash intelligence/sync/scripts/sync.sh); echo "$s" | grep -q 'IS_STATUS=ok'
-          test -f AGENTS.md
-
-      - name: Multi-version chain walks the whole registry forward, idempotent
-        shell: bash
-        run: |
-          set -euo pipefail
-          source "$STAGE_LIB"
-          # An upstream with a synthetic NEWEST breaking migration appended to
-          # whatever the real registry currently holds. The append is derived,
-          # never pinned to a literal MIGRATIONS=( ... ) line: pinning it means
-          # the chain silently stops being tested the moment a real migration
-          # is added.
-          UP=$RUNNER_TEMP/up990
-          mkdir -p "$UP"
-          tar --exclude='.git' -cf - . | (cd "$UP" && tar -xf -)
-          M="$UP/intelligence/sync/scripts/lib/migrations.sh"
-          printf '9.9.0\n' > "$UP/intelligence/sync/scripts/VERSION"
-          sed -i 's/^MIGRATIONS=(\(.*\))$/MIGRATIONS=(\1 "9_9_0" )/' "$M"
-          grep -q '"9_9_0"' "$M" || { echo "fixture failed to extend MIGRATIONS"; exit 1; }
-          cat >> "$M" <<'EOF'
-
-          # synthetic breaking migration for CI: structural precondition =
-          # absence of the marker; idempotent; transactional.
-          migrate_to_9_9_0() {
-            local umbrella="$1" module_name="$2"
-            local marker="$umbrella/$module_name/.mig990"
-            [ -f "$marker" ] && return 0
-            IS_MIGRATED=1
-            : > "$marker"
-            echo "  [migrate 9.9.0] applied"
-          }
-          EOF
-          git -C "$UP" init -q
-          git -C "$UP" add -A
-          git -C "$UP" -c user.email=ci@example.com -c user.name=ci commit -q -m up040
-
-          # pre-0.3.1 project walks the WHOLE chain 0.3.1 → 0.4.0 in order.
-          PROJ=$RUNNER_TEMP/chain
-          stage_legacy "$PROJ"
-          cd "$PROJ"
-          out=$(REPO_URL="file://$UP" bash intelligence/scripts/update.sh --yes)
-          echo "$out"
-          case "$out" in *"IS_STATUS=migrated"*) ;; *) echo "expected migrated"; exit 1 ;; esac
-          test -f intelligence/sync/.mig990                       # newest ran
-          ! test -d intelligence/scripts                          # 0.3.1 ran
-          # 0.7.0 ran too — the module's rules/ and agents/ are registered, once each.
-          test "$(grep -c '"intelligence/sync/rules"' intelligence/config.yaml)" -eq 1
-          test "$(grep -c '"intelligence/sync/agents"' intelligence/config.yaml)" -eq 1
-          grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
-          # Idempotent: re-run is a clean no-op, and adds no duplicate sources.
-          out2=$(REPO_URL="file://$UP" bash intelligence/sync/scripts/update.sh --yes)
-          case "$out2" in *"IS_STATUS=ok"*) ;; *) echo "expected ok on re-run"; exit 1 ;; esac
-          grep -q '^sync_version: *"9.9.0"' intelligence/config.yaml
-          test "$(grep -c '"intelligence/sync/rules"' intelligence/config.yaml)" -eq 1
-
-      - name: Version-compat guard fails closed (ahead-of-engine)
-        shell: bash
-        run: |
-          set -euo pipefail
-          PROJ=$RUNNER_TEMP/ahead
-          mkdir -p "$PROJ/intelligence"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
-          mkdir -p "$PROJ/intelligence/rules"
-          printf '# ctx\n' > "$PROJ/intelligence/rules/context.md"
-          # Schema stamped far ahead of the engine, in config.yaml.
-          cat > "$PROJ/intelligence/config.yaml" <<'EOF'
-          project:
-            name: ahead
-          sync_version: "99.0.0"
-          sources:
-            rules:
-              - "intelligence/rules"
-          targets:
-            agents: { enabled: true, output: "AGENTS.md" }
-          EOF
-          git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
-          cd "$PROJ"
-          set +e
-          out=$(bash intelligence/sync/scripts/sync.sh); rc=$?
-          set -e
-          echo "$out"; echo "rc=$rc"
-          [ "$rc" -eq 4 ] || { echo "expected exit 4 (ahead-of-engine), got $rc"; exit 1; }
-          case "$out" in *"IS_STATUS=ahead-of-engine"*) ;; *) echo "missing ahead-of-engine"; exit 1 ;; esac
-          ! test -f AGENTS.md
-
-      - name: Incomplete upstream fails closed (aborted-incomplete, legacy intact)
-        shell: bash
-        run: |
-          set -euo pipefail
-          source "$STAGE_LIB"
-          BROKEN=$RUNNER_TEMP/broken-upstream
-          mkdir -p "$BROKEN"
-          tar --exclude='.git' -cf - . | (cd "$BROKEN" && tar -xf -)
-          rm -f "$BROKEN/intelligence/sync/scripts/lib/common.sh"
-          git -C "$BROKEN" init -q
-          git -C "$BROKEN" add -A
-          git -C "$BROKEN" -c user.email=ci@example.com -c user.name=ci commit -q -m broken
-
-          PROJ=$RUNNER_TEMP/legacy3
-          stage_legacy "$PROJ"
-          cd "$PROJ"
-          set +e
-          out=$(REPO_URL="file://$BROKEN" bash intelligence/scripts/update.sh --yes); rc=$?
-          set -e
-          echo "$out"
-          [ "$rc" -eq 5 ] || { echo "expected exit 5 (aborted-incomplete), got $rc"; exit 1; }
-          case "$out" in *"IS_STATUS=aborted-incomplete"*) ;; *) echo "missing aborted-incomplete"; exit 1 ;; esac
-          # Crash-safety: legacy fully intact, nothing migrated/stamped.
-          test -d intelligence/scripts
-          test -e intelligence/INIT.md
-          test -d intelligence/skills/intelligence-sync
-          test -f intelligence/skills/backend-add-endpoint/SKILL.md
-          ! grep -q '"intelligence/sync/skills"' intelligence/config.yaml
-          ! grep -q '^sync_version:' intelligence/config.yaml
+          echo "OK: sync is idempotent"
 
   guardrails:
-    name: guardrails (refuse dangerous configs)
+    name: guardrails (refuse dangerous manifests)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Refuse output that would clobber repo root
+      - name: Refuse output that would clobber the content dir
         shell: bash
         run: |
           set -euo pipefail
           PROJ=$RUNNER_TEMP/badproj
-          mkdir -p "$PROJ/intelligence"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
           mkdir -p "$PROJ/intelligence/rules"
           printf '# Always-on\n' > "$PROJ/intelligence/rules/context.md"
-          cat > "$PROJ/intelligence/config.yaml" <<'EOF'
+          cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: bad
-          sync_version: "0.3.1"
+          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"
@@ -1084,10 +386,8 @@ jobs:
             claude: { enabled: true, output: "intelligence" }
           EOF
           git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
           cd "$PROJ"
-          if bash intelligence/sync/scripts/sync.sh; then
+          if bash "$GITHUB_WORKSPACE/cli/intelligence" sync; then
             echo "FAIL: sync did not refuse dangerous output path."; exit 1
           else
             echo "OK: sync refused dangerous output path."
@@ -1099,12 +399,11 @@ jobs:
           set -euo pipefail
           PROJ=$RUNNER_TEMP/noagents
           mkdir -p "$PROJ/intelligence/rules"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
           printf '# Always-on\n' > "$PROJ/intelligence/rules/context.md"
-          cat > "$PROJ/intelligence/config.yaml" <<'EOF'
+          cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: noagents
-          sync_version: "0.3.1"
+          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"
@@ -1117,10 +416,8 @@ jobs:
             cursor: { enabled: true, output: ".cursor" }
           EOF
           git -C "$PROJ" init -q
-          git -C "$PROJ" add -A
-          git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
           cd "$PROJ"
-          if bash intelligence/sync/scripts/sync.sh; then
+          if bash "$GITHUB_WORKSPACE/cli/intelligence" sync; then
             echo "FAIL: sync did not enforce agents-required invariant."; exit 1
           else
             echo "OK: sync enforced agents-required invariant."
@@ -1139,13 +436,12 @@ jobs:
           SECRET=$RUNNER_TEMP/secret
           mkdir -p "$PROJ/intelligence"/{rules,agents,skills/evil-skill} "$SECRET"
           echo "TOP-SECRET-HOST-CONTENT" > "$SECRET/passwd"
-          cp -r intelligence/sync "$PROJ/intelligence/sync"
           printf '# ctx\n' > "$PROJ/intelligence/rules/context.md"
           ln -s "$SECRET/passwd" "$PROJ/intelligence/skills/evil-skill/SKILL.md"
-          cat > "$PROJ/intelligence/config.yaml" <<EOF
+          cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: symskill
-          sync_version: "$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"
@@ -1160,7 +456,7 @@ jobs:
           EOF
           git -C "$PROJ" init -q
           cd "$PROJ"
-          bash intelligence/sync/scripts/sync.sh > /dev/null 2>&1
+          bash "$GITHUB_WORKSPACE/cli/intelligence" sync > /dev/null 2>&1
           if grep -rq "TOP-SECRET-HOST-CONTENT" .claude .agents AGENTS.md 2>/dev/null; then
             echo "LEAK: host file content materialized into generated output:"
             grep -rl "TOP-SECRET-HOST-CONTENT" .claude .agents AGENTS.md

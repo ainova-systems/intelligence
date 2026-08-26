@@ -10,18 +10,18 @@ sync_version: "0.11.0"
 
 sources:
   rules:
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
     - "backend/intelligence/rules"
     - "frontend/intelligence/rules"
-    - "intelligence/sync/rules"
   agents:
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
     - "backend/intelligence/agents"
     - "frontend/intelligence/agents"
-    - "intelligence/sync/agents"
   skills:
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
-    - "intelligence/sync/skills"
     - "backend/intelligence/skills"
     - "frontend/intelligence/skills"
 
@@ -44,3 +44,12 @@ ignore:
   - "dist"
   - "bin"
   - "obj"
+
+# CLI-owned blocks — the engine never reads below this line. The engine's own
+# content is an ordinary package, pinned to the engine and restored offline
+# from the CLI bundle.
+packages:
+  "@ainova-systems/sync":
+    version: "0.11.0"
+    url: "https://github.com/ainova-systems/intelligence.git"
+    path: "packages/sync"
