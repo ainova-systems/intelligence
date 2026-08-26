@@ -1,214 +1,253 @@
-# intelligence-sync: Writing a New Adapter
+# Writing an Intelligence Adapter
 
-## Overview
+An adapter transforms tool-neutral rules, agents and skills into one tool's native files. The sync engine discovers adapters by filename and calls one shell function for each enabled target.
 
-An adapter transforms source prompts (from `intelligence/`) into an IDE-specific format. Each adapter is a single bash file, discovered by filename.
+## Built-in and project adapters
 
-## Where adapters live
-
-`sync.sh` scans two directories, in this order:
-
-| Location | Owner | Survives `update.sh`? |
+| Location | Owner | Upgrade behavior |
 |---|---|---|
-| `intelligence/sync/scripts/adapters/` | **upstream** — the built-ins shipped with the engine | No — the engine replaces this directory wholesale on every update |
-| `intelligence/adapters/` (beside `config.yaml`) | **the project** | Yes — updates never touch project content |
+| Installed CLI's `engine/adapters/` | Intelligence | Replaced when the CLI is upgraded |
+| `<content-dir>/adapters/` | Project | Never changed by CLI upgrades |
 
-Write custom adapters in the project's `intelligence/adapters/`. A file placed in the engine's own `adapters/` is deleted by the next `update.sh`, silently and without a diff to notice. A project adapter whose name matches a built-in **overrides** it (sync prints a `NOTE:` line saying so) — an escape hatch for patching a built-in without forking the engine. An adapter that would serve every project is worth contributing upstream instead.
+The default content directory is `intelligence/`; `project.intelligence_dir` in `intelligence.yaml` may choose another. A project adapter with the same name as a built-in overrides it, and sync reports the override.
 
-The umbrella folder is not hardcoded anywhere — `intelligence/` above means "whatever directory holds `config.yaml`".
+Contribute broadly useful integrations as built-ins. Keep organization-specific or experimental formats in the project.
 
-## Quick Start
+## Create and enable an adapter
 
-1. Copy `intelligence/sync/scripts/adapters/_template.sh` to `intelligence/adapters/<name>.sh`
-2. Replace `<name>` placeholders with your adapter name
-3. Implement the `sync_to_<name>()` function
-4. Add target to `config.yaml`:
-   ```yaml
-   targets:
-     <name>: { enabled: true, output: ".<name>" }
-   ```
-5. Run `bash intelligence/sync/scripts/sync.sh <name>` to test
-
-## Adapter Contract
-
-### Required Function
+Choose a lowercase shell-safe name matching `[a-z][a-z0-9_]*`, then scaffold from the template bundled with the installed engine:
 
 ```bash
-sync_to_<name>(repo_root, config_file, output_dir)
+intelligence adapter new mytool
 ```
 
-This is called by `sync.sh` for each enabled target.
-
-Parameters:
-- `repo_root` -- absolute path to the project root
-- `config_file` -- absolute path to `config.yaml`
-- `output_dir` -- absolute path to output directory (e.g., `/project/.cursor`)
-
-### Available Library Functions
-
-Source `lib/common.sh` for these utilities:
-
-| Function | Description |
-|----------|-------------|
-| `finalize_output_file(file)` | **Call this on every file you write.** Expands layout tokens (`<umbrella>`, `<module>`) and converts CRLF to LF |
-| `normalize_file_to_lf(file)` | LF conversion only — for intermediate files that are not adapter output |
-| `lint_frontmatter(file)` | Warn about unquoted colons, leading tabs, and literal double quotes inside unquoted values (stderr) |
-| `get_frontmatter_value(key, file)` | Extract YAML frontmatter value |
-| `has_frontmatter(file)` | Check for `---` header |
-| `has_paths(file)` | Check for `paths:` field |
-| `get_model(config, ide, tier)` | Resolve model from `models:` override or default |
-| `get_model_default(ide, tier)` | Hardcoded default for `<ide>:<tier>` |
-| `map_access_to_claude_tools(access)` | Tool string for access level |
-| `map_access_to_claude_disallowed(access)` | Disallowed tools string |
-| `read_yaml_list(config, section)` | Read list from `config.yaml` |
-| `resolve_source_dir(repo_root, src)` | Map a source entry to a local dir — `"$repo_root/$src"` for a path, or a shallow clone for a pack reference (`@<name>[/<subpath>]`) or an inline `git+<url>` spec |
-| `source_is_local_path(src)` | True (0) if a source entry is a plain repo-relative path — i.e. neither of the two below. Use this, not a negated `source_is_remote`, whenever a token is about to be pattern-matched against a real directory |
-| `source_is_pack(src)` | True (0) if a source entry references a pack declared under `packs:` (`@<name>`) |
-| `source_is_remote(src)` | True (0) if a source entry is an inline remote `git+` spec |
-| `get_target_field(config, target, field)` | Read a field from a target's config block |
-
-### Transformation Patterns
-
-Each adapter handles three prompt types. Here's how the built-in adapters approach each:
-
-**Rules:**
-
-intelligence-sync routes rule content based on **scope** (always-on vs path-scoped) and on which channels each IDE actually reads, to avoid duplicating content into multiple places.
-
-| Source | `agents` (AGENTS.md) | `claude` | `cursor` | `copilot` | `codex` | `pi` | `opencode` |
-|--------|----------------------|----------|----------|-----------|---------|------|------------|
-| Always-on (no `paths:`) | inlined as canonical | copied as-is | skipped (Cursor reads AGENTS.md) | skipped (Copilot reads AGENTS.md) | skipped (Codex reads AGENTS.md) | skipped (Pi reads AGENTS.md) | skipped (opencode reads AGENTS.md) |
-| Path-scoped (with `paths:`) | listed by name only | copied as-is | `paths:` → `globs:` in `.mdc` | `paths:` → `applyTo:` in `.instructions.md` | not supported by Codex | copied to `.pi/intelligence-sync/rules/` + surfaced by generated extension | not supported (opencode has no native scoping; users may opt in via `instructions:` globs in `opencode.json`) |
-| Listing | full table in AGENTS.md | n/a | n/a | n/a | n/a | extension prompt snippet | n/a |
-
-**Skills:**
-
-Skills follow the [Agent Skills open standard](https://agentskills.io). All supported tools read `SKILL.md` directly — no semantic transformation needed. Skill directories are copied **in full** via `copy_skill_bundle` in `lib/common.sh`: bundled resources (`references/`, `scripts/`, `assets/`) ship alongside `SKILL.md`, because skill bodies point at them by relative path and a copy without them is broken at runtime. Markdown files are LF-normalized; everything else is copied byte-for-byte.
-
-`copy_skill_bundle` also quotes free-text `SKILL.md` frontmatter (`description`, `argument-hint`) for **every** target, not just the strict-YAML ones: `argument-hint: [pr-number]` is a YAML flow *sequence* unquoted, and Claude Code rejects the skill with "argument-hint must be a string" — it vanishes from the picker with no other signal. Adapters must therefore copy skills through this helper rather than plain `cp`.
-
-| Pattern | Used by | Output location |
-|---------|---------|-----------------|
-| Copy skill dirs in full (SKILL.md + bundled resources) | Claude, Cursor, Copilot, Codex, Pi, opencode | `.claude/skills/`, `.cursor/skills/`, `.github/skills/`, `.agents/skills/` (shared by Codex, Pi, opencode) |
-
-**Agents:**
-
-| Pattern | Used by |
-|---------|---------|
-| Transform frontmatter | Claude (`tier`→`model` via `get_model`, `access`→`tools`/`disallowedTools`), Cursor (`tier`→`model` via `get_model`, `access: readonly`→`readonly: true`) |
-| Transform to `.agent.md` | Copilot (`tier`→`model`, `access: readonly`→restricted `tools` array) |
-| Transform to `.toml` | Codex (`name`, `description`, `model`, `model_reasoning_effort` from tier, `sandbox_mode` from access, `developer_instructions`) |
-| Transform to prompt template | Pi (`.pi/prompts/intelligence-agent-<name>.md`; `readonly` becomes prompt guidance, `full` stays implicit) |
-| Transform to markdown subagent | opencode (`.opencode/agents/<name>.md`; `mode: subagent`, `model` from tier via `get_model`, `permission.edit`/`permission.bash` from access) |
-
-Model names come from `get_model(config_file, ide, tier)` in `lib/common.sh`. Defaults are baked into `get_model_default()`; users override per-IDE/tier under `models:` in `config.yaml`. Sync prints a drift report when an override no longer matches the current default.
-
-### Layout tokens (required)
-
-The engine ships artifacts of its own — the `intelligence-authoring` rule and the `intelligence-architect` agent — and they cannot hardcode the umbrella's folder name, because the project chooses it. They write `<umbrella>` and `<module>` instead, and **every adapter must expand them by calling `finalize_output_file` on each file it writes** (it also does the LF normalization that `normalize_file_to_lf` used to do):
-
-| Token | Expands to |
-|---|---|
-| `<umbrella>` | repo-relative umbrella dir (e.g. `Intelligence`) |
-| `<module>` | repo-relative engine module (e.g. `Intelligence/sync`; CLI setup: `.intelligence/packages/@ainova-systems/sync`) |
-| `<manifest>` | the project's config file name — vendored: `config.yaml`, CLI setup: `intelligence.yaml` (`IS_MANIFEST_NAME`) |
-| `<sync-cmd>` | the sync invocation — vendored: `bash <module>/scripts/sync.sh`, CLI setup: `intelligence sync` (`IS_SYNC_CMD`) |
-
-Values are exported by `sync.sh` (`IS_UMBRELLA_REL`, `IS_MODULE_REL`; `IS_SYNC_CMD` comes from the CLI in CLI mode), derived from the detected layout. Expansion covers frontmatter and body, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` carrying the project's real folder name. A file written without `finalize_output_file` ships a literal `<umbrella>` into an IDE — CI fails the build if any generated output still contains a token.
-
-### Cleanup Contract
-
-Every adapter MUST follow these rules to stay safe alongside others:
-
-1. **Clean only adapter-owned subpaths.** Never `rm -rf "$output_dir"` — users hand-author siblings (`.claude/settings.json`, `.cursor/settings.json`, `.pi/settings.json`, `.opencode/opencode.json`, `.github/workflows/`, project-specific commands and extensions). Mirror `claude.sh` (deletes only `rules/`, `agents/`, and per-skill subdirs), `pi.sh` (deletes only `.pi/intelligence-sync/`, the named extension file, and `intelligence-agent-*.md` prompt files), or `opencode.sh` (deletes only `.opencode/agents/` wholesale, and inside `.opencode/commands/` only files that carry the `<!-- Generated by intelligence-sync. Do not edit manually. -->` marker — hand-authored sibling commands survive).
-2. **The cleanup block defines what the adapter owns.** It is the same set `/intelligence-uninstall-adapter` removes when the target is turned off: whatever `sync_to_<name>()` deletes on every re-sync, and nothing more. Keep it obvious in the source — an uninstall reads it.
-3. **Use shared helpers for shared dirs.** `.agents/skills/` is read by Codex, Pi, opencode, and any tool implementing the [Agent Skills open standard](https://agentskills.io). All adapters writing there must call `sync_open_skill_dirs`, which owns the full lifecycle (clean per-skill subfolders, recreate the dir, populate). Do NOT duplicate the clean / `mkdir -p` in the adapter — calling sites become divergent and one adapter inevitably drifts. It is also *shared*: an uninstall removes it only when no other open-standard target remains enabled.
-4. **Document owned paths in `.gitignore`.** Each adapter's INIT.md `.gitignore` block lists exactly the paths it writes — no broader. This lets users keep hand-authored content under the same root tracked.
-5. **The output path is validated before you run.** `sync.sh` calls `validate_output_path` for every adapter (including `agents`): the resolved output must stay inside the repo, and must not be the repo root, the intelligence source tree, or any configured source. `..` is canonicalized away first, so a config line cannot walk out of the repository. Adapters never need to re-check this — but they must not write outside the `output_dir` they are handed.
-
-## Example: Minimal Adapter
+This creates `<content-dir>/adapters/mytool.sh` and refuses to overwrite an existing file. Implement the generated functions, then enable its target:
 
 ```bash
-#!/bin/bash
-source "$(dirname "$0")/../lib/common.sh"
+intelligence target enable mytool
+intelligence sync mytool
+```
 
-sync_to_myide() {
+`target enable` adds or updates this manifest entry when the adapter exists:
+
+```yaml
+targets:
+  mytool: { enabled: true, output: ".mytool" }
+```
+
+Change `output` in `intelligence.yaml` if the tool expects another location. The engine validates the resolved path before calling the adapter.
+
+To stop syncing a target:
+
+```bash
+intelligence target disable mytool
+```
+
+Disabling changes only the manifest. Generated output is deliberately kept because a generic command cannot know which paths a custom adapter owns. Remove only the paths documented by that adapter after reviewing them. Delete the project adapter file separately if it is no longer needed.
+
+## Required function
+
+The file name and function name form the adapter's identity:
+
+```bash
+# <content-dir>/adapters/mytool.sh
+sync_to_mytool() {
     local repo_root="$1"
     local config_file="$2"
     local output_dir="$3"
 
-    echo "=== MyIDE ==="
+    # transform sources into output_dir
+}
+```
+
+The engine calls:
+
+```text
+sync_to_<name> <repo-root> <absolute-intelligence.yaml> <absolute-output-path>
+```
+
+The engine has already loaded `engine/lib/common.sh` before it sources the adapter, so project adapters use its functions directly.
+
+## Source model
+
+`sources.rules`, `sources.agents` and `sources.skills` contain repo-relative directory paths. Packages have already been resolved, fetched and pinned by the CLI, so package content appears as an ordinary path under `.intelligence/packages/`. Adapters never perform network access or parse `packages:`.
+
+Iterate a source section in manifest order:
+
+```bash
+while IFS= read -r src; do
+    [ -n "$src" ] || continue
+    dir="$(resolve_source_dir "$repo_root" "$src")"
+    [ -d "$dir" ] || continue
+
+    for file in "$dir"/*.md; do
+        [ -f "$file" ] || continue
+        # transform file
+    done
+done < <(read_yaml_list "$config_file" "rules")
+```
+
+Later sources intentionally overwrite same-named artifacts from earlier sources. Package sources are wired before project sources, so project content can override a package artifact by name.
+
+## Shared functions
+
+Use the engine library instead of copying parsers or file-handling logic.
+
+| Function | Purpose |
+|---|---|
+| `resolve_source_dir(repo_root, source)` | Resolve a manifest source to its local directory. |
+| `read_yaml_list(config, section)` | Stream entries from `sources.<section>`. |
+| `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block. |
+| `has_frontmatter(file)` / `has_paths(file)` | Inspect source shape. |
+| `strip_frontmatter(file)` | Emit the body without its first frontmatter block. |
+| `get_model(config, tool, tier)` | Resolve a `heavy`, `standard` or `light` model, including manifest overrides. |
+| `get_model_default(tool, tier)` | Read the built-in model default. |
+| `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
+| `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`. |
+| `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
+| `get_target_field(config, target, field)` | Read another field from the target configuration. |
+| `repo_rel_link(root, path)` | Produce a stable repo-relative link for a committed output. |
+
+`lint_frontmatter` is run across all inputs by the engine before adapters execute. It warns about common YAML hazards; adapters should not duplicate that pass.
+
+## Rules, skills and agents
+
+### Rules
+
+Rules without `paths:` are always-on. Rules with `paths:` are scoped.
+
+Intelligence routes always-on rules once through `AGENTS.md` for tools that consume it. An adapter for such a tool should not copy those rules again. If the tool has a native scoped-rule channel, transform `paths:` to the tool's equivalent.
+
+| Built-in | Always-on rules | Scoped rules |
+|---|---|---|
+| `agents` | Inline in `AGENTS.md` | List with links |
+| `claude` | Copy | Copy with `paths:` preserved |
+| `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `globs:` |
+| `copilot` | Omit; reads `AGENTS.md` | `.instructions.md` with `applyTo:` |
+| `codex` | Omit; reads `AGENTS.md` | No native channel |
+| `pi` | Omit; reads `AGENTS.md` | Generated on-demand files and extension |
+| `opencode` | Omit; reads `AGENTS.md` | No native channel |
+
+If a new adapter relies on `AGENTS.md` for always-on rules, its target must require `agents`. Add that invariant to `engine/sync.sh` when contributing the adapter upstream.
+
+### Skills
+
+Skills follow the [Agent Skills standard](https://agentskills.io). Copy each skill directory as a complete bundle—not only `SKILL.md`—because its body may reference `references/`, `scripts/` or `assets/` beside it.
+
+```bash
+copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
+```
+
+Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, avoids materializing symlink targets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings.
+
+Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
+
+### Agents
+
+Source agents use tool-neutral fields:
+
+```yaml
+---
+name: backend-developer
+description: "Implements backend features"
+tier: heavy
+access: full
+---
+```
+
+Map `tier` through `get_model`, not a hardcoded model name. Transform `access: full|readonly` into the target tool's native permission model. Preserve the body as the agent's instructions.
+
+Built-ins currently emit Claude and Cursor Markdown, Copilot `.agent.md`, Codex TOML, Pi prompt templates and OpenCode Markdown subagents. Read the closest built-in adapter before implementing a new transformation.
+
+## Layout tokens
+
+Content shipped in `@ainova-systems/sync` cannot assume the project's content-directory name or package-store location. It uses these tokens:
+
+| Token | v2 expansion |
+|---|---|
+| `<umbrella>` | Project content directory, usually `intelligence` |
+| `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
+| `<manifest>` | `intelligence.yaml` |
+| `<sync-cmd>` | `intelligence sync` |
+
+Call `finalize_output_file` on every text file after transformation. It expands the tokens literally and converts CRLF to LF. A generated file containing an unexpanded token is an adapter bug.
+
+`copy_skill_bundle` already finalizes Markdown within a skill; do not run a second custom token pass.
+
+## Cleanup and safety contract
+
+Adapters regenerate output, so cleanup is part of their public contract.
+
+1. Delete only paths the adapter owns. Preserve sibling settings, commands, extensions, workflows and hand-authored files.
+2. Make ownership obvious in `sync_to_<name>()`; the same list is what a user removes after disabling or uninstalling the adapter.
+3. Use marker-based cleanup when generated and hand-authored files share a directory. The OpenCode adapter is the reference implementation.
+4. Use `sync_open_skill_dirs` for `.agents/skills/`; multiple adapters share it.
+5. Write only beneath the supplied `output_dir`, except for an explicitly shared standard path handled by a shared helper.
+6. Make repeated syncs idempotent.
+
+Before an adapter runs, the engine canonicalizes and validates its configured output. It refuses the repository root, paths outside the repository, symlink escapes, the project content directory, `.intelligence/` and configured source paths. This guard does not make broad cleanup safe: an adapter must still avoid deleting unrelated files within a valid tool directory.
+
+## Minimal example
+
+This example copies rules without frontmatter. A real adapter must decide how the target represents scoping and should also implement agents and skills.
+
+```bash
+#!/bin/bash
+
+sync_mytool_rules() {
+    local repo_root="$1" config_file="$2" output_dir="$3"
     mkdir -p "$output_dir/rules"
 
-    # Copy rules, strip frontmatter
     while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        # resolve_source_dir maps a source entry to a local dir: "$repo_root/$src"
-        # for a local path, or a shallow clone for a pack reference (`@<name>`)
-        # or an inline `git+<url>` spec. A pack's url/ref/mirror are read from
-        # config.yaml, which it takes from $IS_CONFIG_FILE (exported by sync.sh)
-        # unless you pass the config as a third argument.
+        [ -n "$src" ] || continue
         local dir
         dir="$(resolve_source_dir "$repo_root" "$src")"
         [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            awk '
-                BEGIN { in_fm=0; past_fm=0 }
-                { sub(/\r$/, "") }
-                /^---$/ {
-                    if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm=1 }; next }
-                }
-                past_fm || !in_fm { print }
-            ' "$f" > "$output_dir/rules/$(basename "$f")"
-            # Every written file goes through finalize_output_file: it expands
-            # the <umbrella> / <module> layout tokens and normalizes CRLF -> LF.
-            finalize_output_file "$output_dir/rules/$(basename "$f")"
+
+        for file in "$dir"/*.md; do
+            [ -f "$file" ] || continue
+            strip_frontmatter "$file" > "$output_dir/rules/$(basename "$file")"
+            finalize_output_file "$output_dir/rules/$(basename "$file")"
         done
     done < <(read_yaml_list "$config_file" "rules")
+}
+
+sync_to_mytool() {
+    local repo_root="$1" config_file="$2" output_dir="$3"
+
+    rm -rf "$output_dir/rules"
+    sync_mytool_rules "$repo_root" "$config_file" "$output_dir"
 }
 ```
 
 ## Testing
 
-Test your adapter by creating a temporary project with `config.yaml` and running:
+Use a disposable Git repository with a v2 manifest and representative always-on/scoped rules, agents, skills and bundled skill resources.
 
 ```bash
-REPO_ROOT=/path/to/test/project bash intelligence/sync/scripts/sync.sh <name>
+intelligence sync mytool
 ```
 
-Verify the output directory contains correctly transformed files. The sync entry point also runs `lint_frontmatter` over every source file before adapters fire — unquoted YAML colons and leading tabs surface as warnings on stderr.
+Verify:
 
-## Distributing changes
+- native file names, frontmatter and model/permission mappings;
+- scoped and always-on routing without duplicated context;
+- skill resources are present;
+- no literal layout tokens remain;
+- hand-authored siblings under the tool root survive;
+- output paths cannot overlap sources or escape the repository;
+- a second sync produces no Git diff.
 
-When you ship a new adapter, downstream projects pick it up by running:
+For a built-in adapter, add the same assertions to the repository's smoke or lifecycle tests and run all five CLI suites before submitting the change.
 
-```bash
-bash intelligence/sync/scripts/update.sh
-```
+## Built-in outputs
 
-`update.sh` clones the upstream repo into a `mktemp -d` directory, shows the diff for `intelligence/sync/scripts/` and `intelligence/sync/INIT.md`, and prompts before overwriting. Project content (`config.yaml`, `rules/`, `agents/`, `skills/`, `adapters/`) is never touched. Pass `--yes` for non-interactive runs; set `REPO_URL=<fork>` to use a fork.
-
-This is exactly why a project's own adapter belongs in `intelligence/adapters/` and not in the engine's `scripts/adapters/`: the first is project content, the second is overwritten by the command above.
-
-## Built-in Adapters Reference
-
-| Adapter | Output | Rules | Skills | Agents |
-|---------|--------|-------|--------|--------|
-| `agents.sh` | `AGENTS.md` (committed) | Always-on inlined; scoped listed | Listed in table | Listed in table |
-| `claude.sh` | `.claude/` | Copy as-is (Claude does not read AGENTS.md) | SKILL.md dirs | tier/access → model/tools |
-| `cursor.sh` | `.cursor/` | Scoped only → `.mdc` + globs | Copy as-is | tier → model |
-| `copilot.sh` | `.github/` | Scoped only → `.instructions.md` | SKILL.md dirs | `.agent.md` |
-| `codex.sh` | `.codex/` + `.agents/skills/` | None (AGENTS.md handles) | SKILL.md dirs in `.agents/skills/` | `.toml` in `.codex/agents/` |
-| `pi.sh` | `.pi/` + `.agents/skills/` | Scoped rules copied + listed by generated extension; always-on via AGENTS.md | SKILL.md dirs in `.agents/skills/` | prompt templates in `.pi/prompts/` |
-| `opencode.sh` | `.opencode/` + `.agents/skills/` | None (AGENTS.md handles always-on; opencode has no native scoping) | SKILL.md dirs in `.agents/skills/`; one slash command per skill in `.opencode/commands/<name>.md` (marker-protected) | markdown subagents in `.opencode/agents/` |
-
-### Notes on `agents.sh`
-
-Unlike IDE adapters, `agents.sh` emits a single committed markdown file intended for humans and generic LLM tooling. It reads a static `header` block from `config.yaml` (under `targets.agents.header`) and appends auto-generated tables (agents, skills) and a list of rules derived from frontmatter. The output carries a "do not edit manually" marker and is regenerated on every sync.
-
-#### Why AGENTS.md inlines always-on rules
-
-AGENTS.md is the canonical project doc — Cursor, Copilot, Codex, Pi, and opencode read it natively. Always-on rule content is inlined automatically so all five tools see the same context from one source. Path-scoped rules are NOT inlined (would balloon AGENTS.md in monorepos); they live in tool-specific channels with native scoping (`.cursor/rules/*.mdc` with `globs:`, `.github/instructions/*.instructions.md` with `applyTo:`) or, for Pi, in generated on-demand rule files surfaced by a small extension. opencode has no first-class path-scoped channel; users who need scoped rules can opt into them via `instructions:` globs in `opencode.json`.
-
-Claude Code does not read AGENTS.md natively (per [open feature request](https://github.com/anthropics/claude-code/issues/6235)) — its adapter copies all rules into `.claude/rules/`. There is no duplication because Claude does not consume AGENTS.md.
+| Adapter | Primary output |
+|---|---|
+| `agents` | `AGENTS.md` |
+| `claude` | `.claude/rules`, `.claude/agents`, `.claude/skills` |
+| `cursor` | `.cursor/rules`, `.cursor/agents`, `.cursor/skills` |
+| `copilot` | `.github/instructions`, `.github/agents`, `.github/skills` |
+| `codex` | `.codex/agents`, `.agents/skills` |
+| `pi` | `.pi/intelligence-sync`, `.pi/extensions`, `.pi/prompts`, `.agents/skills` |
+| `opencode` | `.opencode/agents`, marker-owned `.opencode/commands`, `.agents/skills` |

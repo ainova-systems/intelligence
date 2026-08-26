@@ -5,6 +5,7 @@
 # and registry bindings. Hermetic: file:// fixture repos only, no network.
 set -euo pipefail
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"
 EMPTY="$(mktemp -d)"
 trap 'rm -rf "$OUT" "$EMPTY"' EXIT
@@ -436,6 +437,45 @@ chknot test -d "$H14/.intelligence/packages/@acme"
 run_in "$H14" ../../../etc/x
 [ "$RC" -ne 0 ] || { echo "FAIL: dispatcher accepted a path-shaped command"; fail=1; }
 printf '%s\n' "$OUTPUT" | grep -qF "unknown command" || { echo "FAIL: dispatcher did not reject path-shaped command"; fail=1; }
+
+echo "== 15. adapter scaffolding and target manifest commands =="
+# Missing project, invalid shell/path names, missing adapters and targets all
+# fail before a write.
+xfail "no intelligence project" "$EMPTY" adapter new myide
+xfail "no intelligence project" "$EMPTY" target enable claude
+xfail "invalid target name" "$PROJ" adapter new ../escape
+xfail "invalid target name" "$PROJ" target enable my-ide
+xfail "adapter 'missing' not found" "$PROJ" target enable missing
+xfail "target 'missing' is not in the manifest" "$PROJ" target disable missing
+
+xok "created: intelligence/adapters/myide.sh" "$PROJ" adapter new myide
+chk test -f "$PROJ/intelligence/adapters/myide.sh"
+chk grep -q '^sync_to_myide()' "$PROJ/intelligence/adapters/myide.sh"
+chknot grep -q '<name>' "$PROJ/intelligence/adapters/myide.sh"
+chknot grep -q 'dirname.*BASH_SOURCE' "$PROJ/intelligence/adapters/myide.sh"
+xfail "already exists" "$PROJ" adapter new myide
+
+xok "enabled: myide" "$PROJ" target enable myide
+chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
+xok "disabled: myide" "$PROJ" target disable myide
+chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
+
+# Existing output is preserved byte-for-byte when a target is toggled.
+xok "disabled: claude" "$PROJ" target disable claude
+chk grep -q 'claude: { enabled: false, output: ".claude" }' "$PROJ/intelligence.yaml"
+xok "enabled: claude" "$PROJ" target enable claude
+chk grep -q 'claude: { enabled: true, output: ".claude" }' "$PROJ/intelligence.yaml"
+
+# AGENTS.md-dependent targets cannot be enabled into a manifest the engine
+# would reject, and agents cannot be disabled while one remains enabled.
+xok "disabled: claude" "$PROJ" target disable claude
+xok "disabled: agents" "$PROJ" target disable agents
+xfail "requires target 'agents'" "$PROJ" target enable cursor
+xok "enabled: agents" "$PROJ" target enable agents
+xok "enabled: cursor" "$PROJ" target enable cursor
+xfail "required by enabled target 'cursor'" "$PROJ" target disable agents
+xok "disabled: cursor" "$PROJ" target disable cursor
+xok "disabled: agents" "$PROJ" target disable agents
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

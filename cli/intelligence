@@ -52,6 +52,9 @@ Usage: intelligence <command> [args]
   list                    Installed packages with requested/locked versions
   search [term]           What the registries offer, and what this project has
   sync [target]           Render intelligence to every enabled tool (.claude, AGENTS.md, ...)
+  adapter new <name>      Scaffold a project-owned adapter from the bundled template
+  target enable <name>    Enable an existing adapter target in the manifest
+  target disable <name>   Disable a target in the manifest (keeps generated output)
   registry <list|add|remove>  Manage the trusted registry list (add <repo-url>)
   migrate [--dry-run]     Convert a vendored (v1) setup to the CLI setup
   doctor                  Check manifest, lockfile, store and engine consistency

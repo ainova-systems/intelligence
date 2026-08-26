@@ -1,6 +1,6 @@
 # The intelligence CLI
 
-The product interface: one command owning the whole lifecycle of a project's AI intelligence. Installed from npm (`npm i -g @ainova-systems/intelligence`); implemented in bash (`cli/` in this repo) behind a small Node launcher, reusing the sync engine unchanged underneath.
+The product interface: one command owning the whole lifecycle of a project's AI intelligence. v2 is currently a release candidate; install it from npm with `npm i -g @ainova-systems/intelligence@next`. A small Node launcher invokes the bash CLI and its bundled sync engine.
 
 ```bash
 cd your-project
@@ -27,7 +27,7 @@ No engine code lives in the project. The engine's *scripts* ship inside the npm 
 
 | Command | Does |
 |---|---|
-| `init [--targets a,b] [--dir d] [--bare] [--no-sync]` | Enable `agents` (the tool-neutral AGENTS.md) plus every tool DETECTED by repo markers (`.claude`/`CLAUDE.md`, `.cursor`, `.codex`, `.pi`, `.opencode`, `.github/instructions`) or named via `--targets` — a tool is never invented. Writes a minimal self-documenting root manifest, `.gitignore`s the store, installs `@ainova-systems/sync` (unless `--bare`), first sync. No dirs are created. |
+| `init [--targets a,b] [--dir d] [--bare] [--no-sync]` | Enable `agents` (the tool-neutral AGENTS.md) plus every tool detected by repo markers (`.claude`/`CLAUDE.md`, `.cursor`, `.codex`, `.pi`, `.opencode`, `.github/instructions`) or named via `--targets` — a tool is never invented. Writes a minimal root manifest, gitignores the store, installs `@ainova-systems/sync` (unless `--bare`) and runs the first sync. Empty project content dirs are not created. |
 | `add <spec> [--name @s/n] [--no-sync]` | Resolve → fetch → wire sources → manifest entry → lock → sync. Specs: `@scope/name[@range]`, `github:org/repo[#path]`, `git+<url>[@ref][#path]`. |
 | `remove <name> [--force]` | Inverse of add: manifest, sources, lock, store. |
 | `install [--frozen] [--force]` | Restore the store exactly from the lock; resolve manifest packages the lock lacks (`--frozen` refuses instead, and fails on sha drift). |
@@ -35,6 +35,9 @@ No engine code lives in the project. The engine's *scripts* ship inside the npm 
 | `upgrade` | Bring the project to this CLI's engine: apply v2 schema migrations, move the `@ainova-systems/sync` pin to the bundled version and reinstall it, restamp `sync_version`, sync. |
 | `sync [target]` | Run the bundled engine against the manifest. In a vendored (v1) project it delegates to that project's own engine. |
 | `list` / `status` / `doctor` | Inspect; doctor exits 1 on inconsistencies (unlocked packages, missing store, stale stamp, dead sources). |
+| `adapter new <name>` | Scaffold `<content-dir>/adapters/<name>.sh` from the bundled template. Refuses invalid names and existing files; implementation remains project-owned. |
+| `target enable <name>` | Enable an existing built-in or project adapter, preserving its configured output or defaulting to `.<name>` (`AGENTS.md` for `agents`). |
+| `target disable <name>` | Disable a manifest target. Generated output is kept for explicit, adapter-aware cleanup. |
 | `registry <list\|add <url> [--force]\|remove <url>>` | Manage the trust list of registries — rare, once per organization. `add` fails closed on a URL with no `index.yaml` (`--force` records it anyway). |
 | `migrate [--dry-run] [--force]` | Convert a vendored setup to the CLI setup. Transactional; see below. |
 
@@ -52,7 +55,7 @@ No engine code lives in the project. The engine's *scripts* ship inside the npm 
 
 ## Manifest shapes and ownership
 
-The engine reads what it always read (`project:`, `sync_version:`, `sources:`, `targets:`, `models:`, `ignore:`, `submodules:`) through its own parsers. Two blocks are **CLI-owned** and never touched by the engine — their keys are full quoted package names, which engine parsers deliberately cannot read:
+The engine reads `project:`, `sync_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:` through its parsers. Two blocks are **CLI-owned** and never touched by the engine — their keys are full quoted package names, which engine parsers deliberately cannot read:
 
 ```yaml
 packages:
@@ -66,25 +69,27 @@ registries:
 
 ## How the CLI drives the engine
 
-The engine's CLI mode is an env contract, set by the dispatcher and honored only when `IS_CLI=1` (with every variable unset the engine is byte-identical to the vendored one — CI's `legacy-golden` job proves that on every push):
+The v2 engine runs outside the project. The dispatcher supplies the project and layout through this environment contract:
 
 | Variable | Value in CLI mode |
 |---|---|
+| `IS_CLI` | `1` |
 | `CONFIG_FILE` | `<root>/intelligence.yaml` |
 | `REPO_ROOT` | the project root |
 | `IS_UMBRELLA_REL` | content dir (`intelligence`) |
 | `IS_MODULE_REL` | `.intelligence/packages/@ainova-systems/sync` |
-| `IS_MANIFEST_NAME` | `intelligence.yaml` (feeds the `<manifest>` token; vendored default `config.yaml`) |
+| `IS_MANIFEST_NAME` | `intelligence.yaml` (feeds the `<manifest>` token) |
 | `IS_SYNC_CMD` | `intelligence sync` (expanded for the `<sync-cmd>` token) |
-| `IS_PROTECTED_DIRS` | `<content-dir>:.intelligence` — restores output-path protection for a root manifest |
-| `IS_SUPPRESS_CLI_NOTE` | set to silence the vendored-flow recommendation note |
+| `IS_PROTECTED_DIRS` | `<content-dir>:.intelligence` — prevents adapter output from overlapping project content or the package store |
 
 ## migrate: vendored (v1) → CLI (v2)
 
-Fail-closed preconditions (clean worktree unless `--force`; no half-migrated state; project schema not newer than the engine; an older schema is first brought up by the engine's own migration chain). Then **stage** — the manifest is `config.yaml` transformed comment-preservingly (module sources → the `@ainova-systems/sync` package store, `@pack/sub` references → store paths, `packs:` → `packages:` entries keeping their `ref:` pins), mirrored packs are *copied* from their mirrors (network untouched, sha carried from the `.pack` stamp), transient packs fetched — **verify** (staged sources exist; per-adapter `enabled`/`output` equality against the old config) — **commit**: store and manifest move in, a real sync must report `IS_STATUS=ok`, and only then are the vendored module, `config.yaml` (backed up to `.intelligence/backup/`) and the mirrors removed. Any earlier failure rolls back to an untouched project. `--dry-run` stages, verifies, prints, writes nothing.
+Fail-closed preconditions: clean worktree unless `--force`; no half-migrated state; project schema not newer than the engine; and exactly the final v1 schema (`0.10.0`). An older project must first run the `update.sh` already vendored in that project, then retry `intelligence migrate`; v2 contains no v1 migration chain.
+
+Migration then **stages** a comment-preserving `intelligence.yaml` conversion (module sources → the `@ainova-systems/sync` package store, `@pack/sub` references → store paths, `packs:` → `packages:` entries retaining their `ref:` pins), copies mirrored packages without network where possible and fetches transient packages. It **verifies** staged sources and per-adapter `enabled`/`output` equality, then **commits** only after a real staged sync reports `IS_STATUS=ok`. Only then are the vendored module, `config.yaml` (backed up under `.intelligence/backup/`) and mirrors removed. Any earlier failure leaves the project untouched. `--dry-run` stages, verifies and prints without writing to the project.
 
 ## Developing and releasing the CLI
 
-- `bash cli/tests/e2e-packages.sh` and `bash cli/tests/e2e-lifecycle.sh` — the hermetic suites CI runs (file:// fixtures).
-- `bash npm/build.sh [version]` assembles `npm/dist/` from the repo (cli + engine + registry index).
+- `bash cli/tests/unit-semver.sh .`, `bash cli/tests/unit-manifest.sh .`, `bash cli/tests/e2e-packages.sh .`, `bash cli/tests/e2e-lifecycle.sh .` and `bash cli/tests/e2e-negative.sh .` — the five hermetic CLI suites CI runs.
+- `bash npm/build.sh [version]` assembles `npm/dist/` from the repo (`cli/`, `engine/` and `packages/sync/`).
 - The `release-npm` workflow (manual dispatch) publishes `<engine>-rc.N` to dist-tag `next` from any ref, and the stable `<engine>` version to `latest` only when dispatched from the matching `v<engine>` tag. Requires the `NPM_TOKEN` secret.

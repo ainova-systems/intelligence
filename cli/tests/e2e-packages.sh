@@ -3,6 +3,7 @@
 # list / remove / registry against file:// fixture repos.
 set -euo pipefail
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 CLI="$REPO/cli/intelligence"

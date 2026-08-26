@@ -1,31 +1,37 @@
 ---
 name: intelligence-install-adapter
-description: "Enable IDE adapter for intelligence-sync"
+description: "Research, implement, and enable a tool adapter"
 argument-hint: <target-name>
 agent: intelligence-operator
 ---
 
-# Install Adapter
+# Install an adapter
 
-The project's config is `<manifest>`; the content dir is `<umbrella>/` (never assume the name or casing); the engine's own files live under `<module>/` — these paths are localized to this project at sync time.
+The CLI owns scaffolding and manifest edits. This skill owns the part a
+program cannot infer: how the target tool represents rules, agents, and skills.
 
 ## Steps
 
-1. Check whether target `$ARGUMENTS` is already enabled in `<manifest>` — if yes, report and stop.
+1. Try `intelligence target enable $ARGUMENTS`. If it succeeds, continue at
+   step 5. If it reports that the adapter is missing, scaffold the
+   project-owned adapter with `intelligence adapter new $ARGUMENTS`.
 
-2. **Locate the adapter.** The sync discovers adapters in two places:
-   - **Built-in**: `<module>/scripts/adapters/$ARGUMENTS.sh` — upstream-owned. Every engine update replaces that whole directory.
-   - **Project-owned**: `<umbrella>/adapters/$ARGUMENTS.sh` — updates never touch it. A project adapter of the same name overrides the built-in.
+2. Research the tool's current, authoritative documentation for instruction,
+   agent, and skill formats: discovery paths, frontmatter/schema, scoping,
+   naming, and whether it reads `AGENTS.md`. Record links and distinguish
+   verified behavior from assumptions.
 
-   If neither exists, research the tool's prompt format (web search for its rules / agents / skills file layout), then copy `<module>/scripts/adapters/_template.sh` to **`<umbrella>/adapters/$ARGUMENTS.sh`** and implement `sync_to_$ARGUMENTS()`. Author it there, never inside the engine's `scripts/adapters/` — a file written there is deleted by the next engine update. Adapter contract: `<module>/docs/ADAPTERS.md`. An adapter that would serve every project is worth contributing upstream.
+3. Implement `sync_to_$ARGUMENTS()` in the scaffolded adapter. Follow the
+   bundled adapter contract and existing adapters for shared helpers. Keep all
+   writes beneath the configured output, make re-runs idempotent, and make the
+   cleanup block name only paths this adapter owns. Add only those owned paths
+   to `.gitignore`; shared roots remain trackable.
 
-3. Update `<manifest>`:
-   - Target exists with `enabled: false` → flip to `enabled: true`.
-   - Target missing → add it under `targets:` with its `output:` path.
-   - If the target reads always-on rules from `AGENTS.md` (`cursor`, `copilot`, `codex`, `pi`, `opencode`), `targets.agents` must be enabled too — sync fails closed otherwise.
+4. Run `bash -n` on the adapter, then
+   `intelligence target enable $ARGUMENTS`. If the tool relies on `AGENTS.md`,
+   enable `agents` first when the CLI guard requests it.
 
-4. Add the adapter's generated paths to `.gitignore` (the paths it writes, not the whole output root — a shared root like `.github/` or `.claude/` also holds tracked, hand-authored files).
-
-5. Run `/intelligence-sync` to generate the output.
-
-6. Report: adapter enabled, files generated, output location.
+5. Run `intelligence sync $ARGUMENTS`. Require `IS_STATUS=ok`, inspect the
+   generated files against the researched format, and run the tool's own
+   validator when one exists. Report the evidence, output paths, and any
+   unsupported artifact type explicitly.

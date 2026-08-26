@@ -1,22 +1,21 @@
 #!/bin/bash
 # intelligence-sync: Adapter template
-# Copy this file to create a new IDE adapter.
+# Scaffold this file with: intelligence adapter new <name>
 #
 # This file is NOT executable as-is — `<name>` placeholders below would be
 # parsed by bash as input redirection (`<` operator). Replace every
 # occurrence with your adapter name before sourcing.
 #
 # Required:
-#   1. Name the file: <ide-name>.sh (e.g., myide.sh)
-#   2. Replace every `<name>` placeholder with your adapter name
-#   3. Implement sync_to_<name>() function
-#   4. Add target to config.yaml:
+#   1. Implement sync_to_<name>() and its three content transforms
+#   2. Enable it after implementation: intelligence target enable <name>
+#      This adds the target to intelligence.yaml when it is absent:
 #      targets:
 #        <name>: { enabled: true, output: ".<name>" }
 #
 # The sync_to_<name>() function receives:
 #   $1 = repo_root     — absolute path to the project root
-#   $2 = config_file   — absolute path to config.yaml
+#   $2 = config_file   — absolute path to intelligence.yaml
 #   $3 = output_dir    — absolute path to the output directory (e.g., .myide/)
 #
 # Available library functions (from lib/common.sh):
@@ -29,10 +28,12 @@
 #   get_model_default(ide, tier)        — hardcoded default for ide:tier
 #   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly->restricted
 #   map_access_to_claude_disallowed(access) — readonly->"Write, Edit", full->""
-#   read_yaml_list(config, section)     — read list from config.yaml
+#   read_yaml_list(manifest, section)   — read a source list from intelligence.yaml
 #   get_target_field(config, target, field) — read a target's config field
 
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# Project adapters are sourced by engine/sync.sh after the shared library is
+# loaded. Keep this template position-independent: after scaffolding it lives
+# under the project's content directory, not beside engine/lib/.
 
 # Sync rules for <agent-name>
 # Typical transformations:

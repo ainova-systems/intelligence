@@ -233,6 +233,57 @@ chknot name_ok "@a/b/c"
 chknot name_ok "@a/b c"
 chknot name_ok "@a/b:c"
 
+echo "== target manifest editors =="
+target_name_ok() { ( assert_valid_target_name "$1" ); }
+chk target_name_ok "myide"
+chk target_name_ok "tool_2"
+chknot target_name_ok "MyIDE"
+chknot target_name_ok "my-ide"
+chknot target_name_ok "../tool"
+
+MT="$OUT/targets.yaml"
+cat > "$MT" <<'EOF'
+project:
+  name: target-unit
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  claude:
+    enabled: false
+    # preserve this field while toggling enabled
+    output: ".custom-claude"
+
+models:
+  claude:
+    heavy: opus
+EOF
+chk target_exists "$MT" agents
+chk target_exists "$MT" claude
+chknot target_exists "$MT" cursor
+target_set_enabled "$MT" agents false "AGENTS.md"
+chk eq "$(is_target_enabled "$MT" agents)" "0"
+chk eq "$(get_target_output "$MT" agents)" "AGENTS.md"
+target_set_enabled "$MT" claude true ".claude"
+chk eq "$(is_target_enabled "$MT" claude)" "1"
+chk eq "$(get_target_output "$MT" claude)" ".custom-claude"
+chk grep -q 'output: ".custom-claude"' "$MT"
+target_set_enabled "$MT" cursor true ".cursor"
+chk target_exists "$MT" cursor
+chk eq "$(is_target_enabled "$MT" cursor)" "1"
+chk eq "$(get_target_output "$MT" cursor)" ".cursor"
+chk eq "$(grep -c '^targets:' "$MT")" "1"
+chk grep -q '^models:' "$MT"
+cp "$MT" "$OUT/targets.once"
+target_set_enabled "$MT" cursor true ".cursor"
+chk diff "$OUT/targets.once" "$MT"
+
+MT2="$OUT/no-targets.yaml"
+printf 'project:\n  name: none\n' > "$MT2"
+target_set_enabled "$MT2" agents true "AGENTS.md"
+chk target_exists "$MT2" agents
+chk eq "$(is_target_enabled "$MT2" agents)" "1"
+chk eq "$(get_target_output "$MT2" agents)" "AGENTS.md"
+
 echo "== top_scalar =="
 M6="$OUT/m6.yaml"
 cat > "$M6" <<'EOF'

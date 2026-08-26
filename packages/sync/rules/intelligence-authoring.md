@@ -25,9 +25,9 @@ Three ways to shorten, in order of what they are worth:
 
 ## Source of truth
 
-Edit the sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. A source that arrived from the engine or an installed package is not yours to edit either — it is replaced on the next update or install; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
+Edit the project-owned sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. An installed package source is replaced by install/update/upgrade; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
 
-`<module>/` is the engine's own content. It owns its own rules, agents and meta-skills, and every engine update replaces it wholesale, so a local edit there is lost. Fix it upstream instead.
+`<module>/` is the installed sync package's content. Package operations replace it, so a local edit there is lost. Fix it upstream instead.
 
 After any change: `<sync-cmd>`. A change that was not synced does not exist for any tool.
 
@@ -84,7 +84,7 @@ The verb just names the action — `add-`, `run-`, `review-`, `extract-`, `plan-
 
 Two verbs are told apart by what already exists. **`add-` puts one new member into a set that is already there** — a field on an existing type, a record among records, a component in the inventory the project keeps — so the noun names the member, and the number of files it takes to land is not the point. **`create-` brings the container itself into existence**, where nothing hosted it before. Neither verb describes how a skill is factored inside, so splitting a skill's internals never renames it.
 
-`intelligence-` is **reserved** for the engine's own artifacts. A project skill carrying that prefix collides with engine ownership — everything under the prefix is the engine's to replace or remove on update — rename it.
+`intelligence-` is **reserved** for the sync package's own artifacts. A project skill carrying that prefix collides with package-owned meta-skills in generated outputs — rename it.
 
 ### Shape
 

@@ -1,456 +1,385 @@
-# intelligence-sync: Conventions
+# Intelligence Authoring Conventions
 
-## Choosing artifact type
+Intelligence stores project-owned AI rules, agents and skills as tool-neutral Markdown. The CLI installs shared packages, and the sync engine renders each enabled target's native files.
 
-Three artifact types — each has a different intent and loading mechanism. Picking the right one is the first authoring decision.
+## Choose the right artifact
 
 | Type | Intent | Loading | Content |
 |---|---|---|---|
-| **Rule** | LLM **respects** a constraint or convention in the background | Auto (path-scoped or always-on) | Required patterns, invariants, architecture, examples |
-| **Skill** | LLM **performs** a multi-step procedure on invocation | Explicit (`/skill-name`) | Numbered steps with verification |
-| **Agent** | LLM **adopts** a persona / domain expertise | Explicit (via agent picker) | Expertise scope, before-any-task checklist, build/verify |
+| **Rule** | The model respects a constraint or convention | Automatic: always-on or path-scoped | Required patterns, invariants, architecture and examples |
+| **Skill** | The model performs a procedure | Explicit invocation | Ordered steps, decisions and verification |
+| **Agent** | The model adopts a role or expertise boundary | Explicit selection or skill binding | Expertise, boundaries and build/verify behavior |
 
-Plain rule of thumb:
-- "AI should consider X across any work in scope" → **rule**
-- "AI should execute a defined sequence of steps" → **skill**
-- "AI should think as an X-domain expert with these tools" → **agent**
+Use these tests:
 
-Common mistakes to avoid:
-- Conventions / standards embedded in an agent body → belongs in a **rule** (auto-loaded, shared across all agents working in scope)
-- A workflow embedded in a rule body → belongs in a **skill** (explicit invocation, not always-loaded context)
-- Expertise scope embedded in a skill body → belongs in an **agent** (persona reusable across many skills)
+- “The model should consider this during every task in scope” → rule.
+- “The model should execute these steps” → skill.
+- “The model should reason as this specialist” → agent.
 
-## Source Structure
+Do not bury conventions in agents, workflows in rules or reusable expertise in skills. Each misplaced concern either fails to load when needed or consumes context when it is not needed.
 
-```
-intelligence/                         # Umbrella — name NOT hardcoded (whatever holds config.yaml)
-├── config.yaml                       # Sync config + `sync_version` schema key (committed)
-├── rules/                            # Path-based rules (auto-loaded by context)
-│   ├── context.md                    # Always-loaded (no paths:)
-│   ├── backend.md                    # paths: ["src/backend/**"]
-│   └── frontend.md                   # paths: ["src/frontend/**"]
-├── agents/                           # Specialized agent definitions
-│   ├── backend-developer.md          # tier: heavy, access: full
-│   └── backend-code-reviewer.md      # tier: standard, access: readonly
-├── skills/                           # Reusable project skill commands
-│   ├── backend-add-endpoint/SKILL.md
-│   └── frontend-add-component/SKILL.md
-├── adapters/                         # OPTIONAL — project-owned adapters (survive updates)
-│   └── myide.sh                      # sync_to_myide(); overrides a built-in of the same name
-└── sync/                             # intelligence-sync MODULE (upstream-owned)
-    ├── INIT.md  docs/  scripts/(+VERSION)
-    ├── rules/intelligence-authoring.md    # authoring discipline for this layer
-    ├── agents/intelligence-architect.md   # designs and prunes this layer
-    ├── agents/intelligence-operator.md    # runs sync, update, adapter flows
-    └── skills/intelligence-*              # meta-skills
+## v2 project structure
+
+```text
+project/
+├── intelligence.yaml       # root manifest and sync_version contract
+├── intelligence.lock       # resolved packages; commit it
+├── intelligence/           # project-owned content; name is configurable
+│   ├── rules/
+│   │   ├── context.md
+│   │   └── backend.md
+│   ├── agents/
+│   │   └── backend-developer.md
+│   ├── skills/
+│   │   └── backend-add-endpoint/
+│   │       └── SKILL.md
+│   └── adapters/           # optional project adapters
+│       └── mytool.sh
+├── .intelligence/          # CLI-managed package store; gitignored
+│   └── packages/
+│       └── @scope/name/
+├── AGENTS.md               # generated canonical context; normally committed
+└── .claude/ .cursor/ ...   # generated tool-native output
 ```
 
-Everything project-authored lives at the umbrella level (`rules/ agents/ skills/ adapters/`); everything upstream-owned lives in the self-contained module `sync/`, updated independently via `sync/scripts/update.sh`. Additional modules (e.g. `domain/`) sit beside `sync/`. The umbrella folder name is derived at runtime as "the directory holding `config.yaml`" — never hardcoded. The `intelligence-` prefix is **reserved** for upstream artifacts; project rules, agents and skills must not use it (the updater prunes what matches it).
+The content directory defaults to `intelligence/`. A project may set `project.intelligence_dir` in `intelligence.yaml`; never infer or hardcode the default when the manifest is available.
 
-The module ships three kinds of artifact, and `config.yaml` must list all three under `sources` for them to reach the IDEs — `<umbrella>/sync/rules`, `<umbrella>/sync/agents`, `<umbrella>/sync/skills`. INIT emits those entries on bootstrap; the `0.7.0` migration adds them to existing projects.
+Project-authored rules, agents, skills and adapters live in the content directory. Installed package content lives under `.intelligence/packages/` and is replaced by `install`, `update` or `upgrade`; edit it only in its source repository. The executable engine remains with the installed CLI, outside the project.
 
-### Layout tokens in engine-shipped artifacts
+The `intelligence-` name prefix is reserved for artifacts shipped by `@ainova-systems/sync`. Project artifacts use their project or domain prefix.
 
-An artifact shipped *by the engine* cannot write the umbrella's name down — the project chooses it (`intelligence/`, `Intelligence/`, a codename). So engine artifacts spell it with tokens, and every adapter expands them on the way out (`finalize_output_file` in `lib/common.sh`):
+## Manifest, packages and sources
 
-| Token | Expands to | Example |
-|---|---|---|
-| `<umbrella>` | repo-relative umbrella dir | `Intelligence` |
-| `<module>` | repo-relative engine module | `Intelligence/sync` (CLI setup: `.intelligence/packages/@ainova-systems/sync`) |
-| `<manifest>` | the project's config file, by name | vendored: `config.yaml`; CLI setup: `intelligence.yaml` |
-| `<sync-cmd>` | how a reader re-runs the sync | vendored: `bash Intelligence/sync/scripts/sync.sh`; CLI setup: `intelligence sync` |
-
-Expansion covers frontmatter and body alike, so `paths: ["<umbrella>/**"]` reaches Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already carrying the project's real folder name. Project-authored artifacts may use the tokens too, but they have no reason to — they can simply name their own folders. `<sync-cmd>` exists because "run a sync" is spelled differently per setup: engine content says the token, and `IS_SYNC_CMD` (set by the CLI) picks the spelling; unset, it reproduces the vendored command string exactly.
-
-A custom adapter belongs in the umbrella's `adapters/`, never in the module's `sync/scripts/adapters/` — the module is replaced wholesale on every update, so an adapter written there disappears at the next one. See `docs/ADAPTERS.md`.
-
-Rule filenames, agent names, and skill names all share the same **domain prefix** (`backend-`, `frontend-`, `devops-`, `core-`, `tests-`, project codename, or monorepo component name). Pick the domain once from repo structure and reuse it — do not invent new domains without clear need.
-
-### Packs (remote sources)
-
-A `sources.{rules,agents,skills}` entry is normally a **local path** relative to the repo root. It may instead reference a **pack** — a remote git repo that `sync` shallow-clones and treats exactly like a local source directory — so a team can keep shared intelligence in one repo and pull it into many projects.
-
-A pack is **declared once** under `packs:` and referenced by name from as many sections as need it:
+The engine consumes ordinary local source paths:
 
 ```yaml
-packs:
-  shared-intel:
-    url: https://github.com/org/shared-intel.git
-    ref: v1.2.0                                    # the pin — one place, not one per section
-    mirror: "intelligence/external/shared-intel"   # optional; see below
+project:
+  name: payments
+  intelligence_dir: "intelligence"  # optional; this is the default
+
+sync_version: "0.11.0"
 
 sources:
   rules:
-    - "intelligence/rules"        # local
-    - "@shared-intel/rules"       # pack
+    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "intelligence/rules"
+  agents:
+    - ".intelligence/packages/@ainova-systems/sync/agents"
+    - "intelligence/agents"
   skills:
-    - "@shared-intel/skills"      # same pack, same clone, same pin
+    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "intelligence/skills"
 ```
 
-Declaring the pack is what keeps the url and the ref in one place. Repeating them per section is how the two drift, and nothing catches it: rules pinned at one commit and skills at another is a config that looks fine and reads wrong.
+Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
 
-Reference format: `@<pack>[/<subpath>]`
-
-- `<pack>` — a key under `packs:`. It is a **reference handle, never a path component**, so it needs no sanitizing; it must simply contain no `/`.
-- `/<subpath>` — optional directory inside the pack repo holding the rules / agents / skills. Omit to use the repo root. The subpath is preserved in the mirror, so `@shared-intel/packs/core/rules` lands at `<mirror>/packs/core/rules`.
-- **An undeclared pack fails the run** (exit 1, naming the pack and listing the declared ones). This is deliberately unlike a missing local path, which only warns: the config claims to know that name, so a typo must not quietly drop a whole rule set.
-
-Pack fields:
-
-- `url:` — must carry an explicit scheme: `https://`, `http://`, `ssh://`, `git://`, or `file://`. Other transports (notably the command-executing `ext::` / `fd::`) are **rejected** with a warning and skipped.
-- `ref:` — optional tag, branch, or commit SHA. Omit for the default branch.
-- `mirror:` — optional; see [Mirroring a pack into the repo](#mirroring-a-pack-into-the-repo).
-
-#### Inline specs (`git+…`)
-
-A source entry may still carry the whole spec inline: `git+<url>[@<ref>][#<subpath>]`. This is an **anonymous pack** — it has no declared name and no mirror, so it is always transient and cannot be referenced from elsewhere. Declare the pack under `packs:` to pin it once or to commit it.
-
-The inline `@<ref>` is parsed as the segment after the last `@`, accepted as a ref only when it contains no `/` (so `ssh://git@host/...` userinfo is not mistaken for a ref). Branch names containing `/` (e.g. `feature/x`) can't be expressed this way — use `packs:` with a plain `ref:`, which has no such limit.
-
-Behavior and trust:
-
-- **Fresh every sync.** Each `sync` run clones into a run-scoped temp dir and removes it on exit, so branch refs always pick up the latest. Within one run the same `url@ref` is cloned only once, even when several entries (different subpaths) reference it.
-- **Reproducibility / supply chain.** A remote's content becomes rules, agents, and skills the LLM reads as project context. Pin to a tag or SHA so an upstream change can't silently alter behavior, and only reference repos you trust.
-- **Containment.** The clone can't be made to read outside itself: `..` in `#subpath` is refused, remote repos are checked out with `core.symlinks=false` (a hostile `skills -> /etc` link becomes an inert text file, not a path the copy step follows), and the resolved directory is verified to sit inside the clone.
-- **Line endings are the pack's, not the host's.** The clone pins `core.autocrlf=false` and `core.eol=lf`, so a pack that declares no `.gitattributes` still materializes the bytes it has stored. Without it, Git for Windows' `core.autocrlf=true` default would rewrite the checkout to CRLF and a `mirror:` — copied verbatim — would land CRLF in your repo, showing up as a whole-pack diff after every sync.
-- **Private repos** rely on ambient credentials (an SSH agent or git credential helper). `sync` runs git with `GIT_TERMINAL_PROMPT=0`, so a missing credential fails fast with a warning instead of hanging; local sources still sync.
-- **Best-effort.** A clone failure (offline, bad URL, missing subpath) warns on stderr and skips that one source — the rest of the sync proceeds and still reports `IS_STATUS=ok`.
-
-#### Mirroring a pack into the repo
-
-Without `mirror:` a pack exists only inside the run cache, so the only trace of an upstream change is a shifted diff in the *generated* output, mixed in with your own content. Give the pack a `mirror:` and it is additionally materialized there, which makes a version bump readable as an ordinary diff:
+The CLI owns package and registry blocks:
 
 ```yaml
-packs:
-  shared-intel:
-    url: https://github.com/org/shared-intel.git
-    ref: v1.2.0
-    mirror: "intelligence/external/shared-intel"   # omit to keep the pack transient
+packages:
+  "@acme/backend":
+    version: "^1.2.0"
+
+registries:
+  - "https://github.com/acme/intelligence-registry.git"
 ```
 
-```
-intelligence/external/
-└── shared-intel/          # the path you declared — nothing is derived
-    ├── .pack              # url + ref + resolved SHA, written by sync
-    ├── rules/             # only the subpaths your sources reference
-    └── skills/
-```
+Do not put Git URLs or remote tokens directly in `sources:`. Use:
 
-Commit that directory — being able to review `git diff` after bumping a pin is the entire point. `<umbrella>/external/<pack>` is the recommended location, but the value is a plain path, so packs can live wherever suits the repo, one per pack.
-
-- **The directory is declared, never derived.** `mirror:` says exactly where the pack goes, so there is no name to sanitize and no collision to resolve.
-- **`.pack` is output, not config.** sync writes it; nothing reads it as configuration and it is not meant to be hand-edited. The pin lives in `config.yaml`.
-- **Only the referenced subpaths are copied**, so a pack's `README`, CI config and tests never enter your repo. A reference with no subpath copies the whole repo.
-- **`.git` is never copied.** A nested repository would be recorded as a gitlink, whose contents git does not track — precisely the state this avoids.
-- **Cleared once per run.** The first entry to touch a pack clears its mirror, so content left by a previous ref (or by a source entry you have since deleted) does not linger; later entries only replace their own subpath.
-- **Never destructive.** The `.pack` stamp marks the directory as sync's to manage: a non-empty directory *without* one is left alone (with a warning) rather than deleted, so a directory of your own at that path is safe. A stamped directory stays the pack's even after you edit its `url:` — a moved or renamed upstream refreshes the mirror, which is the whole point of committing it. To hand a mirror path back to the project, delete the directory. A mirror that resolves to the repo root, escapes the repo, or sits inside a configured `sources.*` directory is refused outright — `sync` exits 1 before anything is written.
-- Mirrored files have committed paths, so `AGENTS.md` and the Pi adapter link to them like any local source instead of naming them bare. A transient pack has no such path and is still named bare.
-
-## Agent Frontmatter
-
-```yaml
----
-name: agent-name                     # Kebab-case identifier
-description: When to use this agent  # Shown in IDE agent picker
-tier: heavy|standard|light           # Model capability (tool-agnostic)
-access: full|readonly                # Tool permissions (tool-agnostic)
-skills:                              # Optional: linked skills
-  - skill-name-1
-  - skill-name-2
----
-
-Agent instructions in markdown...
+```bash
+intelligence add @acme/backend
+intelligence add github:acme/backend-intelligence
+intelligence add 'git+https://git.example.com/acme/backend.git@main#package'
 ```
 
-### An agent is thin — it never restates the rules
+Registries are an ordered trust list and the only resolver for a package name. There is no built-in catalog and no `@org/name` → GitHub guessing. An explicit `github:` or `git+` spec bypasses registry lookup while remaining recorded and pinned in the manifest and lock.
 
-Body sections: **Expertise** → **Boundaries** (where it stops) → **Build & Verify**. What belongs to the agent is its role, its limits, and how it proves the work is done.
+Stable Git tags provide package versions. Semver ranges select the highest matching stable tag; a `ref:` pin names a branch or commit and does not move during `intelligence update`. One package name has one version per project.
 
-**Do not instruct an agent to read the rules.** They reach it on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor, Copilot, Codex, Pi and opencode receive always-on rules inlined in `AGENTS.md`. A `Read intelligence/rules/<domain>.md before starting` line is duplication: it doubles the tokens and creates a second copy that drifts from the rule it copied. Point at a rule by name if you must; never restate it. The urge to copy a rule into an agent means the rule is in the wrong place — move it.
+Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, use `intelligence install --frozen` to restore the store and refuse manifest/lock drift.
 
-### Tier Mappings
+`@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. `intelligence update` does not move that pin; `intelligence upgrade` moves it together with the project schema.
 
-| Tier | Claude | Cursor | Copilot / Codex | opencode | Use for |
-|------|--------|--------|-----------------|----------|---------|
-| heavy | opus | (default) | gpt-5.6-sol | claude-opus-4-8 | Developers, complex reasoning, migration |
-| standard | sonnet | fast | gpt-5.6-terra | claude-sonnet-5 | Reviewers, validators, analysis |
-| light | haiku | fast | gpt-5.6-luna | claude-haiku-4-5 | Simple lookups, formatting |
+## Layout tokens
 
-The vocabulary is tool-agnostic on purpose: the source says `tier: heavy`, and each adapter resolves it through `get_model()`. Defaults move forward as vendors ship new models — pin one per IDE/tier under `models:` in `config.yaml` only when you must, and expect a drift report on every sync once the default overtakes the pin.
+Package-owned artifacts cannot assume the project's content-directory name or their installed package path. They use tokens expanded by every adapter through `finalize_output_file`:
 
-### Access Mappings
-
-| Access | Claude | Cursor | Description |
-|--------|--------|--------|-------------|
-| full | (no `tools:` field - inherits every session tool, MCP servers included) | (default) | Full edit access |
-| readonly | tools: Read,Grep,Glob,Bash + disallowedTools: Write,Edit | readonly: true | Analysis only |
-
-## Rule Frontmatter
-
-```yaml
----
-paths:                               # Optional: path-based activation
-  - "src/backend/**"                 # Glob patterns from repo root
-  - "config/**"
----
-
-Rule content in markdown...
-```
-
-- **With paths:** Rule auto-loads when user edits matching files
-- **Without paths:** Rule applies always (context rules)
-
-### Sync Transformations (Rules)
-
-| Source | Claude | Cursor | Copilot | Codex / Pi / opencode / AGENTS.md |
-|--------|--------|--------|---------|------------------------|
-| `paths:` (scoped) | copied | `globs:` in `.mdc` | `applyTo:` in `.instructions.md` | listed in AGENTS.md; Pi also gets generated on-demand rule files + extension |
-| no `paths:` (always-on) | copied | skipped | skipped | inlined into AGENTS.md |
-| extension | `.md` | `.mdc` | `.instructions.md` | inline / generated extension / n/a |
-
-Always-on rule content is inlined once into AGENTS.md (which Cursor, Copilot, Codex, Pi, and opencode read natively); the per-IDE rule channels carry only path-scoped rules to preserve monorepo glob targeting without duplicating context. Claude Code does not read AGENTS.md, so its adapter receives the full rule set. opencode has no first-class path-scoped channel (users may opt in via `instructions:` globs in `opencode.json`), so the opencode adapter does not generate scoped-rule files.
-
-## Skill Frontmatter
-
-Skills follow the [Agent Skills open standard](https://agentskills.io) (adopted by Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Pi, Gemini CLI, OpenCode, Goose, Junie, and 30+ others). Required fields: `name` + `description`.
-
-```yaml
----
-name: <domain>-<verb>-<noun>         # e.g., backend-add-endpoint
-description: What the skill does     # Shown in IDE skill picker
-argument-hint: <arg1> [arg2]         # Optional: usage hint
----
-
-# Skill Title
-
-## Steps
-1. First step...
-2. Second step...
-```
-
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and IDE-specific extensions (Claude's `disable-model-invocation`, `model`, `effort`, `agent`, `context: fork`, `hooks`, `paths`, `shell`) pass through unchanged — adapters do not strip them. The engine's own flow skills declare `agent:` (`intelligence-review-skills` → `intelligence-architect`, the four sync/update/adapter flows → `intelligence-operator`); the binding takes effect where a tool honors it, and a skill invoked directly runs on the session model unless it also sets `context: fork`, as `intelligence-sync` does — the flows that can need the user mid-run (update, adapter install/removal) deliberately do not. Each tool ignores fields it does not understand.
-
-**Limits that reject the skill outright** (it does not degrade — it disappears from the picker):
-
-| Field | Limit | Failure |
-|---|---|---|
-| `description` | 1024 chars | *"Skill description must be at most 1024 characters"* |
-| `name` | 64 chars | rejected at load |
-| `argument-hint` | must be a **string** | `argument-hint: [pr-number]` is a YAML flow *sequence* unquoted → *"argument-hint must be a string"* |
-
-Sync quotes `description` and `argument-hint` for every target on the way out, so an unquoted hint is fixed automatically; the length limits it can only warn about (`lint_frontmatter` prints the file, line and actual length) — shortening the text is the author's call.
-
-### Naming Conventions
-
-Skill names are `<domain>-<verb>-<noun>`. Both parts are required.
-
-**Domain prefix** (the scope — required, never omit):
-
-| Source | Domain |
-|--------|--------|
-| Single / root project | Project codename from `config.yaml` → `project.name` |
-| Backend service / API | `backend-` |
-| Frontend / web / UI | `frontend-` |
-| Infrastructure / IaC / CI/CD | `devops-` |
-| Shared library / common code | `core-` |
-| Test suites (e2e, integration) | `tests-` |
-| Monorepo named components | Component name (e.g., `billing-`, `auth-`) |
-| Tool-internal (intelligence-sync) | `intelligence-` |
-
-Reuse an existing domain whenever possible. Do not invent new domains without clear need.
-
-**Verb prefix** (the action):
-
-| Verb | Type | Description |
-|------|------|-------------|
-| `add-` | Append | Puts one new member into a set that already exists |
-| `create-` | Originate | Brings into existence the container nothing hosted before |
-| `update-` | Revise | Changes what is already there, selectively |
-| `run-` | Execution | Runs an operation (tests, sync, build) |
-| `review-` | Read-only | Analyzes code without changes |
-| `test-` | Testing | Manual or automated test verification |
-| `remove-` | Deletion | Safely removes an artifact |
-
-Agents follow the same domain prefix rule: `<domain>-<role>` (e.g., `backend-developer`, `frontend-code-reviewer`). Rule filenames use the domain without a verb: `<domain>.md` (e.g., `backend.md`).
-
-### How much a skill body carries
-
-A skill that does the work itself carries the detail: the patterns, the code, the examples. A skill that dispatches to other skills stays thin — it names them and adds only what it alone knows (the discovery, the order, the check between steps), and it never restates their content, because two copies of a procedure disagree at the first edit.
-
-Which of the two a skill is has nothing to do with its verb. An `add-` skill may dispatch, and a `create-` skill may do the work itself: the verb answers what already existed (Verb prefix, above), not how the skill is built inside.
-
-## Authoring Discipline
-
-### Writing description fields
-
-Each skill, rule, and agent has a `description` field in frontmatter. This field is loaded into every IDE's available-skills context. **Total description tokens across all artifacts compete for a shared budget** — with a large registry, longer descriptions push other skills out of reach.
-
-Two cases:
-
-| Case | Format | Length target |
-|---|---|---|
-| **Unique skill** (no siblings doing similar action) | Plain verb-noun phrase | 4-8 words |
-| **Skill with siblings** (multiple similar skills in registry) | verb-noun + distinct trigger phrase | 10-20 words, ~250 chars |
-
-Two different numbers, do not confuse them: **~250 chars is the house budget** (what keeps the shared registry affordable), while **1024 chars is a wall** — Claude Code and the Agent Skills standard reject a longer `description` outright and the artifact disappears from the picker. Sync warns at the wall (`lint_frontmatter`); staying near the budget is the author's job.
-
-Examples:
-
-```yaml
-# Unique skill — short is fine
-description: "Create new intelligence rule"
-
-# Sibling skill — needs distinguishing trigger
-description: "Run weekly check-up: retrospective + strategic analysis + next week planning"
-```
-
-When the registry grows past comfortable budget, prefer **curation** (merge duplicates, archive orphans via `intelligence-review-skills`) over truncating descriptions individually.
-
-### Size discipline — the backstop, not the goal
-
-The goal is **subtraction** (see the `intelligence-authoring` rule the engine ships): every line is loaded into someone's context out of a shared, finite budget, so the default answer to "should this be a rule?" is no. These caps are only the line past which something is definitely wrong.
-
-| Type | Hard cap | Over the cap |
-|---|---|---|
-| SKILL.md body | 1000 lines | Move detail into `references/<topic>.md` and point at it |
-| Reference file (`references/*.md`) | 500 lines | Add a table of contents past 300 lines |
-| Rule | 500 lines | Split by sub-scope, or move pattern detail to `references/` |
-| Agent | 200 lines | Refactor — agents stay thin; heavy content lives in skills and rules |
-
-**Ceilings, not quotas.** An artifact that says everything it needs to is finished, not underweight. Over the cap means it is doing two jobs, or the detail belongs behind a pointer: `Read references/<topic>.md when [condition].`
-
-Resource organization — **content lives inside the skill that uses it, by default**:
-
-```
-skill-name/
-├── SKILL.md (required)
-├── references/    — Detailed docs, loaded on demand
-├── scripts/       — Executable helpers for deterministic / repetitive steps
-└── assets/        — Files used in output (templates, fonts, icons)
-```
-
-Sync copies the whole directory, so a bundled helper travels with its skill into every tool. **Promote a helper out of the skill folder only when a second skill needs it** — then it lives beside the source groups (e.g. `<umbrella>/scripts/`) and every skill resolves it the same way. The dividing line is reuse, not repetition: a helper one skill runs a hundred times still belongs to that skill.
-
-### Writing principles
-
-Apply to skill bodies, rule bodies, and agent bodies — anywhere LLM-facing instructions are authored.
-
-**Use imperative form.** "Read the config file" works better than "You should read the config file."
-
-**Explain the WHY.** LLMs follow positive instructions better when reasoning is visible. "Use module boundaries — AI knows which imports are allowed without guessing" works better than "Use module boundaries (MUST)."
-
-**Reserve absolute language for true invariants.** ALL-CAPS MUSTs and NEVERs fit security, safety, output format — places where the constraint is non-negotiable. For judgment calls, write **decision rules** in positive form: "When X, do Y" instead of "NEVER do Z." If you find yourself writing ALWAYS or NEVER in all caps for a judgment call, that's a yellow flag — reframe and explain the reasoning.
-
-**Keep prompts lean.** Remove instructions that aren't pulling their weight. Padding wastes context and dilutes the instructions that matter.
-
-**Lead with positive defaults.** Rule body order: REQUIRED → Invariants → Architecture → Build & Test → Examples → Patterns to recognize and replace. The LLM acts on the positive instruction it reads first; anti-patterns sit at the end as reference documentation, not as instructions.
-
-**Bundle repeated patterns as scripts.** If the LLM reinvents the same helper on every invocation, encode it in `scripts/` and have the skill call it.
-
-## Generated Output
-
-| Target | Rules output | Skills location | Agents location | Git-ignored |
-|--------|--------------|-----------------|-----------------|-------------|
-| `agents` | inlined into `AGENTS.md` (always-on); listed (scoped) | n/a | listed in `AGENTS.md` | No (committed) |
-| Claude Code | `.claude/rules/` (full) | `.claude/skills/` | `.claude/agents/` | Yes |
-| Cursor | `.cursor/rules/*.mdc` (scoped only) | `.cursor/skills/` | `.cursor/agents/` | Yes |
-| GitHub Copilot | `.github/instructions/*.instructions.md` (scoped only) | `.github/skills/` | `.github/agents/` | Partial |
-| OpenAI Codex | none (reads `AGENTS.md`) | `.agents/skills/` | `.codex/agents/*.toml` | Yes |
-| Pi | `.pi/intelligence-sync/rules/*.md` + `.pi/extensions/intelligence-sync-rules.ts` (scoped only; always-on via `AGENTS.md`) | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` | Partial |
-| opencode | none (always-on via `AGENTS.md`; users may opt in to scoped rules via `instructions:` globs in `opencode.json`) | `.agents/skills/` | `.opencode/agents/*.md` (mode: subagent) | Yes |
-
-Skill locations all comply with the Agent Skills open standard. Cursor reads from `.cursor/skills/` and `.agents/skills/`; Copilot reads from `.github/skills/`, `.claude/skills/`, and `.agents/skills/`; Codex, Pi, and opencode all read from `.agents/skills/`; Claude Code reads from `.claude/skills/`.
-
-**Rule routing rationale:** AGENTS.md is canonical for Cursor/Copilot/Codex/Pi/opencode (all read it natively), so always-on rule content is inlined there once and the per-IDE rule directories carry only path-scoped rules — no duplication. Claude Code does not read AGENTS.md, so its adapter receives the full rule set.
-
-`AGENTS.md` is always enabled and regenerated on every sync. The static header (`targets.agents.header` in `config.yaml`) is the only hand-authored part; everything below it is rebuilt from frontmatter — agents/skills tables, the rules list, and the inlined content of every always-on rule (those without `paths:`). Path-scoped rules are listed by name only so AGENTS.md does not balloon in monorepos.
-
-## Migration & Module Contract
-
-Structural changes to the module layout are handled by **versioned migrations**, not ad-hoc scripts or manual instructions. The model is designed for an *unbounded, uncoordinated* upgrade window — a project may sit on an old version indefinitely and still migrate safely whenever it finally runs.
-
-**Division of responsibility**
-
-- **Bash = deterministic, fail-closed core.** It performs only mechanically safe, reversible-until-committed steps and **never guesses**. Any state it cannot resolve safely is reported, not forced.
-- **`intelligence-update` skill = intelligent layer.** It detects project state, bootstraps the engine, runs bash, interprets the status, and resolves the cases bash refuses (asking the user when genuinely ambiguous).
-
-**The schema-version contract key.** The applied schema version is a managed, top-level scalar `sync_version` in `config.yaml` — *not* a dotfile, *not* `scripts/VERSION`. `config.yaml` is what most future breaking changes reshape, so the schema version lives with what it versions. **Invariant: this key is permanent and format-stable** — no migration may ever rename, move, or change its shape, so any engine (however old/new) can always read "what schema is this?" before parsing the rest. The bootstrap/INIT flow emits it for fresh projects (= engine `scripts/VERSION`) and must preserve it on re-bootstrap. `scripts/VERSION` = what the engine *is*; the key = what has been *applied*; the gap = pending breaking changes.
-
-**Every `migrate_to_<ver>` obeys this contract**
-
-1. **Version-named & ordered.** Suffix is the target version (`migrate_to_0_3_1`); listed in `MIGRATIONS=()` ascending, append-only — never reorder or rewrite shipped migrations.
-2. **Idempotent structural precondition is the correctness mechanism.** Each migration self-detects from the actual on-disk/config structure whether its change is already applied, and is a silent no-op if so. The dispatcher runs the whole chain in order; it does **not** gate on the version stamp — so a wrong/missing `sync_version` can never cause a needed migration to be skipped. Replaying any number of times never fails or duplicates.
-3. **Transactional / fail-closed.** Stage → **verify postcondition (sentinel)** → commit → only then delete the old state. A crash or partial input leaves the prior state intact; nothing is destroyed before the replacement is verified.
-4. **Version-compat guard.** A stale engine refuses to operate on a project whose `sync_version` is newer than it understands (`ahead-of-engine`). This is the *only* role of the stamp — a guard, never a gate.
-5. **Status hand-off is first-class.** "Cannot safely automate" is a normal outcome, reported via the contract below — not an error to paper over.
-
-**Breaking-change releases carry a `### Breaking` CHANGELOG subsection**, each item stating its post-condition. The `intelligence-update` skill reads the changelog across the version gap, surfaces these, and verifies each post-condition after applying. `sync.sh` is a pure synchronizer — it never migrates; it fails closed (`needs-update`) across an un-applied gap so a stale engine can't generate against a newer schema. `update.sh` (+ the skill) is the sole migrator.
-
-**bash ↔ skill status contract** (codes are public; never renumber)
-
-| `IS_STATUS` | exit | Meaning |
-|---|---|---|
-| `ok` | 0 | Up to date / nothing to do |
-| `migrated` | 0 | Migration performed this run |
-| `error` | 1 | Generic failure (detail in message) |
-| `config-missing` | 2 | No `config.yaml` — project not bootstrapped |
-| `ambiguous` | 3 | Conflicting state; skill/human-only (bash never emits it) |
-| `ahead-of-engine` | 4 | Project schema newer than this engine |
-| `aborted-incomplete` | 5 | Staged module incomplete; prior state left intact |
-| `needs-update` | 6 | Pending breaking changes — run the update flow first |
-
-Bash emits `IS_STATUS=<code> [IS_DETAIL=...]` on stdout and exits with the matching code; callers capture it with `cmd || rc=$?` (never `if ! cmd; then exit $?` — that loses the code). The skill branches on the code.
-
-**Module model.** The engine self-locates by its own path; it does not assume a folder name (`sync/` by convention). Each `<umbrella>/<module>/` is self-contained: its own `scripts/`(+`VERSION`), `skills/`, `INIT.md`, `docs/`. Modules update independently and never touch sibling modules or project content (`rules/`, `agents/`, non-meta `skills/`) nor `config.yaml` beyond the idempotent additive `sources.skills` line and the `sync_version` key.
-
-**CLI mode (0.11.0+).** The `intelligence` CLI drives the same engine from outside the repo (the npm install dir); the project arrives through an env contract honored only when `IS_CLI=1` — with every variable unset the engine behaves byte-identically to the vendored flow (CI's `legacy-golden` job asserts that):
-
-| Variable | CLI-mode value |
+| Token | v2 expansion |
 |---|---|
-| `CONFIG_FILE` | `<root>/intelligence.yaml` (the root manifest) |
-| `REPO_ROOT` | project root |
-| `IS_UMBRELLA_REL` / `IS_MODULE_REL` | content dir (default `intelligence`) / `.intelligence/packages/@ainova-systems/sync` |
-| `IS_MANIFEST_NAME` | `intelligence.yaml` — feeds the `<manifest>` token (vendored default: `config.yaml`) |
-| `IS_SYNC_CMD` | `intelligence sync` (feeds the `<sync-cmd>` token) |
-| `IS_PROTECTED_DIRS` | colon-separated dirs `validate_output_path` must refuse — restores the source-tree protection a root manifest would otherwise disable |
-| `IS_SUPPRESS_CLI_NOTE` | silences the vendored-flow recommendation NOTE (stderr-only either way) |
+| `<umbrella>` | Repo-relative content directory, usually `intelligence` |
+| `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
+| `<manifest>` | `intelligence.yaml` |
+| `<sync-cmd>` | `intelligence sync` |
 
-In CLI projects the engine's content is the `@ainova-systems/sync` package (auto-added by `init`, pinned to the engine version, moved only by `intelligence upgrade`), so **every** meta-skill ships in both modes: `intelligence-sync` runs `<sync-cmd>` wherever it lands, and `intelligence-update` self-redirects to `intelligence upgrade` when it finds a root `intelligence.yaml`. `sync.sh` in CLI mode still never migrates: an outdated stamp exits `needs-update` and the CLI's own `upgrade` closes the gap. See `docs/CLI.md` for the full CLI surface.
+Expansion applies to frontmatter and bodies. Thus `paths: ["<umbrella>/**"]` reaches every native scoped-rule format with the project's real directory name.
 
-## .gitignore Pattern
+Project-authored artifacts normally use their known project paths directly. Tokens are useful only when the same artifact must work under different content-directory or package-store locations.
 
+## Naming
+
+Rule filenames, agent names and skill names share a domain prefix such as `backend-`, `frontend-`, `devops-`, `core-`, `tests-`, a project codename or a monorepo component. Pick the domain from repository structure and reuse it.
+
+- Skills: `<domain>-<verb>-<noun>`, for example `backend-add-endpoint`.
+- Agents: `<domain>-<role>`, for example `backend-code-reviewer`.
+- Rules: `<domain>.md`, for example `backend.md`.
+
+Common skill verbs:
+
+| Verb | Meaning |
+|---|---|
+| `add-` | Add one member to an existing set |
+| `create-` | Create a new container or top-level artifact |
+| `update-` | Revise existing state selectively |
+| `run-` | Execute an operation |
+| `review-` | Perform read-only analysis |
+| `test-` | Verify behavior |
+| `remove-` | Remove an artifact safely |
+
+The verb describes the outcome, not whether the skill implements the work or delegates to another command or skill.
+
+## Agent conventions
+
+```yaml
+---
+name: backend-developer
+description: "Implements backend features"
+tier: heavy
+access: full
+skills:
+  - backend-add-endpoint
+---
+
+# Backend developer
+
+Agent instructions in Markdown.
 ```
-# AI IDE tools (generated by intelligence-sync, local preferences)
-CLAUDE.md
-.cursorrules
+
+An agent stays thin: **Expertise** → **Boundaries** → **Build & Verify**. Its role, limits and proof of completion belong here; reusable constraints belong in rules and reusable procedures belong in skills.
+
+Do not instruct an agent to read rules or restate their content. Claude loads its generated rules for its subagents, while Cursor, Copilot, Codex, Pi and OpenCode receive always-on rules through `AGENTS.md`. Duplicating a rule in an agent spends context twice and creates a copy that drifts.
+
+### Tier mappings
+
+| Tier | Claude | Cursor | Copilot / Codex | OpenCode | Typical use |
+|---|---|---|---|---|---|
+| `heavy` | `opus` | `inherit` | `gpt-5.6-sol` | `anthropic/claude-opus-4-8` | implementation, complex reasoning, migration |
+| `standard` | `sonnet` | `inherit` | `gpt-5.6-terra` | `anthropic/claude-sonnet-5` | review, validation, analysis |
+| `light` | `haiku` | `fast` | `gpt-5.6-luna` | `anthropic/claude-haiku-4-5-20251001` | lookups and simple formatting |
+
+The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default.
+
+### Access mappings
+
+`access: full` inherits ordinary tool permissions. `access: readonly` is transformed into the target's native restriction: for example Claude receives read/search/bash tools with writes disallowed, Cursor receives `readonly: true`, and Codex receives a read-only sandbox.
+
+Use only `full` or `readonly` in source agents. Tool-specific permission syntax belongs in adapters.
+
+## Rule conventions
+
+```yaml
+---
+paths:
+  - "src/backend/**"
+  - "config/**"
+description: "Backend conventions"
+---
+
+# Backend conventions
+
+Rule content in Markdown.
+```
+
+`paths:` is optional:
+
+- With `paths:`, the rule is scoped to matching repository files.
+- Without `paths:`, the rule is always-on project context.
+
+### Routing
+
+| Source rule | Claude | Cursor | Copilot | Codex / Pi / OpenCode / `AGENTS.md` |
+|---|---|---|---|---|
+| Scoped | copied with `paths:` | `.mdc` with `globs:` | `.instructions.md` with `applyTo:` | listed in `AGENTS.md`; Pi also gets on-demand files and an extension |
+| Always-on | copied | omitted | omitted | inlined once into `AGENTS.md` |
+
+Cursor, Copilot, Codex, Pi and OpenCode consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. OpenCode and Codex have no generated path-scoped rule channel; OpenCode users may configure `instructions:` globs themselves.
+
+Keep always-on rules small. Put narrow framework or component guidance behind `paths:` so unrelated tasks do not pay its context cost.
+
+## Skill conventions
+
+Skills follow the [Agent Skills standard](https://agentskills.io). Required fields are `name` and `description`.
+
+```yaml
+---
+name: backend-add-endpoint
+description: "Add a backend endpoint"
+argument-hint: "<route-name>"
+---
+
+# Add a backend endpoint
+
+1. Inspect the existing route pattern.
+2. Implement the endpoint.
+3. Run focused tests.
+4. Report the changed route and verification.
+```
+
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand.
+
+These limits reject a skill instead of degrading it:
+
+| Field | Limit | Failure mode |
+|---|---|---|
+| `name` | 64 characters | Rejected at load |
+| `description` | 1024 characters | Rejected at load |
+| `argument-hint` | Must be a string | An unquoted `[value]` is parsed as a YAML sequence |
+
+Sync quotes free-text `description` and `argument-hint` values in generated copies. `lint_frontmatter` warns when a name or description exceeds its hard limit, but the author must shorten it.
+
+### Description budget
+
+Descriptions share the tool's available-artifact context budget.
+
+| Case | Format | Target |
+|---|---|---|
+| Unique skill | Plain verb–noun phrase | 4–8 words |
+| Similar sibling skills | Verb–noun plus a distinguishing trigger | 10–20 words, roughly 250 characters or less |
+
+The 1024-character limit is a rejection wall, not a writing target. Curate duplicate and orphaned artifacts before compressing every description into ambiguity.
+
+### Skill body and resources
+
+A skill that performs work carries the decisions and verification needed for that work. A skill that dispatches to deterministic CLI behavior stays thin: it chooses the command, interprets status and adds only judgment that the program cannot provide.
+
+Keep on-demand detail beside the skill:
+
+```text
+skill-name/
+├── SKILL.md
+├── references/    # detailed material loaded only when needed
+├── scripts/       # deterministic or repetitive helpers
+└── assets/        # templates and output resources
+```
+
+The engine copies the complete skill directory. Promote a helper outside the skill only when multiple skills share it.
+
+Size limits are backstops, not quotas:
+
+| Artifact | Hard cap | Response |
+|---|---|---|
+| `SKILL.md` body | 1000 lines | Move detail to `references/` |
+| Reference file | 500 lines | Add a contents list past 300; split if still oversized |
+| Rule | 500 lines | Split by scope or move examples behind a skill reference |
+| Agent | 200 lines | Move procedures and constraints into skills/rules |
+
+## Writing discipline
+
+- Use imperative form: “Read the manifest,” not “You should read the manifest.”
+- Explain why a decision rule exists so the model can apply it to adjacent cases.
+- Reserve absolute language for genuine safety, security and output-format invariants.
+- Lead with the positive behavior; keep anti-patterns after the actionable guidance.
+- Remove instructions that repeat tool defaults, repository facts already discoverable from files, or another artifact.
+- Turn repeated deterministic work into a script or CLI command and let the skill interpret it.
+
+Every line enters a finite context budget. Prefer subtraction, consolidation and precise scope over exhaustive prose.
+
+## Generated output
+
+| Target | Rules | Skills | Agents |
+|---|---|---|---|
+| `agents` | Always-on inlined; scoped listed in `AGENTS.md` | Listed | Listed |
+| Claude | `.claude/rules/` | `.claude/skills/` | `.claude/agents/` |
+| Cursor | scoped `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
+| Copilot | scoped `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
+| Codex | `AGENTS.md` only | `.agents/skills/` | `.codex/agents/*.toml` |
+| Pi | `AGENTS.md` plus scoped `.pi/intelligence-sync/rules/` | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` |
+| OpenCode | `AGENTS.md` only | `.agents/skills/` plus slash commands | `.opencode/agents/*.md` |
+
+`AGENTS.md` is regenerated by the `agents` adapter. Its optional static header is `targets.agents.header` in `intelligence.yaml`; generated rule, agent and skill sections follow it. Commit `AGENTS.md` when it is the project's shared canonical context.
+
+Generated IDE output may be gitignored when every collaborator can reproduce it with `intelligence install --frozen`. Use narrow ownership patterns so hand-authored tool settings remain trackable:
+
+```gitignore
+# CLI-managed package store
+.intelligence/
+
+# Generated Claude and Cursor content; settings remain trackable
+.claude/rules/
+.claude/agents/
+.claude/skills/
+.cursor/rules/
+.cursor/agents/
+.cursor/skills/
+
+# Generated open-standard and Codex content
 .agents/
-.codex/
+.codex/agents/
+
+# Generated Pi content
 .pi/intelligence-sync/
 .pi/extensions/intelligence-sync-rules.ts
 .pi/prompts/intelligence-agent-*.md
 
-# opencode: the generated subagents and slash commands are owned by the adapter.
-# .opencode/opencode.json (and any other hand-authored config) stays tracked.
+# Generated OpenCode agents. Its commands directory may also contain
+# hand-authored files, so choose per-project ignores there.
 .opencode/agents/
-.opencode/commands/
-
-# Claude Code: ignore everything except project-shared settings.
-.claude/*
-!.claude/settings.json
-
-# Cursor: same pattern.
-.cursor/*
-!.cursor/settings.json
 ```
 
-The inverse pattern (`.claude/*` + `!.claude/settings.json`) ignores every generated subdir (`rules/`, `skills/`, `agents/`) plus any per-machine state Claude writes (`settings.local.json`, `*.lock`, `scheduled_tasks.*`, `sessions/`, `cache/`, etc.) without having to enumerate filenames Claude may add later. Only `.claude/settings.json` (project-shared bash allowlist, tool permissions) is tracked. Same logic for `.cursor/`. Pi and opencode are narrower: only the generated adapter-owned paths are ignored (`.pi/intelligence-sync/`, `.pi/extensions/intelligence-sync-rules.ts`, `.pi/prompts/intelligence-agent-*.md`, `.opencode/agents/`, `.opencode/commands/`), so `.pi/settings.json`, `.opencode/opencode.json`, and any hand-authored Pi extensions/prompts remain available for tracking. The opencode adapter additionally protects hand-authored slash commands by an emit-marker (`<!-- Generated by intelligence-sync. Do not edit manually. -->`): re-sync only deletes marker-bearing files in `.opencode/commands/`, so a project may track a hand-authored command alongside the generated ones (typically by un-ignoring it). If a project needs to track another file under `.claude/` or `.cursor/` (e.g., a hand-authored `.claude/commands/<name>.md`), add another `!<path>` line.
+Copilot output lives under `.github/`; choose whether to commit it with other repository-level GitHub configuration. Do not ignore `.github/` wholesale.
 
-## Project Entry Points
+## Project-owned adapters
 
-| File | Role | Git status |
-|------|------|-----------|
-| `AGENTS.md` | Auto-generated canonical project doc for LLMs (do not edit manually) | Tracked |
-| `CLAUDE.md` | Local user preferences (gitignored) | Ignored |
-| `<umbrella>/config.yaml` | Sync config + `sync_version` schema-version contract key (committed) | Tracked |
-| `<umbrella>/{rules,agents,skills}/` | Project source of truth | Tracked |
-| `<umbrella>/sync/` | intelligence-sync module (engine+`scripts/VERSION`, meta-skills, INIT, docs) — vendored upstream-owned | Tracked |
+Create a project adapter with:
+
+```bash
+intelligence adapter new mytool
+# implement <content-dir>/adapters/mytool.sh
+intelligence target enable mytool
+intelligence sync mytool
+```
+
+Project adapters survive CLI upgrades and may override a built-in by name. Disable a target with `intelligence target disable mytool`; this keeps generated output for explicit, adapter-aware cleanup. See `ADAPTERS.md` for the function, ownership and safety contracts.
+
+## Schema and command boundaries
+
+The permanent applied-schema key is the top-level scalar `sync_version` in `intelligence.yaml`. It is not a dotfile and not the CLI package version. Do not rename, move or reshape this key: every engine must be able to decide compatibility before parsing the rest of the manifest.
+
+Responsibilities are separate:
+
+- `intelligence sync` renders local sources only. It never resolves packages or migrates schemas.
+- `intelligence install` restores the package store from `intelligence.lock`.
+- `intelligence update [name]` re-resolves movable package ranges. It does not move `ref:` pins or the exact `@ainova-systems/sync` pin.
+- `intelligence upgrade` applies idempotent v2 schema changes, aligns the sync-content package to the bundled engine, restamps `sync_version` and syncs.
+- `intelligence migrate` transactionally converts an eligible archived v1 project into this layout.
+
+Implement each v2 schema migration as an idempotent structural check. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `sync_version` is newer; a project behind the engine exits `needs-update` until `intelligence upgrade` closes the gap.
+
+Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The update skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
+
+### Engine status contract
+
+The engine emits one machine-readable line, `IS_STATUS=<code> [IS_DETAIL=...]`, and exits with a stable code:
+
+| `IS_STATUS` | Exit | Meaning |
+|---|---:|---|
+| `ok` | 0 | Sync or operation completed |
+| `migrated` | 0 | Migration completed |
+| `error` | 1 | Generic failure |
+| `config-missing` | 2 | Required manifest is absent |
+| `ambiguous` | 3 | Conflicting state requiring agent/human judgment; reserved |
+| `ahead-of-engine` | 4 | Manifest schema is newer than the engine |
+| `aborted-incomplete` | 5 | Staged replacement was incomplete; prior state remains |
+| `needs-update` | 6 | Project schema is behind the engine; run `intelligence upgrade` |
+
+Callers capture the real code with `command || rc=$?`. Do not use `if ! command; then rc=$?`; inside that branch `$?` is the status of the negation.
+
+## Project entry points
+
+| Path | Role | Git status |
+|---|---|---|
+| `intelligence.yaml` | Manifest and schema contract | Tracked |
+| `intelligence.lock` | Resolved package state | Tracked |
+| `<content-dir>/{rules,agents,skills,adapters}/` | Project source of truth | Tracked |
+| `.intelligence/` | Restorable package store | Ignored |
+| `AGENTS.md` | Generated canonical project context | Normally tracked |
+| Tool output directories | Generated native content | Project policy; use narrow ignores |

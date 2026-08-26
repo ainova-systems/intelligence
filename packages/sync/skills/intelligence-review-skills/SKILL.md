@@ -13,11 +13,11 @@ Name reflects the umbrella usage of "skills" for all AI artifacts (rules + agent
 
 ## Scope: what to read, and what to leave alone
 
-1. **Resolve the layout — never assume folder names.** `<umbrella>/` is the content dir, `<module>/` the engine's own files, `<manifest>` the config — all localized to this project at sync time. Read authoring conventions from `<module>/docs/CONVENTIONS.md` and the `intelligence-authoring` rule.
+1. **Resolve the layout — never assume folder names.** `<umbrella>/` is the project content dir, `<module>/` the installed sync package, `<manifest>` the root manifest — all localized to this project at sync time. Read authoring conventions from `<module>/docs/CONVENTIONS.md` and the `intelligence-authoring` rule.
 
-2. **Enumerate from `<manifest>`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups (e.g. a shared one and a project one), they may be nested, and a remote entry is a declared pack (vendored setups, `packs:`) or an installed package (CLI setups, `packages:`, content under `.intelligence/packages/`). Take the list from the config; a literal `intelligence/rules/` is wrong in any project that named things differently.
+2. **Enumerate from `<manifest>`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups, they may be nested, and installed packages live under `.intelligence/packages/`. Take the list from the manifest; a literal `intelligence/rules/` is wrong in any project that named things differently.
 
-3. **Skip everything the engine owns.** Sources under `<module>/` (`<module>/rules`, `<module>/agents`, `<module>/skills/intelligence-*`) are upstream-owned: every engine update replaces them wholesale, so a local "fix" there is deleted at the next update. Never propose an edit to them. If one of them is genuinely wrong, or a generic check is missing from this skill, that is a **proposal to upstream** — say so in the report rather than patching locally.
+3. **Skip installed package sources.** Sources under `<module>/` (`<module>/rules`, `<module>/agents`, `<module>/skills/intelligence-*`) are package-owned and restored by install/upgrade, so a local "fix" is not durable. Never propose a project-local edit to them. If one is wrong, make an upstream proposal instead.
 
 4. **Never read or edit generated output** (`.claude/`, `.cursor/`, `.github/`, `.codex/`, `.agents/`, `.pi/`, `.opencode/`, `AGENTS.md`). Sync owns those entirely; the finding always belongs to the source.
 

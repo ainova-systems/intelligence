@@ -36,6 +36,92 @@ assert_valid_pkg_name() {
     esac
 }
 
+# Target names become adapter filenames and shell function suffixes, so keep
+# them inside the portable shell-identifier subset used by built-in adapters.
+assert_valid_target_name() {
+    case "$1" in
+        ""|[!a-z]*|*[!a-z0-9_]*)
+            die "invalid target name '$1' — expected [a-z][a-z0-9_]*"
+            ;;
+    esac
+}
+
+# target_exists <manifest> <name> — distinguish a disabled target from one
+# that is not declared at all. Both inline and block target shapes count.
+target_exists() {
+    local file="$1" target="$2"
+    [ -f "$file" ] || return 1
+    awk -v target="$target" '
+        { sub(/\r$/, "") }
+        /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        /^[A-Za-z]/ { in_targets = 0 }
+        in_targets && $0 ~ "^  " target ":[[:space:]]*" { found = 1; exit }
+        END { exit(found ? 0 : 1) }
+    ' "$file"
+}
+
+# target_set_enabled <manifest> <name> <true|false> <default-output>
+# Transactionally update only `enabled`, preserving every other target field
+# and comment. A missing target is added in the compact form used by init.
+target_set_enabled() {
+    local file="$1" target="$2" enabled="$3" output="$4"
+    [ -f "$file" ] || die "no such file: $file"
+    case "$enabled" in true|false) ;; *) die "internal: invalid target state '$enabled'" ;; esac
+    output="$(_yq_esc "$output")"
+    _qmap_stage "$file" -v target="$target" -v enabled="$enabled" -v output="$output" '
+        function entry() { return "  " target ": { enabled: " enabled ", output: \"" output "\" }" }
+        function add_enabled_to_inline(line,    p) {
+            p = index(line, "{")
+            if (p > 0) return substr(line, 1, p) " enabled: " enabled "," substr(line, p + 1)
+            return line
+        }
+        function flush_target() {
+            if (in_target && !enabled_seen) print "    enabled: " enabled
+            in_target = 0
+        }
+        function flush_targets() {
+            flush_target()
+            if (in_targets && !target_seen) { print entry(); target_seen = 1 }
+            in_targets = 0
+        }
+        { sub(/\r$/, "") }
+        /^targets:[[:space:]]*$/ { targets_seen = 1; in_targets = 1; print; next }
+        in_targets && /^[A-Za-z]/ { flush_targets() }
+        in_targets && /^  [A-Za-z]/ {
+            flush_target()
+            if ($0 ~ "^  " target ":[[:space:]]*") {
+                target_seen = 1
+                if (match($0, /enabled:[[:space:]]*(true|false)/)) {
+                    print substr($0, 1, RSTART - 1) "enabled: " enabled substr($0, RSTART + RLENGTH)
+                    enabled_seen = 1
+                } else if ($0 ~ /\{/) {
+                    print add_enabled_to_inline($0)
+                    enabled_seen = 1
+                } else {
+                    print
+                    in_target = 1
+                    enabled_seen = 0
+                }
+                next
+            }
+        }
+        in_target && /^    enabled:[[:space:]]*/ {
+            print "    enabled: " enabled
+            enabled_seen = 1
+            next
+        }
+        { last = $0; print }
+        END {
+            flush_targets()
+            if (!targets_seen) {
+                if (last != "") print ""
+                print "targets:"
+                print entry()
+            }
+        }
+    '
+}
+
 # qmap_keys <file> <block> — quoted keys, one per line.
 qmap_keys() {
     [ -f "$1" ] || return 0

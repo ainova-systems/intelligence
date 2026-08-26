@@ -47,7 +47,7 @@ The per-artifact checks are procedure, so they live in the meta-skills rather th
 | `intelligence-review-skills` | audit the layer for duplication, drift, size, hardcoded paths |
 | `intelligence-learn-from-context` | fold a session's lessons back into the layer |
 | `intelligence-sync` | project the source to every tool channel |
-| `intelligence-update` | update or migrate the engine |
+| `intelligence-update` | interpret and apply package or project upgrades |
 | `intelligence-install-adapter` / `intelligence-uninstall-adapter` | turn a tool channel on or off |
 
 A change is done when the sync is green and the skill you invoked reports clean. Size is a separate judgement: the caps are ceilings, not quotas, and a short artifact is not a defect.

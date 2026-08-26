@@ -3,8 +3,9 @@
 #
 # Set up a project: root manifest, content skeleton, .gitignore, staged
 # engine content, first sync. Targets are detected from IDE markers unless
-# named explicitly; `agents` and `claude` are always on (AGENTS.md is the
-# canonical carrier of always-on rules, Claude Code does not read it).
+# named explicitly. Only `agents` is unconditional: AGENTS.md is the
+# tool-neutral carrier of always-on rules; tool targets come from markers or
+# --targets.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -134,7 +135,7 @@ echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
 echo "  add packages:  intelligence add @ainova-systems/core   (browse: intelligence search)"
 echo "  write your own: create $content_dir/rules/context.md, then intelligence sync"
-echo "  docs: https://github.com/ainova-systems/intelligence-sync#readme"
+echo "  docs: https://github.com/ainova-systems/intelligence#readme"
 
 if [ "$no_sync" -eq 0 ]; then
     cd "$root"
