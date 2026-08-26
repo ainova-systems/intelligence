@@ -1,6 +1,6 @@
 #!/bin/bash
 # Internal conversion from legacy Intelligence Sync to Intelligence CLI.
-# to the CLI setup: root intelligence.yaml, .intelligence/ store,
+# to an Intelligence project: root intelligence.yaml, .intelligence/ store,
 # intelligence.lock, no vendored engine.
 #
 # Transactional: STAGE everything next to the
@@ -361,11 +361,11 @@ lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
-    die "sync of the migrated state failed"
+    die "sync of the converted state failed"
 }
 echo "$sync_out" | grep -q '^IS_STATUS=ok' || {
     echo "$sync_out"
-    die "sync of the migrated state did not report ok"
+    die "sync of the converted state did not report ok"
 }
 # Point of no return: the new state is verified. From here an interrupt must
 # NOT roll back (the old setup is being removed) — only clean the stage.
@@ -395,6 +395,6 @@ rm -f "$config"
 rmdir "$umbrella" 2>/dev/null || true
 
 echo ""
-echo "migrated. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
+echo "converted. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
 echo "From now on: intelligence sync | package | update | status."
-echo "Next: ask your agent to run /intelligence-learn-from-repository to review the migrated project context."
+echo "Next: ask your agent to run /intelligence-learn-from-repository to review the converted project context."

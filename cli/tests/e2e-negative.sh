@@ -360,7 +360,7 @@ xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
 chknot test -f "$EMPTY/intelligence.yaml"
 
 echo "== 11. status in all three modes =="
-xok "CLI setup" "$PROJ" status
+xok "Intelligence project" "$PROJ" status
 xok "vendored" "$LEG1" status
 xok "No intelligence project" "$EMPTY" status
 

@@ -12,7 +12,7 @@ esac
 detect_project
 case "$IP_MODE" in
     cli)
-        echo "Project:  $IP_ROOT (CLI setup)"
+        echo "Project:  $IP_ROOT (Intelligence project)"
         echo "Manifest: intelligence.yaml (schema_version $(read_schema_version "$IP_ROOT/intelligence.yaml"))"
         if [ -f "$IP_ROOT/intelligence.lock" ]; then
             echo "Lockfile: intelligence.lock"
@@ -35,7 +35,7 @@ case "$IP_MODE" in
         echo "Engine:   $(tr -d ' \t\r\n' < "$IP_MODULE_DIR/scripts/VERSION") (vendored at $IP_MODULE_DIR)"
         echo "Stamp:    $(top_scalar "$IP_UMBRELLA/config.yaml" "sync_version")"
         echo ""
-        echo "Convert to the CLI setup: intelligence init"
+        echo "Convert to Intelligence: intelligence init"
         ;;
     *)
         echo "No intelligence project here. Start one: intelligence init"

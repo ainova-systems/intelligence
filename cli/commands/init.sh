@@ -77,20 +77,20 @@ case "$IP_MODE" in
         [ "$dir_set" -eq 0 ] || die "--dir applies only when creating a new project"
         [ "$bare_set" -eq 0 ] || die "--bare applies only when creating a new project"
         [ "$no_sync" -eq 0 ] || die "--no-sync cannot skip transactional conversion verification"
-        migrate_args=()
-        [ "$force" -eq 1 ] && migrate_args+=(--force)
+        conversion_args=()
+        [ "$force" -eq 1 ] && conversion_args+=(--force)
         if [ "$preview" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
+            exec bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${conversion_args[@]+"${conversion_args[@]}"}
         fi
         if [ "$apply" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/convert-legacy.sh" ${migrate_args[@]+"${migrate_args[@]}"}
+            exec bash "$CLI_DIR/internal/convert-legacy.sh" ${conversion_args[@]+"${conversion_args[@]}"}
         fi
-        bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
+        bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${conversion_args[@]+"${conversion_args[@]}"}
         [ -t 0 ] || die "legacy project conversion requires confirmation — rerun 'intelligence init --apply'"
         printf 'Apply this conversion? [Y/n] '
         read -r answer
         case "$answer" in
-            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/convert-legacy.sh" ${migrate_args[@]+"${migrate_args[@]}"} ;;
+            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/convert-legacy.sh" ${conversion_args[@]+"${conversion_args[@]}"} ;;
             *) echo "conversion cancelled"; exit 0 ;;
         esac
         ;;

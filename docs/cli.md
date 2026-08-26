@@ -51,7 +51,7 @@ After a new setup or conversion completes, the CLI suggests
 `/intelligence-learn-from-repository`. This bundled meta-skill analyzes the
 repository and proposes project-owned rules, agents and skills; it does not
 change files until the user approves individual proposals. The CLI remains the
-only owner of initialization and migration mechanics.
+only owner of initialization and legacy conversion mechanics.
 
 ### `intelligence sync`
 
