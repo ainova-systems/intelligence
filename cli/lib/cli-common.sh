@@ -7,12 +7,10 @@
 # CLI-owned parsing lives in lib/manifest.sh (quoted-key `packages:` /
 # `registries:` blocks, which the engine deliberately never reads).
 
-# Engine libraries (readers, is_status, IS_RC_*, engine_version). Sourced in
-# the same order sync.sh uses. CLI_DIR / IS_ENGINE_DIR come exported from the
-# dispatcher.
+# Engine libraries (readers, is_status, IS_RC_*, engine_version). CLI_DIR /
+# IS_ENGINE_DIR come exported from the dispatcher.
 source "$IS_ENGINE_DIR/lib/common.sh"
-source "$IS_ENGINE_DIR/lib/layout.sh"
-source "$IS_ENGINE_DIR/lib/migrations.sh"
+source "$IS_ENGINE_DIR/lib/contract.sh"
 
 die() {
     echo "ERROR: $*" >&2

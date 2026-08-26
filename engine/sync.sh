@@ -1,131 +1,82 @@
 #!/bin/bash
-# intelligence-sync: Unified sync entry point
-# Reads config.yaml from the umbrella folder and syncs to all enabled targets.
+# intelligence-sync: the sync engine's entry point.
 #
-# Usage:
-#   bash <umbrella>/sync/scripts/sync.sh           # Sync all enabled targets
-#   bash <umbrella>/sync/scripts/sync.sh claude    # Sync only Claude
-#   bash <umbrella>/sync/scripts/sync.sh cursor    # Sync only Cursor
+# The engine runs from outside the project (the CLI's install dir), so it never
+# searches the filesystem for one: the project arrives through the environment,
+# exported by `intelligence sync`.
 #
-# Layout-agnostic: detect_layout finds the umbrella (the dir holding
-# config.yaml; name not hardcoded) and migrates a pre-0.3.1 flat layout into
-# the <umbrella>/sync/ module. REPO_ROOT: auto-detected from git, or via env.
+#   CONFIG_FILE        the project's manifest (intelligence.yaml at the root)
+#   REPO_ROOT          the project root
+#   IS_UMBRELLA_REL    the project's content dir, repo-relative
+#   IS_MODULE_REL      the installed sync package, repo-relative
+#   IS_PROTECTED_DIRS  dirs an adapter output may never overlap
+#
+# Usage: intelligence sync [target]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 source "$SCRIPT_DIR/lib/common.sh"
-source "$SCRIPT_DIR/lib/layout.sh"
-source "$SCRIPT_DIR/lib/migrations.sh"
+source "$SCRIPT_DIR/lib/contract.sh"
 
-# Umbrella = whatever folder holds config.yaml (name not hardcoded). The
-# module is wherever this script lives — sync.sh self-locates and does NOT
-# assume a folder name.
-detect_layout "$SCRIPT_DIR"
-INTELLIGENCE_DIR="$LS_UMBRELLA_DIR"
-
-# sync.sh is a PURE synchronizer — it is not a migrator. Migration across a
-# breaking-change gap is owned solely by the intelligence-update flow
-# (update.sh + skill). sync refuses to run across an un-applied gap so a
-# stale/mismatched engine can never generate against a newer layout.
-if [ "${IS_CLI:-0}" != "1" ] && [ "$LS_LAYOUT" != "modular" ]; then
-    is_status needs-update "layout=$LS_LAYOUT"
-    echo "ERROR: engine is not in the modular layout (layout=$LS_LAYOUT)." >&2
-    echo "       Run the update flow: tell your agent \"Update intelligence-sync\"." >&2
-    exit "$IS_RC_NEEDS_UPDATE"
-fi
-
-# CLI mode (IS_CLI=1): the engine runs from outside the repo (the npm install
-# dir), so detect_layout cannot see the project — the project arrives through
-# the environment instead: CONFIG_FILE names the root manifest, REPO_ROOT the
-# project. The layout gate above is bypassed and the manifest is required up
-# front, before the version gates read it.
-if [ "${IS_CLI:-0}" = "1" ] && { [ -z "${CONFIG_FILE:-}" ] || [ ! -f "$CONFIG_FILE" ]; }; then
-    is_status config-missing "cli-mode"
-    echo "ERROR: CLI mode requires CONFIG_FILE to point at an existing manifest." >&2
+if [ -z "${CONFIG_FILE:-}" ] || [ ! -f "${CONFIG_FILE:-}" ]; then
+    is_status config-missing "CONFIG_FILE=${CONFIG_FILE:-}"
+    echo "ERROR: the engine needs CONFIG_FILE to point at an existing manifest." >&2
+    echo "       Run it through the CLI: intelligence sync" >&2
     exit "$IS_RC_CONFIG_MISSING"
 fi
 
-# Schema version lives in config.yaml (the frozen contract key).
-_cf="${CONFIG_FILE:-$INTELLIGENCE_DIR/config.yaml}"
+# Schema version lives in the manifest (the frozen contract key).
+_cf="$CONFIG_FILE"
 
 # Stale engine vs project schema stamped NEWER (ahead-of-engine) → refuse.
 _vc_rc=0
 check_version_compat "$_cf" || _vc_rc=$?
 if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi
 
-# Schema gap → refuse; the update flow must apply the migration chain first.
-# Per the contract, an ABSENT stamp means pre-0.3.1 / un-applied schema — a
-# modular tree with no `sync_version` must NOT silently sync
-# (that would bypass migrations). A correctly bootstrapped project always has
-# the key (INIT emits it; update.sh stamps it).
+# Schema gap → refuse. sync is a PURE synchronizer: it never migrates, so a
+# project behind this engine must be brought forward by `intelligence upgrade`
+# first. An ABSENT stamp means the same thing — a manifest with no
+# `sync_version` must not silently sync past a schema change.
 _stamp="$(read_engine_stamp "$_cf")"
 _eng="$(engine_version)"
 if [ -z "$_stamp" ]; then
     is_status needs-update "stamped= engine=$_eng (no sync_version)"
-    echo "ERROR: config.yaml has no sync_version — schema un-applied." >&2
-    echo "       Run the update flow first: tell your agent \"Update intelligence-sync\"." >&2
+    echo "ERROR: the manifest has no sync_version — schema un-applied." >&2
+    echo "       Run: intelligence upgrade" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 elif [ -n "$_eng" ] && _ver_gt "$_eng" "$_stamp"; then
     is_status needs-update "stamped=$_stamp engine=$_eng"
-    echo "ERROR: project at $_stamp but engine is $_eng — pending breaking changes." >&2
-    echo "       Run the update flow first: tell your agent \"Update intelligence-sync\"." >&2
+    echo "ERROR: project at $_stamp but engine is $_eng — pending schema changes." >&2
+    echo "       Run: intelligence upgrade" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 fi
 
-# Normalize REPO_ROOT to the same `cd && pwd` style as INTELLIGENCE_DIR so
-# prefix-stripping in path comparisons works (Git Bash on Windows: git
-# rev-parse returns `D:/...` while cd && pwd returns `/d/...`; the styles
-# do not match without normalization).
-REPO_ROOT_RAW="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || (cd "$INTELLIGENCE_DIR/.." && pwd))}"
+# Normalize REPO_ROOT and CONFIG_FILE to one `cd && pwd` spelling so
+# prefix-stripping in path comparisons works: Git Bash on Windows reaches the
+# same location through `D:/...` and `/d/...`, and the CLI (or the Node shim
+# behind it) may hand us either.
+REPO_ROOT_RAW="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$CONFIG_FILE")}"
 REPO_ROOT="$(cd "$REPO_ROOT_RAW" && pwd)"
 unset REPO_ROOT_RAW
+CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
 
 # Layout tokens for generated output (see finalize_output_file in common.sh).
-# Engine-shipped rules/agents cannot hardcode the umbrella's name — the project
-# chooses it — so they write `<umbrella>` / `<module>` and every adapter expands
-# them to these repo-relative paths on the way out. In CLI mode both values are
-# part of the env contract: the umbrella is the project's content dir and the
-# module is the staged engine content inside the package store.
-if [ "${IS_CLI:-0}" = "1" ]; then
-    # Re-normalize CONFIG_FILE the same way REPO_ROOT is above — the CLI (or
-    # the Node shim behind it) may hand us `D:/...` while `cd && pwd` yields
-    # `/d/...`, and prefix comparisons downstream need one spelling.
-    CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
-    IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
-    # No vendor default here: the CLI always exports the module path (derived
-    # from its distribution data); a bare IS_CLI=1 invocation must say so.
-    if [ -z "${IS_MODULE_REL:-}" ]; then
-        echo "ERROR: CLI mode requires IS_MODULE_REL (exported by the intelligence CLI)." >&2
-        exit 1
-    fi
-    # Project-owned adapters keep their v1 home: <umbrella>/adapters/.
-    INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
-else
-    IS_UMBRELLA_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_UMBRELLA_DIR")"
-    IS_MODULE_REL="$(repo_rel_dir "$REPO_ROOT" "$LS_MODULE_DIR")"
-    IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
-    IS_MODULE_REL="${IS_MODULE_REL:-intelligence/sync}"
+# Package-shipped rules/agents cannot hardcode the content dir's name — the
+# project chooses it — so they write `<umbrella>` / `<module>` and every adapter
+# expands them on the way out.
+IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
+# No vendor default: the CLI always exports the package path (derived from its
+# distribution data), so a bare invocation must say so rather than guess.
+if [ -z "${IS_MODULE_REL:-}" ]; then
+    echo "ERROR: the engine needs IS_MODULE_REL (exported by the intelligence CLI)." >&2
+    exit 1
 fi
 export IS_UMBRELLA_REL IS_MODULE_REL
 
-# Config: explicit env > config.yaml in the umbrella folder
-if [ -n "${CONFIG_FILE:-}" ]; then
-    CONFIG_FILE="$CONFIG_FILE"
-elif [ -f "$INTELLIGENCE_DIR/config.yaml" ]; then
-    CONFIG_FILE="$INTELLIGENCE_DIR/config.yaml"
-else
-    CONFIG_FILE=""
-fi
-
-if [ -z "$CONFIG_FILE" ] || [ ! -f "$CONFIG_FILE" ]; then
-    is_status config-missing "umbrella=$INTELLIGENCE_DIR"
-    echo "ERROR: Config file not found."
-    echo "Looked for: config.yaml (in $INTELLIGENCE_DIR)"
-    echo "Run INIT.md bootstrap or create config.yaml manually."
-    exit "$IS_RC_CONFIG_MISSING"
-fi
+# Project-owned adapters live in the content dir: <umbrella>/adapters/.
+INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
 
 TARGET_FILTER="${1:-}"
 
@@ -159,32 +110,6 @@ if [ -z "$TARGET_FILTER" ]; then
     fi
 fi
 
-# Remote sources (declared `packs:` reached via `@<pack>`, and inline `git+`
-# specs in sources.*) are shallow-cloned on demand by resolve_source_dir. Give
-# it a run-scoped cache dir so each spec is fetched at most once per sync and is
-# removed on exit. Honors $TMPDIR (never hardcodes /tmp), mirroring update.sh.
-IS_REMOTE_CACHE="$(mktemp -d -t intelligence-sync-remotes-XXXXXX 2>/dev/null || mktemp -d)"
-export IS_REMOTE_CACHE
-trap 'rm -rf "$IS_REMOTE_CACHE"' EXIT INT TERM
-
-# A `@<pack>` token carries only the reference; its url / ref / mirror live in
-# config.yaml. resolve_source_dir keeps its published two-argument contract so
-# project-owned adapters written against it keep working, so the config path
-# reaches it the same way the clone cache does — through the environment.
-IS_CONFIG_FILE="$CONFIG_FILE"
-export IS_CONFIG_FILE
-
-# Fail closed on an undeclared pack reference or an unsafe mirror, before any
-# adapter runs — see validate_pack_refs for why this cannot live in the resolver.
-validate_pack_refs "$REPO_ROOT" "$CONFIG_FILE"
-
-# A pack that declares `mirror:` is additionally materialized into a tracked
-# directory in the repo, so an upstream bump is visible in `git diff` rather
-# than only in the generated output. Without it, the pack stays transient.
-while IFS= read -r mirror_rel; do
-    [ -n "$mirror_rel" ] && echo "  Pack mirror: $mirror_rel"
-done < <(list_pack_mirrors "$REPO_ROOT" "$CONFIG_FILE")
-
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
 for section in rules agents skills; do
@@ -207,15 +132,13 @@ done
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):
 #
-#   1. Built-in   — <module>/scripts/adapters/   (upstream-owned; update.sh
-#                   replaces this directory wholesale on every engine update)
-#   2. Project    — <umbrella>/adapters/         (project-owned; update.sh
-#                   never touches it)
+#   1. Built-in   — shipped inside the CLI, replaced wholesale on every upgrade
+#   2. Project    — <umbrella>/adapters/, owned by the project and never touched
 #
-# A custom adapter therefore belongs in the umbrella's `adapters/` — put one in
-# the engine's own adapters/ and the next update deletes it. A project adapter
-# whose name matches a built-in overrides it (an escape hatch for patching a
-# built-in without forking the engine — announced, never silent).
+# A custom adapter therefore belongs in the content dir's `adapters/`; the
+# built-in directory lives inside the installed CLI and is not the project's to
+# edit. A project adapter whose name matches a built-in overrides it (an escape
+# hatch for patching a built-in without forking — announced, never silent).
 ADAPTERS=()
 ADAPTER_FILES=()
 
@@ -303,14 +226,8 @@ warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
 # (helpful when defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
 report_model_drift "$CONFIG_FILE"
 
-# The intelligence CLI is the recommended setup for new projects. Recommend it
-# to vendored setups — stderr only, so IS_STATUS stdout parsing (skills, CI)
-# is untouched, and suppressible for pipelines.
-if [ "${IS_CLI:-0}" != "1" ] && [ -z "${IS_SUPPRESS_CLI_NOTE:-}" ]; then
-    echo "NOTE: the intelligence CLI is now the recommended setup — 'npm i -g @ainova-systems/intelligence', then 'intelligence migrate'. This vendored flow keeps working." >&2
-fi
-
 echo ""
-# sync.sh never migrates (the update flow owns that), so success is always ok.
+# sync.sh never migrates (`intelligence upgrade` owns that), so success is
+# always ok.
 is_status ok "synced=$synced"
 echo "=== Done: $synced target(s) synced ==="

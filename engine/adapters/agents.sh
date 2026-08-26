@@ -13,25 +13,20 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-# Repo-relative paths to the umbrella folder and the engine module, DERIVED —
-# never hardcoded. The umbrella is named by the project (`intelligence/`,
-# `Intelligence/`, a codename) and the engine lives in a module inside it;
-# detect_layout resolved both before any adapter ran. A literal path here would
-# print a sync command that does not exist, and would be wrong outright on a
-# case-sensitive filesystem — in the one document Cursor, Copilot and Codex all
-# read as canonical.
-# sync.sh exports both as layout tokens; recompute only when an adapter is
-# driven directly (tests), never assume a folder name.
+# Repo-relative paths to the project's content dir and to the installed sync
+# package, taken from the env contract — never hardcoded. The content dir is
+# named by the project (`intelligence/`, a codename) and the package sits in
+# the store; a literal path here would print a sync command that does not
+# exist, and would be wrong outright on a case-sensitive filesystem — in the
+# one document Cursor, Copilot and Codex all read as canonical.
+# The defaults only cover an adapter driven directly (tests); sync.sh always
+# exports both.
 agents_md_umbrella_rel() {
-    local repo_root="$1" rel="${IS_UMBRELLA_REL:-}"
-    [ -n "$rel" ] || rel="$(repo_rel_dir "$repo_root" "${LS_UMBRELLA_DIR:-$repo_root/intelligence}")"
-    printf '%s' "${rel:-intelligence}"
+    printf '%s' "${IS_UMBRELLA_REL:-intelligence}"
 }
 
 agents_md_module_rel() {
-    local repo_root="$1" rel="${IS_MODULE_REL:-}"
-    [ -n "$rel" ] || rel="$(repo_rel_dir "$repo_root" "${LS_MODULE_DIR:-$repo_root/intelligence/sync}")"
-    printf '%s' "${rel:-intelligence/sync}"
+    printf '%s' "${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
 }
 
 # Append the static header block from config.yaml (or a fallback).

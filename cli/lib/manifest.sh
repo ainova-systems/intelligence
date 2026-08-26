@@ -293,6 +293,14 @@ registries_remove() {
         { print }
     '
 }
+# True (0) if <config> already lists <entry> under any sources section. Quoted
+# and bare spellings both count - a manifest may hold either.
+_mig_has_source() {
+    local config="$1" entry="$2"
+    [ -f "$config" ] || return 1
+    grep -Fq -- "\"$entry\"" "$config" || grep -Fq -- "- $entry" "$config"
+}
+
 
 # sources_add_entry_first <file> <section> <entry> — idempotent insert at the
 # TOP of sources.<section> (creating sources:/section as needed). Package
@@ -324,7 +332,7 @@ sources_add_entry_first() {
 }
 
 # sources_remove_entry <file> <section> <entry> — remove `- "entry"` from
-# sources.<section>. Inverse of the engine-side _mig_add_source.
+# sources.<section>.
 sources_remove_entry() {
     local file="$1" section="$2" entry="$3"
     [ -f "$file" ] || return 0

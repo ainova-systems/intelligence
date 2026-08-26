@@ -3,7 +3,7 @@
 # to the CLI setup: root intelligence.yaml, .intelligence/ store,
 # intelligence.lock, no vendored engine.
 #
-# Transactional in the migrations.sh spirit: STAGE everything next to the
+# Transactional: STAGE everything next to the
 # project, VERIFY the staged state, then COMMIT in an order where every
 # destructive step happens only after a real sync of the new state reported
 # IS_STATUS=ok. Any earlier failure leaves the project untouched.
@@ -44,6 +44,12 @@ stamp="$(read_engine_stamp "$config")"
 eng="$(bundled_engine_version)"
 [ -n "$stamp" ] && _ver_gt "$stamp" "$eng" && die "project schema $stamp is newer than this CLI's engine $eng — update the CLI first"
 
+# The v1 `packs:` block is the one v1 shape migrate still has to read, and the
+# engine no longer knows it — the reader lives here, with its only consumer.
+get_pack_field() {
+    get_nested_yaml_value "$1" "packs" "$2" "$3"
+}
+
 # ---- Stage ----------------------------------------------------------------
 stage="$root/.intelligence-migrate-stage.$$"
 [ "$dry_run" -eq 1 ] && stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
@@ -51,18 +57,18 @@ cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
 
-# A schema gap is closed by the engine's own proven chain — ALWAYS against a
-# staged copy of the umbrella. The live tree is only read: "any failure
-# before commit leaves the project untouched" must include the chain itself,
-# and the vendored originals are deleted at commit anyway, so migrating them
-# in place would buy nothing and break the promise.
-if [ -z "$stamp" ] || _ver_gt "$eng" "$stamp"; then
-    echo "== applying the engine migration chain ($stamp -> $eng) to a staged copy =="
-    cp -R "$umbrella" "$stage/umbrella"
-    run_migrations "$stage/umbrella" "$(basename "$module_dir")" "" > "$stage/chain.log" 2>&1 \
-        || { tail -5 "$stage/chain.log" >&2; die "engine migration chain failed in the staged copy — the project is untouched"; }
-    stamp_version "$stage/umbrella/config.yaml" "$eng"
-    config="$stage/umbrella/config.yaml"
+# v2 carries no v1 migration chain: v1 is archived, and the archived engine is
+# what knows how to walk an old project forward. So migrate accepts only a
+# project already at the final v1 schema and names the exact remedy otherwise —
+# a remedy that keeps working indefinitely, because the archive stays at the
+# URL the project's own update.sh already clones.
+V1_FINAL_SCHEMA="0.10.0"
+if [ -z "$stamp" ] || _ver_gt "$V1_FINAL_SCHEMA" "$stamp"; then
+    echo "ERROR: project schema is ${stamp:-absent (pre-0.3.1)}, older than the final v1 schema $V1_FINAL_SCHEMA." >&2
+    echo "       Bring it forward with its own engine first — that still works:" >&2
+    echo "         bash $module_rel/scripts/update.sh --yes" >&2
+    echo "       then re-run: intelligence migrate" >&2
+    exit 1
 fi
 
 echo "== staging =="

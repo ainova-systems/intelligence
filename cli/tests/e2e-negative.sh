@@ -13,13 +13,16 @@ fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
-# stage_vendored <umbrella-dir> — rebuild a v1 module from the v2 tree: the
-# engine becomes scripts/, the sync package's content sits beside it. The repo
-# no longer ships that layout, so a v1 fixture has to be assembled.
+# stage_vendored <umbrella-dir> - build a v1 project fixture. v2 ships no v1
+# engine (it is archived) and migrate no longer runs one, so the module is a
+# STUB: detect_project only needs scripts/sync.sh + scripts/VERSION to classify
+# the project as legacy. The content beside it is what the v1 sources point at.
 stage_vendored() {
-    mkdir -p "$1/sync"
-    cp -r "$REPO/engine" "$1/sync/scripts"
-    cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents"         "$REPO/packages/sync/skills" "$REPO/packages/sync/docs" "$1/sync/"
+    mkdir -p "$1/sync/scripts"
+    printf '#!/bin/bash\necho "archived v1 engine"\n' > "$1/sync/scripts/sync.sh"
+    tr -d ' \t\r\n' < "$REPO/engine/VERSION" > "$1/sync/scripts/VERSION"
+    cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents" \
+        "$REPO/packages/sync/skills" "$1/sync/"
 }
 
 # run_in <dir> <cli-args…> — run the CLI from <dir>, capturing combined
