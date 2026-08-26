@@ -38,12 +38,12 @@ if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi
 # Schema gap → refuse. sync is a PURE synchronizer: it never changes schemas,
 # so the CLI lifecycle preflight must align the project first. An ABSENT stamp
 # means the same thing — a manifest with no
-# `sync_version` must not silently sync past a schema change.
-_stamp="$(read_engine_stamp "$_cf")"
+# `schema_version` must not silently sync past a schema change.
+_stamp="$(read_schema_version "$_cf")"
 _eng="$(engine_version)"
 if [ -z "$_stamp" ]; then
-    is_status needs-update "stamped= engine=$_eng (no sync_version)"
-    echo "ERROR: the manifest has no sync_version — schema un-applied." >&2
+    is_status needs-update "stamped= engine=$_eng (no schema_version)"
+    echo "ERROR: the manifest has no schema_version — schema un-applied." >&2
     echo "       Run: intelligence init --apply" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 elif [ -n "$_eng" ] && _ver_gt "$_eng" "$_stamp"; then

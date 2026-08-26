@@ -33,7 +33,7 @@ cat > "$PROJ/intelligence.yaml" <<EOF
 project:
   name: e2e
 
-sync_version: "$ENGINE_VER"
+schema_version: "$ENGINE_VER"
 
 sources:
   rules:

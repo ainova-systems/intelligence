@@ -5,7 +5,7 @@ name: release-npm
 #   channel=next    — prerelease from ANY ref (feature branches included):
 #                     version <engine>-rc.<n>, npm dist-tag `next`. The
 #                     prerelease suffix exists ONLY in the npm version — the
-#                     engine VERSION and sync_version never carry one.
+#                     engine VERSION and schema_version never carry one.
 #   channel=latest  — stable: must be dispatched from the vX.Y.Z tag matching
 #                     the engine VERSION; npm dist-tag `latest`.
 #

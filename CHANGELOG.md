@@ -12,7 +12,7 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 - [ ] The project has a root `intelligence.yaml`; the v1 nested `config.yaml` and vendored engine are gone.
 - [ ] `intelligence.lock` is committed and `.intelligence/` is gitignored.
 - [ ] The manifest uses `packages:`; no v1 `packs:` entries or mirrors remain.
-- [ ] `sync_version` and the exact `@ainova-systems/sync` pin match the installed CLI engine.
+- [ ] `schema_version` and the exact `@ainova-systems/sync` pin match the installed CLI engine.
 - [ ] `intelligence sync` followed by `intelligence status --check` succeeds.
 
 ### Added
@@ -32,6 +32,7 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 
 ### Changed
 
+- Renamed the v2 manifest schema stamp from `sync_version` to `schema_version`; `intelligence init` migrates RC manifests automatically.
 - Split v1 and v2: `ainova-systems/intelligence-sync` remains the v1 archive; `ainova-systems/intelligence` is the v2 product.
 - Consolidated package, adapter, project-state, conversion, alignment, and restore operations behind the seven lifecycle commands.
 - Made mutating project-aware commands auto-upgrade older v2 schema and sync content before continuing.

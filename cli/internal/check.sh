@@ -31,16 +31,16 @@ echo "project: $IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 
-stamp="$(read_engine_stamp "$manifest")"
+stamp="$(read_schema_version "$manifest")"
 eng="$(bundled_engine_version)"
 if [ -z "$stamp" ]; then
-    warn "manifest has no sync_version — run 'intelligence init'"
+    warn "manifest has no schema_version — run 'intelligence init'"
 elif _ver_gt "$stamp" "$eng"; then
     warn "manifest schema $stamp is newer than this CLI's engine $eng — update the CLI: npm i -g @ainova-systems/intelligence@latest"
 elif _ver_gt "$eng" "$stamp"; then
     warn "manifest schema $stamp behind engine $eng — run 'intelligence init'"
 else
-    ok "sync_version $stamp matches the engine"
+    ok "schema_version $stamp matches the engine"
 fi
 
 # The engine-content package must sit at the bundled engine version — the

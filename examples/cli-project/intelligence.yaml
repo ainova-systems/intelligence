@@ -11,7 +11,7 @@
 project:
   name: cli-project
 
-sync_version: "0.11.0"
+schema_version: "0.11.0"
 
 # Package sources come first, project sources last: adapters copy in order
 # and the last write wins, so a project file overrides a same-named package

@@ -101,7 +101,7 @@ Verify the generated paths, run a second sync to prove idempotence, and confirm 
 When a change includes an engine version bump, keep these exact values aligned:
 
 - `engine/VERSION`;
-- `sync_version` in every `examples/*/intelligence.yaml`;
+- `schema_version` in every `examples/*/intelligence.yaml`;
 - the `@ainova-systems/sync` exact pin in every example.
 
 Do not create releases as part of an ordinary contribution. v2 remains prerelease until the owner approves a stable release.

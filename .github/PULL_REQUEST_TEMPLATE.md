@@ -32,7 +32,7 @@
 ## Versioned artifacts
 
 - [ ] `CHANGELOG.md` records the user-visible change; breaking items are verifiable post-conditions
-- [ ] If `engine/VERSION` changed, every example's `sync_version` and exact `@ainova-systems/sync` pin changed with it
+- [ ] If `engine/VERSION` changed, every example's `schema_version` and exact `@ainova-systems/sync` pin changed with it
 - [ ] No stable release is implied or published without owner approval
 
 ## Notes for reviewers

@@ -174,7 +174,7 @@ Per package, `intelligence.lock` records requested version, source URL/path, res
 
 ## Manifest ownership
 
-The engine reads `project:`, `sync_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:`. The CLI owns the quoted-key `packages:` and ordered `registries:` blocks:
+The engine reads `project:`, `schema_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:`. The CLI owns the quoted-key `packages:` and ordered `registries:` blocks:
 
 ```yaml
 packages:
@@ -185,7 +185,7 @@ registries:
   - "https://github.com/acme/intelligence-registry.git"
 ```
 
-`project.intelligence_dir` selects a content directory other than `intelligence/`. `sync_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
+`project.intelligence_dir` selects a content directory other than `intelligence/`. `schema_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
 
 ## Engine invocation contract
 

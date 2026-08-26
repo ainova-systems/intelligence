@@ -159,9 +159,9 @@ jobs:
           V="$(tr -d ' \t\r\n' < engine/VERSION)"
           fail=0
           for cf in examples/*/intelligence.yaml; do
-            stamp="$(awk -F'"' '/^sync_version:/ {print $2; exit}' "$cf")"
+            stamp="$(awk -F'"' '/^schema_version:/ {print $2; exit}' "$cf")"
             if [ "$stamp" != "$V" ]; then
-              echo "STAMP DRIFT: $cf has sync_version=\"$stamp\", expected \"$V\""; fail=1
+              echo "STAMP DRIFT: $cf has schema_version=\"$stamp\", expected \"$V\""; fail=1
             fi
             pin="$(awk -F'"' '/^    version: / {print $2; exit}' "$cf")"
             if [ -n "$pin" ] && [ "$pin" != "$V" ]; then
@@ -382,7 +382,7 @@ jobs:
           cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: bad
-          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
+          schema_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"
@@ -416,7 +416,7 @@ jobs:
           cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: noagents
-          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
+          schema_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"
@@ -454,7 +454,7 @@ jobs:
           cat > "$PROJ/intelligence.yaml" <<EOF
           project:
             name: symskill
-          sync_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
+          schema_version: "$(tr -d ' \t\r\n' < engine/VERSION)"
           sources:
             rules:
               - "intelligence/rules"

@@ -22,7 +22,7 @@ Do not bury conventions in agents, workflows in rules or reusable expertise in s
 
 ```text
 project/
-├── intelligence.yaml       # root manifest and sync_version contract
+├── intelligence.yaml       # root manifest and schema_version contract
 ├── intelligence.lock       # resolved packages; commit it
 ├── intelligence/           # project-owned content; name is configurable
 │   ├── rules/
@@ -57,7 +57,7 @@ project:
   name: payments
   intelligence_dir: "intelligence"  # optional; this is the default
 
-sync_version: "0.11.0"
+schema_version: "0.11.0"
 
 sources:
   rules:
@@ -98,7 +98,7 @@ Stable Git tags provide package versions. Semver ranges select the highest match
 
 Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, `intelligence sync` restores a missing store strictly from that lock before rendering; manifest/lock or SHA drift is refused.
 
-`@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Lifecycle preflight keeps that pin and `sync_version` aligned with the installed CLI; package-range updates never move it independently.
+`@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Lifecycle preflight keeps that pin and `schema_version` aligned with the installed CLI; package-range updates never move it independently.
 
 ## Layout tokens
 
@@ -341,7 +341,7 @@ Project adapters survive CLI upgrades and may override a built-in by name. `inte
 
 ## Schema and command boundaries
 
-The permanent applied-schema key is the top-level scalar `sync_version` in `intelligence.yaml`. It is not a dotfile and not the CLI package version. Do not rename, move or reshape this key: every engine must be able to decide compatibility before parsing the rest of the manifest.
+The permanent applied-schema key is the top-level scalar `schema_version` in `intelligence.yaml`. It is not a dotfile and not the CLI package version. Do not rename, move or reshape this key: every engine must be able to decide compatibility before parsing the rest of the manifest.
 
 The public lifecycle is deliberately compact:
 
@@ -352,7 +352,7 @@ The public lifecycle is deliberately compact:
 - `intelligence adapter list|create|enable|disable|remove` owns adapter inventory and target state.
 - `intelligence status [--check]` reports state; `--check` runs deep consistency checks.
 
-Implement v2 schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `sync_version` is newer; normal v2 entry points close a behind-project gap through lifecycle preflight.
+Implement v2 schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is newer; normal v2 entry points close a behind-project gap through lifecycle preflight.
 
 Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The update skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
 

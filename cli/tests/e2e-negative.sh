@@ -122,7 +122,7 @@ cat > "$PROJ/intelligence.yaml" <<EOF
 project:
   name: e2e-negative
 
-sync_version: "$ENGINE_VER"
+schema_version: "$ENGINE_VER"
 
 sources:
   rules:
@@ -408,6 +408,8 @@ git -C "$U13" init --quiet
 CI=true xfail "intelligence init --apply" "$U13" sync
 CI=true xfail "intelligence init --apply" "$U13" update --apply
 xok "project alignment" "$U13" sync
+chknot grep -q '^sync_version:' "$U13/intelligence.yaml"
+chk grep -q "^schema_version: \"$ENGINE_VER\"" "$U13/intelligence.yaml"
 chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
 chknot test -d "$U13/.intelligence/engine"
 chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"
@@ -422,7 +424,7 @@ cat > "$H14/intelligence.yaml" <<EOF
 project:
   name: h14
 
-sync_version: "$ENGINE_VER"
+schema_version: "$ENGINE_VER"
 
 sources:
   rules:
@@ -447,7 +449,7 @@ cat > "$H14/intelligence.yaml" <<EOF
 project:
   name: h14
 
-sync_version: "$ENGINE_VER"
+schema_version: "$ENGINE_VER"
 
 sources:
   rules:

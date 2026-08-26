@@ -131,7 +131,7 @@ The CLI must export:
 
 `intelligence update` always prints the installed-CLI, project and package plan. `--preview` stops without prompting or writing, the default asks interactively, and `--apply` applies without prompting before syncing.
 
-The permanent schema key is the top-level scalar `sync_version`. `engine/lib/contract.sh` owns its readers, compatibility guard and the stable `IS_STATUS`/`IS_RC_*` contract. Do not renumber return codes. Callers must preserve the command's real status, for example `cmd || rc=$?`; `if ! cmd; then rc=$?` captures the negation instead.
+The permanent schema key is the top-level scalar `schema_version`. `engine/lib/contract.sh` owns its readers, compatibility guard and the stable `IS_STATUS`/`IS_RC_*` contract. Do not renumber return codes. Callers must preserve the command's real status, for example `cmd || rc=$?`; `if ! cmd; then rc=$?` captures the negation instead.
 
 ### Rule routing
 
@@ -187,7 +187,7 @@ The v2 `CHANGELOG.md` is compact: one line per change, minimal context, no ratio
 
 ## Versioning and releases
 
-`engine/VERSION`, every example's `sync_version`, and every example's exact `@ainova-systems/sync` pin must stay in lockstep. `repo-purity` enforces this.
+`engine/VERSION`, every example's `schema_version`, and every example's exact `@ainova-systems/sync` pin must stay in lockstep. `repo-purity` enforces this.
 
 `npm/build.sh` assembles the distribution from `cli/`, `engine/` and `packages/sync/`. npm publishes with provenance, so `npm/package.json` repository metadata must continue naming this repository.
 

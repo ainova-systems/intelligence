@@ -23,7 +23,7 @@ require_v2
 manifest="$IP_ROOT/intelligence.yaml"
 check_version_compat "$manifest"
 eng="$(bundled_engine_version)"
-stamp="$(read_engine_stamp "$manifest")"
+stamp="$(read_schema_version "$manifest")"
 project_change=0
 
 echo "Update plan"

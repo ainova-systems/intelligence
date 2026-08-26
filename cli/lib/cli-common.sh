@@ -192,9 +192,10 @@ is_ci_environment() {
 project_needs_upgrade() {
     local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name
     [ -f "$manifest" ] || return 1
-    stamp="$(read_engine_stamp "$manifest")"
+    stamp="$(read_schema_version "$manifest")"
     eng="$(bundled_engine_version)"
     [ -z "$stamp" ] && return 0
+    [ -n "$(top_scalar "$manifest" "sync_version")" ] && return 0
     _ver_gt "$eng" "$stamp" && return 0
     [ -d "$root/.intelligence/engine" ] && return 0
 
@@ -213,7 +214,7 @@ ensure_project_current() {
     local root="$1" manifest="$1/intelligence.yaml" stamp eng
     check_version_compat "$manifest" || return $?
     project_needs_upgrade "$root" || return 0
-    stamp="$(read_engine_stamp "$manifest")"
+    stamp="$(read_schema_version "$manifest")"
     eng="$(bundled_engine_version)"
     if is_ci_environment; then
         die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"

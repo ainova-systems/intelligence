@@ -41,7 +41,9 @@ if [ "$dry_run" -eq 0 ] && [ "$force" -eq 0 ]; then
     fi
 fi
 
-stamp="$(read_engine_stamp "$config")"
+# `sync_version` belongs to the archived v1 format. The v2 contract uses
+# `schema_version`, so conversion reads the legacy scalar explicitly.
+stamp="$(top_scalar "$config" "sync_version")"
 eng="$(bundled_engine_version)"
 [ -n "$stamp" ] && _ver_gt "$stamp" "$eng" && die "project schema $stamp is newer than this CLI's engine $eng — update the CLI first"
 
@@ -250,7 +252,7 @@ while IFS= read -r line || [ -n "$line" ]; do
     fi
     echo "$line"
 done < "$config" > "$manifest_stage"
-stamp_version "$manifest_stage" "$eng"
+stamp_schema_version "$manifest_stage" "$eng"
 
 # packages: entries (pin preserved — no invented ranges).
 while IFS="$LOCK_SEP" read -r pack name url ref mirror; do

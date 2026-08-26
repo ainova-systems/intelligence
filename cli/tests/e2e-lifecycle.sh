@@ -116,7 +116,8 @@ chk grep -q 'intelligence sync' "$LEG/AGENTS.md"
 chk grep -rq 'shared-intel' "$LEG/intelligence.lock"
 chk grep -q 'ref: "v1.1.0"' "$LEG/intelligence.yaml"
 chknot grep -q '^packs:' "$LEG/intelligence.yaml"
-chknot grep -q 'sync_version' <(git -C "$LEG" status --porcelain --ignored | grep '\.intelligence/')  # store must be ignored
+chknot grep -q '^sync_version:' "$LEG/intelligence.yaml"
+chk grep -q "^schema_version: \"$ENGINE_VER\"" "$LEG/intelligence.yaml"
 git -C "$LEG" status --porcelain | grep -q . || { echo "FAIL: migrate produced no diff"; fail=1; }
 
 echo "== deep status after migrate =="

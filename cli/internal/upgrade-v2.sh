@@ -1,7 +1,7 @@
 #!/bin/bash
 # Internal: bring the project to this CLI's engine: apply v2
 # schema migrations, align the engine-content package to the bundled version,
-# restamp sync_version, sync.
+# restamp schema_version, sync.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -17,16 +17,29 @@ done
 require_v2
 manifest="$IP_ROOT/intelligence.yaml"
 
-stamp="$(read_engine_stamp "$manifest")"
+stamp="$(read_schema_version "$manifest")"
+legacy_stamp="$(top_scalar "$manifest" "sync_version")"
 eng="$(bundled_engine_version)"
 if [ -n "$stamp" ] && _ver_gt "$stamp" "$eng"; then
     die "manifest schema $stamp is newer than this CLI's engine $eng — update the global CLI first"
+fi
+if [ -n "$legacy_stamp" ] && _ver_gt "$legacy_stamp" "$eng"; then
+    die "manifest schema $legacy_stamp is newer than this CLI's engine $eng — update the global CLI first"
 fi
 
 # --- v2 schema migrations -------------------------------------------------
 # The engine's own chain owns vendored layouts; this one owns the manifest.
 # Same discipline: ascending, append-only, each migration self-detects and
 # no-ops when already applied.
+
+# v2 migration 0: the original RC manifest called the permanent schema key
+# `sync_version`. Rename it without changing its value; the final stamp below
+# then aligns it with this engine. The archived v1 reader remains separate.
+if [ -n "$legacy_stamp" ]; then
+    tmp="$manifest.schema-key.tmp"
+    awk '$0 !~ /^sync_version:[[:space:]]*/' "$manifest" > "$tmp" && mv "$tmp" "$manifest"
+    echo "  migrating: sync_version -> schema_version"
+fi
 
 # v2 migration 1: staged engine content -> the @ainova-systems/sync package.
 # Pre-package manifests listed `.intelligence/engine/{rules,agents,skills}`
@@ -71,8 +84,8 @@ if [ "$have_pkg" -eq 0 ] && [ "$migrated" -eq 0 ]; then
     echo "  NOTE: $SYNC_PKG_NAME is not in this manifest (bare setup) — engine meta-skills stay uninstalled; 'intelligence package add $SYNC_PKG_NAME' opts back in." >&2
 fi
 
-stamp_version "$manifest" "$eng"
-echo "  sync_version -> $eng"
+stamp_schema_version "$manifest" "$eng"
+echo "  schema_version -> $eng"
 
 if [ "$no_sync" -eq 0 ]; then
     exec bash "$CLI_DIR/commands/sync.sh"
