@@ -43,7 +43,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          ENGINE="$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)"
+          ENGINE="$(tr -d ' \t\r\n' < engine/VERSION)"
           if [ "${{ inputs.channel }}" = "next" ]; then
             VER="$ENGINE-rc.${{ inputs.rc }}"
             TAG="next"

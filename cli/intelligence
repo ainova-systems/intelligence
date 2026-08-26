@@ -3,25 +3,20 @@
 #
 # Dispatcher only: each command lives in commands/<name>.sh so commands can be
 # ported to Node one at a time without touching the others. The engine is the
-# vendored bash engine bundled next to the CLI (npm package) or, when running
-# from the intelligence-sync repo itself, the repo's own module.
+# bash engine shipped next to the CLI.
 
 set -euo pipefail
 
 CLI_DIR="$(cd "$(dirname "$0")" && pwd)"
 export CLI_DIR
 
-# Engine discovery, by role (scripts/sync.sh + scripts/VERSION), never by
-# guessing names beyond the two shipped layouts:
-#   1. npm package:  <pkg>/cli/intelligence + <pkg>/engine/scripts/
-#   2. this repo:    <repo>/cli/intelligence + <repo>/intelligence/sync/scripts/
+# Engine discovery, by role (sync.sh + VERSION). The repo and the npm package
+# ship one layout — <root>/{cli,engine,packages/sync} — so there is a single
+# candidate rather than a per-distribution list.
 IS_ENGINE_DIR=""
-for _cand in "$CLI_DIR/../engine" "$CLI_DIR/../intelligence/sync"; do
-    if [ -f "$_cand/scripts/sync.sh" ] && [ -f "$_cand/scripts/VERSION" ]; then
-        IS_ENGINE_DIR="$(cd "$_cand" && pwd)"
-        break
-    fi
-done
+if [ -f "$CLI_DIR/../engine/sync.sh" ] && [ -f "$CLI_DIR/../engine/VERSION" ]; then
+    IS_ENGINE_DIR="$(cd "$CLI_DIR/../engine" && pwd)"
+fi
 if [ -z "$IS_ENGINE_DIR" ]; then
     echo "ERROR: bundled sync engine not found next to the CLI ($CLI_DIR)." >&2
     echo "       Reinstall: npm i -g @ainova-systems/intelligence" >&2
@@ -29,10 +24,19 @@ if [ -z "$IS_ENGINE_DIR" ]; then
 fi
 export IS_ENGINE_DIR
 
+# The engine's own content, shipped beside the engine as the seed for the
+# @ainova-systems/sync package at exactly this CLI's version. Separate from the
+# engine dir: the store must receive rules/agents/skills, never engine scripts.
+IS_BUNDLED_PKG_DIR=""
+if [ -d "$CLI_DIR/../packages/sync" ]; then
+    IS_BUNDLED_PKG_DIR="$(cd "$CLI_DIR/../packages/sync" && pwd)"
+fi
+export IS_BUNDLED_PKG_DIR
+
 cmd="${1:-}"
 case "$cmd" in
     ""|help|-h|--help)
-        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION")"
+        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION")"
         cat <<EOF
 intelligence — build, version and distribute AI agent intelligence
 (engine $engine_ver${INTELLIGENCE_NPM_VERSION:+, package $INTELLIGENCE_NPM_VERSION})
@@ -57,7 +61,7 @@ EOF
         exit 0
         ;;
     version|-v|--version)
-        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION")"
+        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION")"
         echo "${INTELLIGENCE_NPM_VERSION:-$engine_ver} (engine $engine_ver)"
         exit 0
         ;;

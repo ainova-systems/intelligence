@@ -11,7 +11,7 @@ chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
 export CLI_DIR="$REPO/cli"
-export IS_ENGINE_DIR="$REPO/intelligence/sync"
+export IS_ENGINE_DIR="$REPO/engine"
 source "$CLI_DIR/lib/cli-common.sh"
 
 case_count=0

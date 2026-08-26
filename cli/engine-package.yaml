@@ -9,6 +9,6 @@
 # `upgrade` moves it, and at the matching version it materializes from the
 # bundle without network.
 name: "@ainova-systems/sync"
-url: "https://github.com/ainova-systems/intelligence-sync.git"
-path: "intelligence/sync"
+url: "https://github.com/ainova-systems/intelligence.git"
+path: "packages/sync"
 default_registry: "https://github.com/ainova-systems/intelligence-registry.git"

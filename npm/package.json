@@ -8,7 +8,8 @@
   "files": [
     "bin",
     "cli",
-    "engine"
+    "engine",
+    "packages"
   ],
   "engines": {
     "node": ">=18"
@@ -16,11 +17,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ainova-systems/intelligence-sync.git"
+    "url": "git+https://github.com/ainova-systems/intelligence.git"
   },
-  "homepage": "https://github.com/ainova-systems/intelligence-sync#readme",
+  "homepage": "https://github.com/ainova-systems/intelligence#readme",
   "bugs": {
-    "url": "https://github.com/ainova-systems/intelligence-sync/issues"
+    "url": "https://github.com/ainova-systems/intelligence/issues"
   },
   "keywords": [
     "ai",

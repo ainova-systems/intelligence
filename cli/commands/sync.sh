@@ -26,7 +26,7 @@ case "$IP_MODE" in
             die "installed content missing on disk:$missing — run 'intelligence install'"
         fi
         export_engine_env "$IP_ROOT"
-        exec bash "$IS_ENGINE_DIR/scripts/sync.sh" "$@"
+        exec bash "$IS_ENGINE_DIR/sync.sh" "$@"
         ;;
     legacy)
         # A vendored project syncs with ITS engine — its pin is the contract,

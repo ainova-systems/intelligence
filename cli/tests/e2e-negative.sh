@@ -13,6 +13,15 @@ fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
+# stage_vendored <umbrella-dir> — rebuild a v1 module from the v2 tree: the
+# engine becomes scripts/, the sync package's content sits beside it. The repo
+# no longer ships that layout, so a v1 fixture has to be assembled.
+stage_vendored() {
+    mkdir -p "$1/sync"
+    cp -r "$REPO/engine" "$1/sync/scripts"
+    cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents"         "$REPO/packages/sync/skills" "$REPO/packages/sync/docs" "$1/sync/"
+}
+
 # run_in <dir> <cli-args…> — run the CLI from <dir>, capturing combined
 # output and exit code into OUTPUT / RC without tripping set -e.
 RC=0
@@ -50,7 +59,7 @@ xok() {
     fi
 }
 
-ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/intelligence/sync/scripts/VERSION")"
+ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/engine/VERSION")"
 
 echo "== fixtures =="
 # Pack repo with only 1.x tags.
@@ -214,7 +223,7 @@ xok "all good." "$CLONE" doctor
 echo "== 8. migrate rollback on a CLI-refused target output =="
 LEG1="$OUT/leg1"
 mkdir -p "$LEG1"
-cp -r "$REPO/intelligence" "$LEG1/intelligence"
+stage_vendored "$LEG1/intelligence"
 mkdir -p "$LEG1/intelligence/rules"
 printf '# Ctx\n\nleg1 context\n' > "$LEG1/intelligence/rules/context.md"
 cat > "$LEG1/intelligence/config.yaml" <<EOF
@@ -256,7 +265,7 @@ chknot test -f "$LEG1/.gitignore"
 echo "== 9. migrate dirty-tree refusal + --force =="
 LEG2="$OUT/leg2"
 mkdir -p "$LEG2"
-cp -r "$REPO/intelligence" "$LEG2/intelligence"
+stage_vendored "$LEG2/intelligence"
 mkdir -p "$LEG2/intelligence/rules"
 printf '# Ctx\n\nleg2 context\n' > "$LEG2/intelligence/rules/context.md"
 cat > "$LEG2/intelligence/config.yaml" <<EOF

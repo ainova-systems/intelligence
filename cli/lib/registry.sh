@@ -122,12 +122,14 @@ fetch_package() {
     # to the normal clone.
     if [ "$url" = "$SYNC_PKG_URL" ] && [ "$subpath" = "$SYNC_PKG_PATH" ] \
         && [ "${ref#v}" = "$(bundled_engine_version)" ]; then
+        [ -n "${IS_BUNDLED_PKG_DIR:-}" ] && [ -d "$IS_BUNDLED_PKG_DIR" ] \
+            || die "bundled engine content not found next to the CLI — reinstall @ainova-systems/intelligence"
         rm -rf "$dest"
         mkdir -p "$dest"
-        cp -R "$IS_ENGINE_DIR/." "$dest/"
+        cp -R "$IS_BUNDLED_PKG_DIR/." "$dest/"
         rm -rf "$dest/.git"
-        if [ -f "$IS_ENGINE_DIR/scripts/ENGINE_SHA" ]; then
-            tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/ENGINE_SHA"
+        if [ -f "$IS_ENGINE_DIR/ENGINE_SHA" ]; then
+            tr -d ' \t\r\n' < "$IS_ENGINE_DIR/ENGINE_SHA"
         fi
         return 0
     fi

@@ -27,7 +27,7 @@ PACK_URL="file://$PACK"
 # --- v2 project ---
 PROJ="$OUT/proj"
 mkdir -p "$PROJ/intelligence/rules"
-ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/intelligence/sync/scripts/VERSION")"
+ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/engine/VERSION")"
 cat > "$PROJ/intelligence.yaml" <<EOF
 project:
   name: e2e

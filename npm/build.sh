@@ -1,17 +1,18 @@
 #!/bin/bash
 # Assemble the publishable npm package into npm/dist.
 #
-# The repo is the single source: cli/ ships as-is (engine-package.yaml — the
-# distribution's data — included), the engine is
-# a verbatim copy of intelligence/sync/, and the version is injected into
-# package.json (engine VERSION by default; release-npm passes an explicit one
-# for prereleases — engine VERSION itself never carries a prerelease suffix).
+# The repo is the single source, and the package mirrors its layout one-to-one:
+# cli/ ships as-is (engine-package.yaml — the distribution's data — included),
+# engine/ is the executable, packages/sync/ is the engine-content package the
+# bundle seed materializes. The version is injected into package.json (engine
+# VERSION by default; release-npm passes an explicit one for prereleases —
+# engine VERSION itself never carries a prerelease suffix).
 #
 # Usage: bash npm/build.sh [version]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${1:-$(tr -d ' \t\r\n' < "$ROOT/intelligence/sync/scripts/VERSION")}"
+VERSION="${1:-$(tr -d ' \t\r\n' < "$ROOT/engine/VERSION")}"
 DIST="$ROOT/npm/dist"
 
 rm -rf "$DIST"
@@ -19,11 +20,13 @@ mkdir -p "$DIST/bin"
 cp "$ROOT/npm/bin/intelligence.js" "$DIST/bin/intelligence.js"
 cp -R "$ROOT/cli" "$DIST/cli"
 rm -rf "$DIST/cli/tests"
-cp -R "$ROOT/intelligence/sync" "$DIST/engine"
+cp -R "$ROOT/engine" "$DIST/engine"
+mkdir -p "$DIST/packages"
+cp -R "$ROOT/packages/sync" "$DIST/packages/sync"
 # The commit this build came from: bundle-seeded lock entries for the
 # @ainova-systems/sync package carry it as their sha.
 if sha="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"; then
-    printf '%s\n' "$sha" > "$DIST/engine/scripts/ENGINE_SHA"
+    printf '%s\n' "$sha" > "$DIST/engine/ENGINE_SHA"
 fi
 cp "$ROOT/npm/README.md" "$DIST/README.md"
 cp "$ROOT/LICENSE" "$DIST/LICENSE"

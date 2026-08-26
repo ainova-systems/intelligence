@@ -10,6 +10,16 @@ fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
+# stage_vendored <umbrella-dir> — rebuild a v1 module from the v2 tree: the
+# engine becomes scripts/, the sync package's content sits beside it. The repo
+# no longer ships that layout, so a v1 fixture has to be assembled.
+stage_vendored() {
+    mkdir -p "$1/sync"
+    cp -r "$REPO/engine" "$1/sync/scripts"
+    cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents" \
+        "$REPO/packages/sync/skills" "$REPO/packages/sync/docs" "$1/sync/"
+}
+
 echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
 mkdir -p "$FRESH/.cursor"
@@ -35,8 +45,8 @@ git -C "$PACK" tag v1.1.0
 
 LEG="$OUT/legacy"
 mkdir -p "$LEG"
-cp -r "$REPO/intelligence" "$LEG/intelligence"
-ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/intelligence/sync/scripts/VERSION")"
+stage_vendored "$LEG/intelligence"
+ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/engine/VERSION")"
 cat > "$LEG/intelligence/config.yaml" <<EOF
 # Legacy project config
 project:

@@ -10,9 +10,9 @@
 # Engine libraries (readers, is_status, IS_RC_*, engine_version). Sourced in
 # the same order sync.sh uses. CLI_DIR / IS_ENGINE_DIR come exported from the
 # dispatcher.
-source "$IS_ENGINE_DIR/scripts/lib/common.sh"
-source "$IS_ENGINE_DIR/scripts/lib/layout.sh"
-source "$IS_ENGINE_DIR/scripts/lib/migrations.sh"
+source "$IS_ENGINE_DIR/lib/common.sh"
+source "$IS_ENGINE_DIR/lib/layout.sh"
+source "$IS_ENGINE_DIR/lib/migrations.sh"
 
 die() {
     echo "ERROR: $*" >&2
@@ -129,7 +129,7 @@ manifest_intelligence_dir() {
 }
 
 bundled_engine_version() {
-    tr -d ' \t\r\n' < "$IS_ENGINE_DIR/scripts/VERSION"
+    tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION"
 }
 
 # --- The sync package's manifest/lock plumbing ---------------------------
