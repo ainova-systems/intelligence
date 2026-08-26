@@ -70,8 +70,8 @@ jobs:
             exit 1
           }
 
-          git fetch --no-tags origin main:refs/remotes/origin/main
-          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD FETCH_HEAD || {
             echo "release tag '$RELEASE_TAG' is not on main" >&2
             exit 1
           }
