@@ -140,6 +140,13 @@ jobs:
             rm -rf "$1/intelligence/sync/scripts"
             cp -r "$2/intelligence/sync/scripts" "$1/intelligence/sync/scripts"
             cp "$BASE/examples/go-api/config.yaml" "$1/intelligence/config.yaml"
+            # Stamp the config to THIS side's engine version — main and the
+            # branch may sit at different VERSIONs (pre-merge), and a mismatch
+            # would trip the needs-update gate, not the code path under test.
+            # sync_version is never rendered into output, so the comparison
+            # stays valid.
+            v="$(tr -d ' \t\r\n' < "$2/intelligence/sync/scripts/VERSION")"
+            sed -i "s/^sync_version:.*/sync_version: \"$v\"/" "$1/intelligence/config.yaml"
             mkdir -p "$1/intelligence/rules"
             printf '# Ctx\n\nx\n' > "$1/intelligence/rules/context.md"
             ( cd "$1" && git init -q . && \
