@@ -69,17 +69,17 @@ case "$IP_MODE" in
         migrate_args=()
         [ "$force" -eq 1 ] && migrate_args+=(--force)
         if [ "$preview" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run "${migrate_args[@]}"
+            exec bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
         fi
         if [ "$apply" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/migrate-v1.sh" "${migrate_args[@]}"
+            exec bash "$CLI_DIR/internal/migrate-v1.sh" ${migrate_args[@]+"${migrate_args[@]}"}
         fi
-        bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run "${migrate_args[@]}"
+        bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
         [ -t 0 ] || die "v1 migration requires confirmation — rerun 'intelligence init --apply'"
         printf 'Apply this migration? [Y/n] '
         read -r answer
         case "$answer" in
-            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/migrate-v1.sh" "${migrate_args[@]}" ;;
+            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/migrate-v1.sh" ${migrate_args[@]+"${migrate_args[@]}"} ;;
             *) echo "migration cancelled"; exit 0 ;;
         esac
         ;;
