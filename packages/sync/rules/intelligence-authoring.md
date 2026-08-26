@@ -109,6 +109,6 @@ The goal is subtraction, above. These are only the line past which something is 
 
 ## Verifying a change to this layer
 
-The per-artifact checks are a procedure, not a constraint to hold in mind while doing other work — so they live in the meta-skills, not here. Invoke the one that matches what you are doing: `intelligence-add-rule`, `intelligence-add-agent`, `intelligence-add-skill`, `intelligence-extract-skill`, `intelligence-review-skills`, `intelligence-learn-from-context`, `intelligence-sync`, `intelligence-update`, `intelligence-install-adapter`, `intelligence-uninstall-adapter`.
+The per-artifact checks are a procedure, not a constraint to hold in mind while doing other work — so they live in the meta-skills, not here. Invoke the one that matches what you are doing: `intelligence-add-rule`, `intelligence-add-agent`, `intelligence-add-skill`, `intelligence-extract-skill`, `intelligence-review-skills`, `intelligence-learn-from-repository`, `intelligence-learn-from-context`, `intelligence-sync`, `intelligence-update`, `intelligence-install-adapter`, `intelligence-uninstall-adapter`.
 
 A change to this layer is done when `<sync-cmd>` reports `IS_STATUS=ok` and the skill you invoked reports clean.

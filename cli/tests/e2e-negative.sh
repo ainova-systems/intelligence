@@ -360,6 +360,7 @@ xok "engine content installed" "$P13" init
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
 chk test -d "$P13/.claude/skills/intelligence-update"
+chk test -d "$P13/.claude/skills/intelligence-learn-from-repository"
 # A hand-authored/current manifest with the bundled sync package but no
 # store/lock is repairable by the same automatic project alignment gate.
 rm -rf "$P13/.intelligence/packages"

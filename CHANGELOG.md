@@ -17,6 +17,7 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 
 ### Added
 
+- Added `/intelligence-learn-from-repository` for approval-gated repository onboarding after initialization or v1 conversion.
 - Added the `@ainova-systems/intelligence` npm CLI with seven public lifecycle commands.
 - Added root manifests, committed package locks, and restorable gitignored package stores.
 - Added `intelligence init` as the single entry point for new setup, v1 conversion, v2 alignment, restoration, and first sync.

@@ -371,3 +371,4 @@ rmdir "$umbrella" 2>/dev/null || true
 echo ""
 echo "migrated. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
 echo "From now on: intelligence sync | package | update | status."
+echo "Next: ask your agent to run /intelligence-learn-from-repository to review the migrated project context."

@@ -25,6 +25,11 @@ intelligence init --targets claude,codex
 
 Use `intelligence init --preview` to inspect without writing and `intelligence init --apply` for explicit non-interactive application.
 
+After the first successful sync, ask your agent to run
+`/intelligence-learn-from-repository`. It inspects the repository and proposes
+the smallest useful set of project-owned rules, agents and skills. Analysis is
+read-only; each proposed change requires approval.
+
 Create project-owned content only when you need it:
 
 ```text
@@ -169,6 +174,11 @@ intelligence init --apply
 ```
 
 Conversion requires the final v1 schema (`0.10.0`). An older project must first bring itself to that schema with its archived engine. `init --preview` writes nothing; application stages and verifies the v2 project before removing old state.
+
+The conversion preserves project-owned sources and replaces the old shared
+module content with the sync package bundled in the installed CLI. When it
+finishes, run `/intelligence-learn-from-repository` to review what was preserved
+and propose any missing repository-specific context.
 
 ## Repository layout
 

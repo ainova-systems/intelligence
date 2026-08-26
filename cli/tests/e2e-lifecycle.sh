@@ -29,8 +29,9 @@ mkdir -p "$FRESH/.cursor" "$FRESH/.github/instructions"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
 git -C "$FRESH" init --quiet
-(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init)
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init > "$OUT/fresh-init.txt")
 chk test -f "$FRESH/intelligence.yaml"
+chk grep -q '/intelligence-learn-from-repository' "$OUT/fresh-init.txt"
 chk grep -q 'cursor: { enabled: true' "$FRESH/intelligence.yaml"
 chk grep -q 'copilot: { enabled: true, output: ".github"' "$FRESH/intelligence.yaml"
 chk grep -q '^\.intelligence/' "$FRESH/.gitignore"
@@ -39,6 +40,7 @@ chk test -d "$FRESH/.claude"
 chk grep -q 'intelligence/\*\*' "$FRESH/.cursor/rules/intelligence-authoring.mdc"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/conventions.md' \
     "$FRESH/.claude/skills/intelligence-review-skills/SKILL.md"
+chk test -f "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
     "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github"
 (cd "$FRESH" && bash "$CLI" status --check)
@@ -104,8 +106,9 @@ chk test -f "$LEG/intelligence/config.yaml"
 chk grep -q 'packages/@' "$OUT/dry.txt"
 
 echo "== init --apply (v1 migration) =="
-(cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply)
+(cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply > "$OUT/migrate.txt")
 chk test -f "$LEG/intelligence.yaml"
+chk grep -q '/intelligence-learn-from-repository' "$OUT/migrate.txt"
 chk test -f "$LEG/intelligence.lock"
 chknot test -f "$LEG/intelligence/config.yaml"
 chknot test -d "$LEG/intelligence/sync"
@@ -113,6 +116,7 @@ chknot test -d "$LEG/intelligence/external"
 chk test -f "$LEG/.intelligence/backup/config.yaml"
 chk grep -q 'LEGACY_PACK_MARKER' "$LEG/AGENTS.md"
 chk grep -q 'intelligence sync' "$LEG/AGENTS.md"
+chk test -f "$LEG/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chk grep -rq 'shared-intel' "$LEG/intelligence.lock"
 chk grep -q 'ref: "v1.1.0"' "$LEG/intelligence.yaml"
 chknot grep -q '^packs:' "$LEG/intelligence.yaml"

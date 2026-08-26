@@ -47,6 +47,12 @@ New-project adapter selection always enables `agents`. Other adapters come only 
 
 Archived-project conversion requires final v1 schema `0.10.0`. Older v1 projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
+After a new setup or conversion completes, the CLI suggests
+`/intelligence-learn-from-repository`. This bundled meta-skill analyzes the
+repository and proposes project-owned rules, agents and skills; it does not
+change files until the user approves individual proposals. The CLI remains the
+only owner of initialization and migration mechanics.
+
 ### `intelligence sync`
 
 ```text

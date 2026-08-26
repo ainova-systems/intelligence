@@ -202,6 +202,9 @@ echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
 echo "  add packages:  intelligence package add @ainova-systems/core   (browse: intelligence package search)"
 echo "  write your own: create $content_dir/rules/context.md, then intelligence sync"
+if [ "$bare" -eq 0 ]; then
+    echo "  tailor this repository: ask your agent to run /intelligence-learn-from-repository after sync"
+fi
 echo "  docs: https://github.com/ainova-systems/intelligence#readme"
 
 if [ "$no_sync" -eq 0 ]; then
