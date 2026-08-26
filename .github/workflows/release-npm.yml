@@ -2,28 +2,23 @@ name: release-npm
 
 # Publishes @ainova-systems/intelligence.
 #
-#   channel=next    — prerelease from ANY ref (feature branches included):
-#                     version <engine>-rc.<n>, npm dist-tag `next`. The
-#                     prerelease suffix exists ONLY in the npm version — the
-#                     engine VERSION and schema_version never carry one.
-#   channel=latest  — stable: must be dispatched from the vX.Y.Z tag matching
-#                     the engine VERSION; npm dist-tag `latest`.
+# Publishing a GitHub Release is the only release action. The release tag is
+# the npm version and selects the channel:
+#   vX.Y.Z-rc.N -> npm dist-tag `next` (GitHub prerelease required)
+#   vX.Y.Z      -> npm dist-tag `latest` (ordinary GitHub release required)
+# The tag's base X.Y.Z must match engine/VERSION, and its commit must be in
+# main. engine/VERSION and schema_version never carry the npm RC suffix.
 #
 # Needs the NPM_TOKEN repo secret (granular token with publish rights on the
 # ainova-systems npm org).
 
 on:
-  workflow_dispatch:
-    inputs:
-      channel:
-        description: "next (prerelease from this ref) or latest (stable from the vX.Y.Z tag)"
-        required: true
-        type: choice
-        options: [next, latest]
-      rc:
-        description: "rc number for channel=next"
-        required: false
-        default: "1"
+  release:
+    types: [published]
+
+concurrency:
+  group: release-npm
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -31,9 +26,13 @@ permissions:
 
 jobs:
   publish:
+    name: publish ${{ github.event.release.tag_name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -41,22 +40,44 @@ jobs:
 
       - name: Determine version
         id: ver
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -euo pipefail
           ENGINE="$(tr -d ' \t\r\n' < engine/VERSION)"
-          if [ "${{ inputs.channel }}" = "next" ]; then
-            VER="$ENGINE-rc.${{ inputs.rc }}"
-            TAG="next"
+          if [[ "$RELEASE_TAG" =~ ^v([0-9]+[.][0-9]+[.][0-9]+)-rc[.]([1-9][0-9]*)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            VER="$BASE-rc.${BASH_REMATCH[2]}"
+            DIST_TAG="next"
+            EXPECTED_PRERELEASE="true"
+          elif [[ "$RELEASE_TAG" =~ ^v([0-9]+[.][0-9]+[.][0-9]+)$ ]]; then
+            BASE="${BASH_REMATCH[1]}"
+            VER="$BASE"
+            DIST_TAG="latest"
+            EXPECTED_PRERELEASE="false"
           else
-            VER="$ENGINE"
-            TAG="latest"
-            if [ "$GITHUB_REF_NAME" != "v$ENGINE" ]; then
-              echo "channel=latest must be dispatched from tag v$ENGINE (got '$GITHUB_REF_NAME')" >&2
-              exit 1
-            fi
+            echo "release tag must be vX.Y.Z or vX.Y.Z-rc.N (got '$RELEASE_TAG')" >&2
+            exit 1
           fi
+
+          [ "$BASE" = "$ENGINE" ] || {
+            echo "release base $BASE does not match engine/VERSION $ENGINE" >&2
+            exit 1
+          }
+          [ "$RELEASE_PRERELEASE" = "$EXPECTED_PRERELEASE" ] || {
+            echo "release prerelease=$RELEASE_PRERELEASE does not match tag '$RELEASE_TAG'" >&2
+            exit 1
+          }
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo "release tag '$RELEASE_TAG' is not on main" >&2
+            exit 1
+          }
+
           echo "version=$VER" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Build
         run: bash npm/build.sh "${{ steps.ver.outputs.version }}"
@@ -83,7 +104,7 @@ jobs:
       # stable ships. While `latest` still points at a prerelease, keep it on
       # the newest one; the first stable publish takes it over for good.
       - name: Keep `latest` off a stale prerelease
-        if: inputs.channel == 'next'
+        if: steps.ver.outputs.tag == 'next'
         run: |
           set -euo pipefail
           PKG="@ainova-systems/intelligence"
