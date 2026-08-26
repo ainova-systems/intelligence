@@ -94,7 +94,12 @@ if [ "${IS_CLI:-0}" = "1" ]; then
     # `/d/...`, and prefix comparisons downstream need one spelling.
     CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
     IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
-    IS_MODULE_REL="${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
+    # No vendor default here: the CLI always exports the module path (derived
+    # from its distribution data); a bare IS_CLI=1 invocation must say so.
+    if [ -z "${IS_MODULE_REL:-}" ]; then
+        echo "ERROR: CLI mode requires IS_MODULE_REL (exported by the intelligence CLI)." >&2
+        exit 1
+    fi
     # Project-owned adapters keep their v1 home: <umbrella>/adapters/.
     INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
 else

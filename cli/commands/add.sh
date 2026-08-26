@@ -43,14 +43,15 @@ case "$spec" in
         rest="${spec#git+}"
         case "$rest" in *#*) path="${rest#*#}"; rest="${rest%%#*}" ;; esac
         # ref = the part after the last `@` in the post-scheme URL, unless it
-        # contains `/` (then it is a user@host, not a ref) — the engine's own
-        # git+ grammar.
+        # contains `/` or `:` — either marks a user@host part (scp-like
+        # `git@host:repo.git` included), not a ref. A branch name containing
+        # `/` cannot be expressed here; pin it via `ref:` in the manifest.
         base="${rest#*://}"
         case "$base" in
             *@*)
                 tail="${base##*@}"
                 case "$tail" in
-                    */*) ;;
+                    */*|*:*) ;;
                     *) ref="$tail"; rest="${rest%@"$tail"}" ;;
                 esac
                 ;;
@@ -93,7 +94,7 @@ fi
 
 # The source must exist before anything else is attempted — never die
 # mid-pipeline with no message.
-if ! GIT_TERMINAL_PROMPT=0 git ls-remote "$url" >/dev/null 2>&1; then
+if ! GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" >/dev/null 2>&1; then
     echo "ERROR: no reachable repository at $url" >&2
     echo "  Declared by ${RES_VIA:-the spec} — check the URL and your git access." >&2
     exit 1

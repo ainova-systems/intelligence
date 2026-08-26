@@ -51,22 +51,18 @@ cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
 
-# A schema gap is closed by the engine's own proven chain before conversion.
-# Dry-run must preview the SAME pipeline, so it runs the chain too — against
-# a staged copy of the umbrella, leaving the project untouched.
+# A schema gap is closed by the engine's own proven chain — ALWAYS against a
+# staged copy of the umbrella. The live tree is only read: "any failure
+# before commit leaves the project untouched" must include the chain itself,
+# and the vendored originals are deleted at commit anyway, so migrating them
+# in place would buy nothing and break the promise.
 if [ -z "$stamp" ] || _ver_gt "$eng" "$stamp"; then
-    if [ "$dry_run" -eq 1 ]; then
-        echo "== applying the engine migration chain ($stamp -> $eng) to a staged copy =="
-        cp -R "$umbrella" "$stage/umbrella"
-        run_migrations "$stage/umbrella" "$(basename "$module_dir")" "" > "$stage/chain.log" 2>&1 \
-            || { tail -5 "$stage/chain.log" >&2; die "engine migration chain failed in the staged copy — a real migrate would fail the same way"; }
-        stamp_version "$stage/umbrella/config.yaml" "$eng"
-        config="$stage/umbrella/config.yaml"
-    else
-        echo "== applying the engine migration chain ($stamp -> $eng) =="
-        run_migrations "$umbrella" "$(basename "$module_dir")" "" || die "engine migration chain failed (IS_STATUS above) — nothing converted"
-        stamp_version "$config" "$eng"
-    fi
+    echo "== applying the engine migration chain ($stamp -> $eng) to a staged copy =="
+    cp -R "$umbrella" "$stage/umbrella"
+    run_migrations "$stage/umbrella" "$(basename "$module_dir")" "" > "$stage/chain.log" 2>&1 \
+        || { tail -5 "$stage/chain.log" >&2; die "engine migration chain failed in the staged copy — the project is untouched"; }
+    stamp_version "$stage/umbrella/config.yaml" "$eng"
+    config="$stage/umbrella/config.yaml"
 fi
 
 echo "== staging =="
@@ -78,6 +74,7 @@ sync_pkg_sha="$(fetch_package "$SYNC_PKG_URL" "v$eng" "$SYNC_PKG_PATH" "$stage/$
 # per-pack source facts. Recorded as rows for the config rewrite and the lock.
 pack_rows="$stage/packs.rows"
 : > "$pack_rows"
+seen_names=" "
 while IFS= read -r pack; do
     [ -n "$pack" ] || continue
     url="$(get_pack_field "$config" "$pack" "url")"
@@ -91,6 +88,12 @@ while IFS= read -r pack; do
     case "$repo" in ""|*[!A-Za-z0-9._-]*) repo="$(printf '%s' "$repo" | tr -c 'A-Za-z0-9._-' '-')" ;; esac
     name="@$org/$repo"
     assert_valid_pkg_name "$name"
+    # Two packs deriving the same @org/repo would overwrite one store dir and
+    # duplicate the lock key — fail closed, the user renames a source.
+    case "$seen_names" in
+        *" $name "*) die "packs '$pack' and another both derive package name '$name' — sources must map to distinct names" ;;
+    esac
+    seen_names="$seen_names $name "
     printf '%s\n' "$pack$LOCK_SEP$name$LOCK_SEP$url$LOCK_SEP$ref$LOCK_SEP$mirror"
 done < <(read_yaml_keys "$config" "packs") >> "$pack_rows"
 
@@ -257,6 +260,8 @@ rollback() {
     fi
     echo "rolled back — the vendored setup is untouched" >&2
 }
+# From the first moved file until success, an interrupt must roll back too.
+trap 'rollback; exit 130' INT TERM
 mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
@@ -271,13 +276,21 @@ echo "$sync_out" | grep -q '^IS_STATUS=ok' || {
     rollback
     die "sync of the migrated state did not report ok — rolled back"
 }
+# Point of no return: the new state is verified. From here an interrupt must
+# NOT roll back (the old setup is being removed) — only clean the stage.
+trap cleanup_stage EXIT INT TERM
 
 # Only now is anything of the old setup removed — and config.yaml is kept as
 # a reviewable backup inside the store.
 mkdir -p "$root/.intelligence/backup"
 cp "$config" "$root/.intelligence/backup/config.yaml"
 while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
-    if [ -n "$mirror" ] && [ -d "$root/$mirror" ]; then
+    # Containment before deletion: a mirror value is config input, and rm -rf
+    # must never follow it out of the repository.
+    case "$mirror" in
+        ""|/*|*..*) [ -n "$mirror" ] && echo "  WARN: mirror '$mirror' not repo-contained — left in place" >&2; continue ;;
+    esac
+    if [ -d "$root/$mirror" ]; then
         rm -rf "${root:?}/$mirror"
         # An emptied mirror parent (e.g. <umbrella>/external/) goes with it.
         rmdir "$(dirname "$root/$mirror")" 2>/dev/null || true

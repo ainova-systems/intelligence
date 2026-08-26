@@ -38,6 +38,7 @@ case "$sub" in
         case "$url" in
             @*) die "registries are added by URL — names carry their own scope. To install a package: intelligence add $url/<name>" ;;
         esac
+        assert_safe_source_url "${url#git+}"
         require_v2
         # Fail closed: a URL that cannot produce an index is not a registry,
         # and recording it would turn a typo here into a confusing failure at

@@ -114,9 +114,19 @@ _qmap_stage() {
 
 # qmap_set <file> <block> <key> <field> <value> — upsert one field, creating
 # the block and the key as needed.
+# _yq_esc <string> — escape \ and " for a double-quoted YAML scalar.
+_yq_esc() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    printf '%s' "${s//\"/\\\"}"
+}
+
 qmap_set() {
     local file="$1" block="$2" key="$3" field="$4" value="$5"
     [ -f "$file" ] || die "no such file: $file"
+    # url/path values can carry a `"`; escape before it reaches the quoted
+    # scalar the writer emits.
+    value="$(_yq_esc "$value")"
     _qmap_stage "$file" -v block="$block" -v key="$key" -v field="$field" -v value="$value" '
         function keyline()   { return "  \"" key "\":" }
         function fieldline() { return "    " field ": \"" value "\"" }
@@ -163,6 +173,7 @@ qmap_set() {
 qmap_set_value() {
     local file="$1" block="$2" key="$3" value="$4"
     [ -f "$file" ] || die "no such file: $file"
+    value="$(_yq_esc "$value")"
     _qmap_stage "$file" -v block="$block" -v key="$key" -v value="$value" '
         function entry() { return "  \"" key "\": \"" value "\"" }
         { sub(/\r$/, "") }

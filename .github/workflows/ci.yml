@@ -114,6 +114,48 @@ jobs:
           if (-not (Select-String -Path AGENTS.md -Pattern 'intelligence sync' -Quiet)) { Write-Error "AGENTS.md lacks the CLI sync command" }
           if (-not (Test-Path "intelligence.yaml") -or -not (Test-Path ".claude")) { Write-Error "outputs missing" }
 
+  legacy-golden-code:
+    name: legacy-golden-code (engine script changes are byte-neutral, never skipped)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: main's content synced by main's scripts vs by this branch's scripts
+        run: |
+          set -euo pipefail
+          # The content skip below cannot hide an un-gated engine change: this
+          # job holds CONTENT fixed at main (so branch-only tokens never leak)
+          # and swaps only intelligence/sync/scripts between main and this
+          # branch. Any difference is a script change that altered vendored
+          # (IS_CLI=0) output — exactly what the env gating must prevent. Runs
+          # unconditionally, on every branch and on main (where it is a no-op
+          # equality).
+          git fetch --quiet origin main
+          BASE="$RUNNER_TEMP/base"; git worktree add --quiet "$BASE" origin/main
+
+          stage() {  # $1 = project dir, $2 = scripts source tree
+            mkdir -p "$1"
+            cp -r "$BASE/intelligence" "$1/intelligence"
+            rm -rf "$1/intelligence/sync/scripts"
+            cp -r "$2/intelligence/sync/scripts" "$1/intelligence/sync/scripts"
+            cp "$BASE/examples/go-api/config.yaml" "$1/intelligence/config.yaml"
+            mkdir -p "$1/intelligence/rules"
+            printf '# Ctx\n\nx\n' > "$1/intelligence/rules/context.md"
+            ( cd "$1" && git init -q . && \
+              bash intelligence/sync/scripts/sync.sh > out.txt 2> err.txt )
+          }
+          stage "$RUNNER_TEMP/a" "$BASE"
+          stage "$RUNNER_TEMP/b" "$GITHUB_WORKSPACE"
+          fail=0
+          for out in .claude .cursor .github .codex .agents .pi .opencode AGENTS.md; do
+            [ ! -e "$RUNNER_TEMP/a/$out" ] && [ ! -e "$RUNNER_TEMP/b/$out" ] && continue
+            diff -ruN "$RUNNER_TEMP/a/$out" "$RUNNER_TEMP/b/$out" || { echo "CODE GOLDEN DIFF: $out"; fail=1; }
+          done
+          diff <(grep '^IS_STATUS=' "$RUNNER_TEMP/a/out.txt") <(grep '^IS_STATUS=' "$RUNNER_TEMP/b/out.txt") || { echo "IS_STATUS differs"; fail=1; }
+          [ "$fail" -eq 0 ] && echo "OK: engine script changes are byte-neutral for vendored output"
+          exit "$fail"
+
   legacy-golden:
     name: legacy-golden (vendored outputs byte-identical vs main)
     runs-on: ubuntu-latest

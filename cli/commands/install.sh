@@ -63,6 +63,7 @@ fi
 missing=""
 while IFS= read -r name; do
     [ -n "$name" ] || continue
+    assert_valid_pkg_name "$name"
     if [ ! -f "$lock" ] || [ -z "$(qmap_field "$lock" "packages" "$name" "url")" ]; then
         missing="$missing $name"
     fi
@@ -101,8 +102,14 @@ fi
 if [ -f "$lock" ]; then
     while IFS="$LOCK_SEP" read -r name requested url path resolved sha; do
         [ -n "$name" ] || continue
+        # The lock arrives with a cloned repo — its keys are untrusted input
+        # on their way into rm -rf paths, and its urls into git argv.
+        assert_valid_pkg_name "$name"
         rel=".intelligence/packages/$name"
-        if [ -d "$IP_ROOT/$rel" ] && [ "$force" -eq 0 ]; then
+        # --frozen never trusts what is already on disk: a pre-existing
+        # (possibly substituted) store dir would otherwise be synced with no
+        # sha verification at all.
+        if [ -d "$IP_ROOT/$rel" ] && [ "$force" -eq 0 ] && [ "$frozen" -eq 0 ]; then
             continue
         fi
         # Fetch into staging and commit to the store only after the integrity

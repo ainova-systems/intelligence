@@ -21,16 +21,26 @@
 # _fetch_index <registry-repo-url> — clones the registry repo (shallow) and
 # prints the path of its index.yaml; empty on failure. Cached per run+url.
 _fetch_index() {
-    local url="$1" cache key tmp
-    cache="${TMPDIR:-/tmp}/intelligence-cli-index-$$"
+    local url="$1" key tmp
+    assert_safe_source_url "$url"
+    # Per-run private cache dir under an UNPREDICTABLE mktemp path (a fixed
+    # /tmp/...-$$ would be trusted on cache hit and pre-creatable by others).
+    # No EXIT trap: _fetch_index is always called inside $( ), so a trap would
+    # fire in that subshell and delete the dir before the caller reads it. The
+    # dir is small and OS-reaped from the temp root; IS_REMOTE_CACHE-style
+    # persistence is exported so repeated calls in one command share it.
+    if [ -z "${IS_CLI_INDEX_CACHE:-}" ]; then
+        IS_CLI_INDEX_CACHE="$(mktemp -d -t intelligence-cli-index-XXXXXX 2>/dev/null || mktemp -d)"
+        export IS_CLI_INDEX_CACHE
+    fi
+    local cache="$IS_CLI_INDEX_CACHE"
     key="$(printf '%s' "$url" | cksum | awk '{print $1}')"
     if [ -f "$cache/$key/index.yaml" ]; then
         printf '%s' "$cache/$key/index.yaml"
         return 0
     fi
-    mkdir -p "$cache"
     tmp="$cache/$key"
-    if GIT_TERMINAL_PROMPT=0 git -c core.autocrlf=false clone --depth 1 --quiet "$url" "$tmp" 2>/dev/null \
+    if GIT_TERMINAL_PROMPT=0 git -c core.autocrlf=false clone --depth 1 --quiet -- "$url" "$tmp" 2>/dev/null \
         && [ -f "$tmp/index.yaml" ]; then
         printf '%s' "$tmp/index.yaml"
     fi
@@ -103,6 +113,8 @@ suggest_similar() {
 # store holds the bytes the package published.
 fetch_package() {
     local url="$1" ref="$2" subpath="$3" dest="$4"
+    assert_safe_source_url "$url"
+    assert_safe_ref "$ref"
     # Bundle seed: the engine-content package at the CLI's own version copies
     # from the npm bundle — no network, which keeps init / fresh-clone install
     # / migrate offline exactly like the staging they replace. Keyed on the
@@ -124,20 +136,20 @@ fetch_package() {
     [ -n "$ref" ] && branch_arg=(--branch "$ref")
     tmp="$(mktemp -d -t intelligence-pkg-XXXXXX 2>/dev/null || mktemp -d)"
     if ! GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
-            clone --depth 1 "${branch_arg[@]+"${branch_arg[@]}"}" --quiet "$url" "$tmp/clone" 2>/dev/null; then
+            clone --depth 1 "${branch_arg[@]+"${branch_arg[@]}"}" --quiet -- "$url" "$tmp/clone" 2>/dev/null; then
         # A SHA is not clonable with --branch — fall back to a full clone + checkout.
         rm -rf "$tmp/clone"
         GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
-            clone --quiet "$url" "$tmp/clone" 2>/dev/null \
+            clone --quiet -- "$url" "$tmp/clone" 2>/dev/null \
             || { rm -rf "$tmp"; die "cannot clone $url"; }
-        [ -z "$ref" ] || git -C "$tmp/clone" checkout --quiet "$ref" \
+        [ -z "$ref" ] || git -C "$tmp/clone" checkout --quiet "$ref" -- \
             || { rm -rf "$tmp"; die "ref '$ref' not found in $url"; }
     fi
     sha="$(git -C "$tmp/clone" rev-parse HEAD)"
     src="$tmp/clone"
     if [ -n "$subpath" ]; then
         case "$subpath" in
-            *..*) rm -rf "$tmp"; die "unsafe path '$subpath'" ;;
+            *..*|/*|*[\"\']*) rm -rf "$tmp"; die "unsafe path '$subpath'" ;;
         esac
         src="$tmp/clone/$subpath"
         [ -d "$src" ] || { rm -rf "$tmp"; die "path '$subpath' not found in $url${ref:+@$ref}" ; }

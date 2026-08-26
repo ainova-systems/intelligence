@@ -19,6 +19,35 @@ die() {
     exit 1
 }
 
+# --- Untrusted-input guards ----------------------------------------------
+# Manifest, lock and registry indexes arrive with a cloned repo: every value
+# they carry is attacker-adjacent. URLs and refs reach git argv (a leading
+# `-` would be an option — `--upload-pack=<cmd>` is code execution), names
+# become store paths fed to rm -rf. Guard at the choke points, loudly.
+
+# assert_safe_source_url <url> — scheme allowlist (the engine's own list) or
+# scp-like user@host:path; never option-shaped, never quote-bearing.
+assert_safe_source_url() {
+    local url="$1"
+    case "$url" in
+        ""|-*) die "unsafe source url '$url' — option-shaped or empty" ;;
+        *[\"\'\ ]*) die "unsafe source url '$url' — quotes or spaces" ;;
+        https://*|http://*|ssh://*|git://*|file://*) ;;
+        *@*:*) ;;
+        *) die "unsafe source url '$url' — allowed: https, http, ssh, git, file, or user@host:path" ;;
+    esac
+}
+
+# assert_safe_ref <ref-or-empty> — tags/branches/SHAs; never option-shaped.
+assert_safe_ref() {
+    local ref="$1"
+    [ -z "$ref" ] && return 0
+    case "$ref" in
+        -*) die "unsafe git ref '$ref' — option-shaped" ;;
+        *[\"\'\ \\]*) die "unsafe git ref '$ref'" ;;
+    esac
+}
+
 source "$CLI_DIR/lib/manifest.sh"
 source "$CLI_DIR/lib/semver.sh"
 source "$CLI_DIR/lib/registry.sh"

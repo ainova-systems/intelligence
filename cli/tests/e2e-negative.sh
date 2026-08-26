@@ -367,5 +367,63 @@ chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"
 chk test -d "$U13/.intelligence/packages/@ainova-systems/sync/rules"
 xok "IS_STATUS=ok" "$U13" sync
 
+echo "== 14. hostile inputs: lock keys, option-shaped urls, dispatcher =="
+H14="$OUT/h14"
+mkdir -p "$H14/intelligence/rules"
+printf '# C\n\nctx\n' > "$H14/intelligence/rules/context.md"
+cat > "$H14/intelligence.yaml" <<EOF
+project:
+  name: h14
+
+sync_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+
+packages:
+  "@x/../../../escape":
+    version: "1.0.0"
+    url: "$PACK_URL"
+EOF
+git -C "$H14" init --quiet
+# a traversal key in the manifest must be refused before any filesystem work
+xfail "invalid package name" "$H14" install
+xfail "invalid package name" "$H14" update
+# option-shaped url must never reach git argv
+cat > "$H14/intelligence.yaml" <<EOF
+project:
+  name: h14
+
+sync_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+
+packages:
+  "@acme/evil":
+    version: "1.0.0"
+    url: "--upload-pack=touch $OUT/pwned;git-upload-pack"
+EOF
+xfail "unsafe source url" "$H14" install
+chknot test -e "$OUT/pwned"                       # the RCE payload never ran
+chknot test -d "$H14/.intelligence/packages/@acme"
+
+# dispatcher: a path-shaped command word cannot exec a neighbouring script
+run_in "$H14" ../../../etc/x
+[ "$RC" -ne 0 ] || { echo "FAIL: dispatcher accepted a path-shaped command"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -qF "unknown command" || { echo "FAIL: dispatcher did not reject path-shaped command"; fail=1; }
+
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

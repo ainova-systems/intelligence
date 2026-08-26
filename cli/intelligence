@@ -64,6 +64,14 @@ EOF
 esac
 shift
 
+# The command word builds a path — allow exactly lowercase words, so
+# `intelligence ../x` can never exec a neighbouring script.
+case "$cmd" in
+    *[!a-z-]*|-*)
+        echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2
+        exit 1
+        ;;
+esac
 cmd_file="$CLI_DIR/commands/$cmd.sh"
 if [ ! -f "$cmd_file" ]; then
     echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2

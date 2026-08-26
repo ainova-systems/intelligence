@@ -75,10 +75,11 @@ semver_match() {
 # onto their tag.
 list_remote_versions() {
     local url="$1"
+    assert_safe_source_url "$url"
     # `|| true` inside the pipeline: an unreachable repo must read as "no
     # versions", not kill a pipefail caller mid-command-substitution —
     # reachability is the CALLER's question (add probes it explicitly).
-    { GIT_TERMINAL_PROMPT=0 git ls-remote --tags "$url" 2>/dev/null || true; } \
+    { GIT_TERMINAL_PROMPT=0 git ls-remote --tags -- "$url" 2>/dev/null || true; } \
         | awk '{
             sub(/\r$/, "")
             ref = $2
@@ -95,7 +96,8 @@ list_remote_versions() {
 # prints "<tag> <sha>". Peeled sha (the commit a tag object points at) wins.
 remote_tag_for_version() {
     local url="$1" ver="${2#v}"
-    { GIT_TERMINAL_PROMPT=0 git ls-remote --tags "$url" 2>/dev/null || true; } \
+    assert_safe_source_url "$url"
+    { GIT_TERMINAL_PROMPT=0 git ls-remote --tags -- "$url" 2>/dev/null || true; } \
         | awk -v want="$ver" '
             {
                 sub(/\r$/, "")

@@ -24,6 +24,8 @@ lock="$IP_ROOT/intelligence.lock"
 moved=0 found=0
 while IFS= read -r name; do
     [ -n "$name" ] || continue
+    # Manifest keys are untrusted input on their way into store paths.
+    assert_valid_pkg_name "$name"
     [ -n "$only" ] && [ "$name" != "$only" ] && continue
     # A named package that exists is "found" whatever happens next — a skip
     # message followed by "not in the manifest" would contradict itself.
@@ -60,10 +62,17 @@ while IFS= read -r name; do
         continue
     fi
     rel=".intelligence/packages/$name"
-    # The new version may have dropped a top-level section dir: unwire the old
-    # shape first, or a dangling store-backed source bricks the next sync.
+    # Fetch into staging FIRST: a failed clone must leave the current install
+    # fully wired and intact. Only after success is the old shape unwired
+    # (the new version may have dropped a section dir), the store swapped,
+    # and the new shape wired.
+    staging="$IP_ROOT/.intelligence/.staging-$$"
+    rm -rf "$staging"
+    sha="$(fetch_package "$url" "$tag" "$path" "$staging")"
     unwire_package_sources "$manifest" "$rel"
-    sha="$(fetch_package "$url" "$tag" "$path" "$IP_ROOT/$rel")"
+    rm -rf "${IP_ROOT:?}/$rel"
+    mkdir -p "$(dirname "$IP_ROOT/$rel")"
+    mv "$staging" "$IP_ROOT/$rel"
     wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
     lock_upsert "$lock" "$name" "$range" "$url" "$path" "$tag" "$sha"
     echo "  $name: ${current:-<none>} -> $tag"

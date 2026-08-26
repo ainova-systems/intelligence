@@ -54,14 +54,18 @@ lock_write_from_tsv() {
         echo "lockfile_version: $LOCKFILE_VERSION"
         echo "engine_version: \"$(bundled_engine_version)\""
         echo "packages:"
+        # Values reach a double-quoted YAML scalar: a `"` or `\` in any of
+        # them (registry-supplied url/path included) must be escaped, or it
+        # would break or alias the neighbouring field.
         awk -F"$LOCK_SEP" '
+            function esc(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); return s }
             NF >= 6 {
-                print "  \"" $1 "\":"
-                if ($2 != "") print "    requested: \"" $2 "\""
-                print "    url: \"" $3 "\""
-                if ($4 != "") print "    path: \"" $4 "\""
-                if ($5 != "") print "    resolved: \"" $5 "\""
-                print "    sha: \"" $6 "\""
+                print "  \"" esc($1) "\":"
+                if ($2 != "") print "    requested: \"" esc($2) "\""
+                print "    url: \"" esc($3) "\""
+                if ($4 != "") print "    path: \"" esc($4) "\""
+                if ($5 != "") print "    resolved: \"" esc($5) "\""
+                print "    sha: \"" esc($6) "\""
             }
         ' "$tsv"
     } > "$tmp"
@@ -72,7 +76,8 @@ lock_write_from_tsv() {
 # Replace-or-append one entry, keeping the others.
 lock_upsert() {
     local lock="$1" name="$2" requested="$3" url="$4" path="$5" resolved="$6" sha="$7"
-    local tsv="${TMPDIR:-/tmp}/intelligence-lock-$$.tsv"
+    local tsv
+    tsv="$(mktemp -t intelligence-lock-XXXXXX 2>/dev/null || mktemp)"
     {
         lock_to_tsv "$lock" | awk -F"$LOCK_SEP" -v n="$name" '$1 != n'
         printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
@@ -86,7 +91,8 @@ lock_upsert() {
 lock_remove() {
     local lock="$1" name="$2"
     [ -f "$lock" ] || return 0
-    local tsv="${TMPDIR:-/tmp}/intelligence-lock-$$.tsv"
+    local tsv
+    tsv="$(mktemp -t intelligence-lock-XXXXXX 2>/dev/null || mktemp)"
     lock_to_tsv "$lock" | awk -F"$LOCK_SEP" -v n="$name" '$1 != n' > "$tsv"
     if [ -s "$tsv" ]; then
         lock_write_from_tsv "$lock" "$tsv"
