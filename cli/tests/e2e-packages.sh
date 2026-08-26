@@ -85,7 +85,9 @@ printf '# Pack rule v1.2\n\nPACK_RULE_MARKER_12\n' > "$PACK/rules/pack-rule.md"
 git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -am v12
 git -C "$PACK" tag v1.2.0
 git -C "$PACK" tag v2.0.0   # out of ^1.1.0 range — must NOT be picked
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview) | grep -q 'v1.1.0 -> v1.2.0' || { echo "FAIL: preview omitted the available update"; fail=1; }
+preview12="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q 'v1.1.0 -> v1.2.0' <<< "$preview12" \
+    || { echo "FAIL: preview omitted the available update"; fail=1; }
 if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update) >/dev/null 2>&1; then
     echo "FAIL: non-interactive update applied without --apply"; fail=1
 fi
@@ -103,14 +105,14 @@ git -C "$PACK" tag v1.3.0
 chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
 chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
 out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
-echo "$out13" | grep -q '^IS_STATUS=ok' || { echo "FAIL: sync after shape-changing update"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out13" || { echo "FAIL: sync after shape-changing update"; fail=1; }
 
 echo "== update requested range when resolved tag stays unchanged =="
 awk '{ gsub(/version: "\^1\.1\.0"/, "version: \"~1.3.0\""); print }' \
     "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
 mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview) \
-    | grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' \
+preview_req="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' <<< "$preview_req" \
     || { echo "FAIL: preview omitted request-only lock alignment"; fail=1; }
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply >/dev/null)
 chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
@@ -153,7 +155,7 @@ chknot grep -q 'PACK_RULE_MARKER' "$PROJ/AGENTS.md"
 
 echo "== idempotent second sync =="
 out2="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
-echo "$out2" | grep -q '^IS_STATUS=ok' || { echo "FAIL: final sync not ok"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out2" || { echo "FAIL: final sync not ok"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E: ALL OK"
 exit "$fail"
