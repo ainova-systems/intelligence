@@ -341,9 +341,14 @@ rollback() {
     rm -rf "$stage"
     echo "rolled back — the vendored setup is untouched" >&2
 }
+rollback_on_exit() {
+    local rc=$?
+    rollback
+    exit "$rc"
+}
 # Every live write through verified sync is covered by rollback, including a
 # plain set -e/EXIT failure rather than only an explicit sync refusal.
-trap 'rc=$?; rollback; exit "$rc"' EXIT
+trap rollback_on_exit EXIT
 trap 'rollback; exit 130' INT TERM
 if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
     {
