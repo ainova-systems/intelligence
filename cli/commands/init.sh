@@ -43,7 +43,7 @@ case "$IP_MODE" in
             check_version_compat "$IP_ROOT/intelligence.yaml"
             echo "project: v2 at $IP_ROOT"
             if project_needs_upgrade "$IP_ROOT"; then
-                echo "  would upgrade project schema/content to engine $(bundled_engine_version)"
+                echo "  would align project lifecycle with engine $(bundled_engine_version)"
             else
                 echo "  schema/content already match engine $(bundled_engine_version)"
             fi

@@ -216,9 +216,9 @@ ensure_project_current() {
     stamp="$(read_engine_stamp "$manifest")"
     eng="$(bundled_engine_version)"
     if is_ci_environment; then
-        die "project schema/content (${stamp:-unstamped}) is behind this CLI engine ($eng) — run 'intelligence init --apply' locally, review and commit the diff"
+        die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
     fi
-    echo "  project upgrade: ${stamp:-unstamped} -> $eng"
+    echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
     bash "$CLI_DIR/internal/upgrade-v2.sh" --no-sync
 }
 

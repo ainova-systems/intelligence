@@ -40,7 +40,7 @@ assert_valid_pkg_name() {
 # them inside the portable shell-identifier subset used by built-in adapters.
 assert_valid_target_name() {
     case "$1" in
-        ""|[!a-z]*|*[!a-z0-9_]*)
+        ""|[!abcdefghijklmnopqrstuvwxyz]*|*[!abcdefghijklmnopqrstuvwxyz0123456789_]*)
             die "invalid target name '$1' — expected [a-z][a-z0-9_]*"
             ;;
     esac

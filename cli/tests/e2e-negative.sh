@@ -4,6 +4,9 @@
 # status failures, migration rollback / dirty-tree refusal, init modes,
 # and registry bindings. Hermetic: file:// fixture repos only, no network.
 set -euo pipefail
+# Hosted CI exports CI=true for the whole process. Most cases exercise normal
+# local behavior; the two refusal cases below opt into CI explicitly.
+unset CI
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"
@@ -361,7 +364,7 @@ chk test -d "$P13/.claude/skills/intelligence-update"
 # store/lock is repairable by the same automatic project alignment gate.
 rm -rf "$P13/.intelligence/packages"
 rm -f "$P13/intelligence.lock"
-xok "project upgrade" "$P13" sync
+xok "project alignment" "$P13" sync
 chk test -f "$P13/intelligence.lock"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync"
 xok "engine content follows" "$P13" update --preview
@@ -404,7 +407,7 @@ EOF
 git -C "$U13" init --quiet
 CI=true xfail "intelligence init --apply" "$U13" sync
 CI=true xfail "intelligence init --apply" "$U13" update --apply
-xok "project upgrade" "$U13" sync
+xok "project alignment" "$U13" sync
 chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
 chknot test -d "$U13/.intelligence/engine"
 chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"

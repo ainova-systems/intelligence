@@ -49,7 +49,7 @@ fi
 echo ""
 echo "Project:"
 if project_needs_upgrade "$IP_ROOT"; then
-    echo "  schema/content ${stamp:-unstamped} -> $eng"
+    echo "  lifecycle alignment required (stamp ${stamp:-unstamped}, engine $eng)"
     project_change=1
 else
     echo "  schema/content $eng (up to date)"

@@ -181,7 +181,7 @@ jobs:
         example: [go-api, dotnet-api-with-react-frontend, platform-with-submodules]
     steps:
       - uses: actions/checkout@v6
-      - name: Stage the example as a v2 project
+      - name: Stage and align the example as a v2 project
         shell: bash
         run: |
           set -euo pipefail
@@ -240,6 +240,12 @@ jobs:
 
           REFERENCE_MARKER scaffold for handler + route + tests.
           EOF
+
+          # Examples omit generated lockfiles. Align once as a local developer
+          # would, commit the resulting lock, then remove the ignored store so
+          # the next step proves CI can restore strictly from that lock.
+          (cd "$PROJ" && env -u CI bash "$GITHUB_WORKSPACE/cli/intelligence" init --apply --no-sync)
+          rm -rf "$PROJ/.intelligence"
 
           git -C "$PROJ" init -q
           git -C "$PROJ" add -A
