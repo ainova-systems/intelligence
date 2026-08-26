@@ -36,6 +36,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Changed
 
+- Changed npm publication to run only when a matching tagged GitHub Release is published from `main`.
 - Renamed the early CLI manifest schema stamp from `sync_version` to `schema_version`; `intelligence init` aligns RC manifests automatically.
 - Reduced every manifest package entry to requested `version` or `ref`; resolved URL/path, tag/ref, and SHA now live only in `intelligence.lock`.
 - Separated the products: `ainova-systems/intelligence-sync` archives legacy Intelligence Sync; `ainova-systems/intelligence` contains Intelligence.

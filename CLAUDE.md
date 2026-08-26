@@ -196,11 +196,14 @@ Files inside any `docs/` directory use lowercase kebab-case (`cli.md`, `adapter-
 
 `npm/build.sh` assembles the distribution from `cli/`, `engine/` and `packages/sync/`. npm publishes with provenance, so `npm/package.json` repository metadata must continue naming this repository.
 
-The `release-npm` workflow is manual:
+Publishing a GitHub Release is the only npm release action. The `release-npm` workflow runs on `release.published`:
 
-- `X.Y.Z-rc.N` may publish from any ref to npm dist-tag `next`;
-- stable `X.Y.Z` may publish to `latest` only from the matching `vX.Y.Z` tag;
+- a GitHub prerelease tagged `vX.Y.Z-rc.N` publishes `X.Y.Z-rc.N` to npm dist-tag `next`;
+- an ordinary GitHub release tagged `vX.Y.Z` publishes `X.Y.Z` to npm dist-tag `latest`;
+- the tag's base version must match `engine/VERSION`, and its commit must be reachable from `main`;
 - the Intelligence tag line starts at `v0.11.0`; never recreate legacy Intelligence Sync tags here.
+
+Create and push the tag from a reviewed `main` commit, then publish a GitHub Release for that tag. Mark an RC Release as a prerelease; do not run a separate npm workflow.
 
 Do not release, push to the public registry repository, or change the repository workflow from direct-main to branches/PRs without explicit owner direction.
 

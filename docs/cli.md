@@ -242,4 +242,4 @@ bash cli/tests/e2e-lifecycle.sh .
 bash cli/tests/e2e-negative.sh .
 ```
 
-Build the npm payload with `bash npm/build.sh 0.0.0-dev`. The manual release workflow publishes release candidates to npm dist-tag `next`; stable publication remains owner-approved and tag-gated.
+Build the npm payload with `bash npm/build.sh 0.0.0-dev`. To release, create and push a tag from `main`, then publish a GitHub Release for it. Prerelease tag `vX.Y.Z-rc.N` goes to npm dist-tag `next`, while stable tag `vX.Y.Z` goes to `latest`. Mark an RC Release as a prerelease; the workflow rejects a tag outside `main`, a base version that differs from `engine/VERSION`, or a mismatched prerelease flag.
