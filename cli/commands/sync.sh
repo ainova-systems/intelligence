@@ -18,7 +18,7 @@ case "$IP_MODE" in
     legacy)
         # A vendored project syncs with ITS engine — its pin is the contract,
         # and a newer bundled engine must not generate against an older schema.
-        echo "NOTE: vendored (v1) setup — delegating to its own engine. 'intelligence init' converts it to the CLI setup." >&2
+        echo "NOTE: vendored (v1) setup — delegating to $IP_MODULE_DIR/scripts/sync.sh. 'intelligence init' converts it to the CLI setup." >&2
         exec bash "$IP_MODULE_DIR/scripts/sync.sh" "$@"
         ;;
     *)

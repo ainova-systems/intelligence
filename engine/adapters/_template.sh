@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence-sync: Adapter template
+# Intelligence CLI: project adapter template
 # Scaffold this file with: intelligence adapter create <name>
 #
 # This file is NOT executable as-is — `<name>` placeholders below would be

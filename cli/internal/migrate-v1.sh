@@ -34,7 +34,11 @@ config="$umbrella/config.yaml"
 module_rel="${module_dir#"$root"/}"
 umbrella_rel="${umbrella#"$root"/}"
 
-[ -f "$root/intelligence.yaml" ] && die "intelligence.yaml already exists at the root — half-migrated state; resolve it manually"
+for existing in intelligence.yaml intelligence.lock .intelligence; do
+    if [ -e "$root/$existing" ] || [ -L "$root/$existing" ]; then
+        die "$existing already exists at the root — conflicting v2 state; move it aside or restore the project before migrating"
+    fi
+done
 if [ "$dry_run" -eq 0 ] && [ "$force" -eq 0 ]; then
     if [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then
         die "working tree is not clean — commit or stash first (or --force); migrate wants a one-commit diff you can review and revert"
@@ -102,8 +106,11 @@ validate_mirror_path() {
 }
 
 # ---- Stage ----------------------------------------------------------------
-stage="$root/.intelligence-migrate-stage.$$"
-[ "$dry_run" -eq 1 ] && stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
+if [ "$dry_run" -eq 1 ]; then
+    stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
+else
+    stage="$(mktemp -d "$root/.intelligence-migrate-stage.XXXXXX")"
+fi
 cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
@@ -281,14 +288,24 @@ for section in rules agents skills; do
         esac
     done < <(read_yaml_list "$manifest_stage" "$section")
 done
-for adapter in agents claude cursor copilot codex pi opencode; do
+target_keys() {
+    awk '
+        /^targets:[[:space:]]*$/ { in_targets=1; next }
+        in_targets && /^[^[:space:]#]/ { exit }
+        in_targets && /^  [A-Za-z_][A-Za-z0-9_]*:/ {
+            line=$0; sub(/^  /, "", line); sub(/:.*/, "", line); print line
+        }
+    ' "$1"
+}
+while IFS= read -r adapter; do
+    [ -n "$adapter" ] || continue
     old_e="$(is_target_enabled "$config" "$adapter")"
     new_e="$(is_target_enabled "$manifest_stage" "$adapter")"
     [ "$old_e" = "$new_e" ] || { echo "  TARGET DRIFT: $adapter enabled '$old_e' -> '$new_e'"; fail=1; }
     old_o="$(get_target_output "$config" "$adapter")"
     new_o="$(get_target_output "$manifest_stage" "$adapter")"
     [ "$old_o" = "$new_o" ] || { echo "  TARGET DRIFT: $adapter output '$old_o' -> '$new_o'"; fail=1; }
-done
+done < <({ target_keys "$config"; target_keys "$manifest_stage"; } | sort -u)
 [ "$fail" -eq 0 ] || die "staged state failed verification — nothing changed"
 
 if [ "$dry_run" -eq 1 ]; then
@@ -310,6 +327,24 @@ if [ -f "$root/.gitignore" ]; then
     gitignore_existed=1
     cp "$root/.gitignore" "$stage/gitignore.orig"
 fi
+commit_active=1
+rollback() {
+    [ "$commit_active" -eq 1 ] || return 0
+    commit_active=0
+    set +e
+    rm -rf "$root/.intelligence" "$root/intelligence.yaml" "$root/intelligence.lock"
+    if [ "$gitignore_existed" -eq 1 ]; then
+        cp "$stage/gitignore.orig" "$root/.gitignore"
+    else
+        rm -f "$root/.gitignore"
+    fi
+    rm -rf "$stage"
+    echo "rolled back — the vendored setup is untouched" >&2
+}
+# Every live write through verified sync is covered by rollback, including a
+# plain set -e/EXIT failure rather than only an explicit sync refusal.
+trap 'rc=$?; rollback; exit "$rc"' EXIT
+trap 'rollback; exit 130' INT TERM
 if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
     {
         [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
@@ -317,33 +352,21 @@ if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore
         echo ".intelligence/"
     } >> "$root/.gitignore"
 fi
-rollback() {
-    rm -rf "$root/.intelligence" "$root/intelligence.yaml" "$root/intelligence.lock"
-    if [ "$gitignore_existed" -eq 1 ]; then
-        cp "$stage/gitignore.orig" "$root/.gitignore"
-    else
-        rm -f "$root/.gitignore"
-    fi
-    echo "rolled back — the vendored setup is untouched" >&2
-}
-# From the first moved file until success, an interrupt must roll back too.
-trap 'rollback; exit 130' INT TERM
 mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
-    rollback
-    die "sync of the migrated state failed — rolled back"
+    die "sync of the migrated state failed"
 }
 echo "$sync_out" | grep -q '^IS_STATUS=ok' || {
     echo "$sync_out"
-    rollback
-    die "sync of the migrated state did not report ok — rolled back"
+    die "sync of the migrated state did not report ok"
 }
 # Point of no return: the new state is verified. From here an interrupt must
 # NOT roll back (the old setup is being removed) — only clean the stage.
+commit_active=0
 trap cleanup_stage EXIT INT TERM
 
 # Only now is anything of the old setup removed — and config.yaml is kept as

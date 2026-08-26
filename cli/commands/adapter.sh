@@ -143,6 +143,7 @@ case "$action" in
         fi
         ;;
     remove)
+        [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
         shift 2 || true
         adapter_remove "$@"
         ;;

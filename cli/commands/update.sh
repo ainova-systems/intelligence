@@ -55,6 +55,10 @@ else
     echo "  schema/content $eng (up to date)"
 fi
 
+if project_has_packages "$IP_ROOT" && [ ! -f "$IP_ROOT/intelligence.lock" ]; then
+    die "manifest declares packages but intelligence.lock is absent — restore the committed lock before planning or applying updates"
+fi
+
 pkg_args=(--preview)
 [ -z "$only" ] || pkg_args+=("$only")
 pkg_plan="$(bash "$CLI_DIR/internal/package-update.sh" "${pkg_args[@]}")"
@@ -82,9 +86,7 @@ if [ "$mode" = "ask" ]; then
     esac
 fi
 
-if [ "$project_change" -eq 1 ]; then
-    ensure_project_current "$IP_ROOT"
-fi
+ensure_project_current "$IP_ROOT"
 apply_args=(--no-sync)
 [ -z "$only" ] || apply_args+=("$only")
 bash "$CLI_DIR/internal/package-update.sh" "${apply_args[@]}"

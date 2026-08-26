@@ -2,6 +2,7 @@
 # e2e: init on a fresh repo; conditionally migrate a vendored legacy project
 # (with a mirrored pack); deep status; idempotent init and locked restore.
 set -euo pipefail
+unset CI
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"

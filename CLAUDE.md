@@ -46,7 +46,7 @@ The public lifecycle surface is intentionally small:
 
 ```text
 intelligence init [--preview|--apply]        initialize, convert v1, restore or align v2
-intelligence sync [adapter]                 restore the locked store if missing, then render
+intelligence sync [adapter]                 restore the locked store if missing, then render enabled targets
 intelligence update [@scope/name] [--preview|--apply]  plan, confirm or apply project/package updates
 intelligence package <add|remove|list|search>   manage packages
 intelligence adapter <list|create|enable|disable|remove>  manage adapters and target state

@@ -47,15 +47,26 @@ case "$IP_MODE" in
             else
                 echo "  schema/content already match engine $(bundled_engine_version)"
             fi
+            if project_has_packages "$IP_ROOT" && [ ! -f "$IP_ROOT/intelligence.lock" ]; then
+                die "manifest declares packages but intelligence.lock is absent — restore the committed lock before applying"
+            fi
             if project_store_missing "$IP_ROOT"; then
                 echo "  would restore .intelligence/ from intelligence.lock"
             else
                 echo "  package store already present"
             fi
-            echo "  would run intelligence sync"
+            if [ "$no_sync" -eq 1 ]; then
+                echo "  would stop before intelligence sync"
+            else
+                echo "  would run intelligence sync"
+            fi
             exit 0
         fi
-        ensure_project_current "$IP_ROOT"
+        if [ "$apply" -eq 1 ]; then
+            ensure_project_current "$IP_ROOT" --explicit
+        else
+            ensure_project_current "$IP_ROOT"
+        fi
         restore_project_store_if_missing "$IP_ROOT"
         [ "$no_sync" -eq 1 ] && exit 0
         cd "$IP_ROOT"
@@ -88,6 +99,7 @@ esac
 [ "$force" -eq 0 ] || die "--force applies only when converting an archived v1 project"
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 root="$(cd "$root" && pwd)"
+assert_safe_content_dir "$root" "$content_dir"
 
 # Never invent a tool the project shows no trace of: every per-tool target is
 # DETECTED from repo markers or named explicitly via --targets. Only `agents`
@@ -119,8 +131,16 @@ fi
 if [ "$preview" -eq 1 ]; then
     echo "project: no Intelligence setup found"
     echo "  would create intelligence.yaml and intelligence.lock"
-    echo "  would install the bundled sync-content package"
-    echo "  would enable adapters:$targets, then sync"
+    if [ "$bare" -eq 1 ]; then
+        echo "  would omit the bundled sync-content package (--bare)"
+    else
+        echo "  would install the bundled sync-content package"
+    fi
+    if [ "$no_sync" -eq 1 ]; then
+        echo "  would enable adapters:$targets and stop before sync"
+    else
+        echo "  would enable adapters:$targets, then sync"
+    fi
     exit 0
 fi
 

@@ -80,7 +80,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | Command | Purpose |
 |---|---|
 | `init [--preview\|--apply]` | Create, convert, restore or align the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
-| `sync [adapter]` | Restore missing locked content, align v2 when safe, then render enabled adapters or one named adapter. |
+| `sync [adapter]` | Restore missing locked content, align v2 when safe, then render all enabled adapters or one named enabled adapter. |
 | `update [@scope/name] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |
 | `adapter list\|create\|enable\|disable\|remove` | Discover built-ins and manage project-owned adapters and their manifest state. |
@@ -134,6 +134,11 @@ Registries are the only resolver for package names. There is no built-in catalog
 Stable `x.y.z` Git tags, optionally prefixed with `v`, provide package versions. Semver ranges select the highest matching stable tag. A `ref:` pin is the escape hatch for a branch or commit and does not move during `update`.
 
 `intelligence.lock` records the requested version, source URL, source path, resolved tag and commit SHA. `sync` restores missing locked packages without consulting registries or re-resolving ranges.
+
+If a manifest declares packages but its lockfile is missing, lifecycle commands
+fail before changing anything. Restore the committed `intelligence.lock`; the
+CLI does not reconstruct a partial lock from whichever packages happen to be
+available locally.
 
 ## How rules are routed
 

@@ -12,7 +12,9 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 - [ ] The project has a root `intelligence.yaml`; the v1 nested `config.yaml` and vendored engine are gone.
 - [ ] `intelligence.lock` is committed and `.intelligence/` is gitignored.
 - [ ] The manifest uses `packages:`; no v1 `packs:` entries or mirrors remain.
+- [ ] The manifest has one top-level `schema_version` and no obsolete `sync_version` key.
 - [ ] `schema_version` and the exact `@ainova-systems/sync` pin match the installed CLI engine.
+- [ ] Package artifacts use `<content-dir>` and adapters use `IS_CONTENT_REL`; no `<umbrella>` or `IS_UMBRELLA_REL` tokens remain.
 - [ ] `intelligence sync` followed by `intelligence status --check` succeeds.
 
 ### Added
@@ -56,3 +58,6 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 - Fixed stale package sources during update, registry repoints under unchanged tags, and partial package replacement.
 - Fixed package/project source precedence so project artifacts override same-named package artifacts.
 - Fixed project-conversion rollback of `.gitignore` and preview handling without mutating the live v1 project.
+- Fixed v1 conversion to reject conflicting v2 state and roll back every failure before verified sync.
+- Fixed lifecycle alignment to refuse a missing package lock instead of creating a partial replacement.
+- Fixed explicit `init --apply` alignment under CI and filtered sync of disabled adapters.

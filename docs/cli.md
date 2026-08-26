@@ -63,9 +63,17 @@ For v2, sync performs lifecycle preflight before rendering:
 
 1. Align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
-3. Run every enabled adapter, or only the named adapter.
+3. Run every enabled adapter, or only the named enabled adapter. A filtered
+   adapter must be enabled explicitly; naming it does not bypass target state.
 
-A missing store with no lock fails and directs the user to `intelligence init`. In an archived v1 project, sync delegates to that project's own vendored engine until conversion.
+A missing store with no lock fails and directs the user to restore the committed
+lock. In an archived v1 project, sync delegates to that project's own vendored
+engine until conversion.
+
+If the manifest declares packages but `intelligence.lock` is missing, every
+mutating lifecycle command fails before alignment or restoration. Restore the
+committed lock; the CLI never invents a partial replacement from the packages
+that happen to be locally available.
 
 ### `intelligence update`
 
@@ -134,7 +142,9 @@ intelligence status [--check]
 
 Without a flag, report detected project mode, manifest/schema, lockfile, engine-content package and bundled engine. For archived v1, report the vendored location and point to `intelligence init`.
 
-`--check` performs deep consistency validation and exits nonzero for manifest/lock divergence, missing package content, SHA drift, stale schema/content or invalid sources.
+`--check` performs deep consistency validation and exits nonzero for
+manifest/lock divergence, missing package content, stale schema/content or
+invalid sources. Frozen store restoration verifies the locked commit SHA.
 
 ### `intelligence registry`
 

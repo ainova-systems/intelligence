@@ -276,6 +276,15 @@ chknot test -d "$LEG1/.intelligence"
 # not leave one behind.
 chknot test -f "$LEG1/.gitignore"
 
+# Pre-existing v2 state is never consumed, nested, overwritten or removed by
+# migration. In particular, a leftover ignored store must fail closed.
+mkdir -p "$LEG1/.intelligence"
+printf 'keep\n' > "$LEG1/.intelligence/pre-existing"
+xfail ".intelligence already exists" "$LEG1" init --apply --force
+chk grep -q 'keep' "$LEG1/.intelligence/pre-existing"
+chk test -f "$LEG1/intelligence/config.yaml"
+rm -rf "$LEG1/.intelligence"
+
 echo "== 9. migrate dirty-tree refusal + --force =="
 LEG2="$OUT/leg2"
 mkdir -p "$LEG2"
@@ -332,6 +341,12 @@ chk test -f "$LEG2/AGENTS.md"
 echo "== 10. init is idempotent; failed legacy migration remains previewable =="
 xok "" "$PROJ" init
 xok "dry run" "$LEG1" init --preview
+xok "would omit the bundled sync-content package" "$EMPTY" init --preview --bare --no-sync
+xfail "unsafe content directory '.git'" "$EMPTY" init --dir .git
+mkdir -p "$OUT/outside-content"
+ln -s "$OUT/outside-content" "$EMPTY/linked-content"
+xfail "resolves outside the repository" "$EMPTY" init --dir linked-content
+rm -f "$EMPTY/linked-content"
 xfail "invalid target name" "$EMPTY" init --targets ../escape
 xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
 chknot test -f "$EMPTY/intelligence.yaml"
@@ -361,13 +376,32 @@ chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
 chk test -d "$P13/.claude/skills/intelligence-update"
 chk test -d "$P13/.claude/skills/intelligence-learn-from-repository"
-# A hand-authored/current manifest with the bundled sync package but no
-# store/lock is repairable by the same automatic project alignment gate.
+# Keep a second package in the lock so the missing-lock refusal proves an
+# alignment cannot silently replace a multi-package lock with sync content.
+xok "@acme/extra" "$P13" package add "git+$PACK_URL" --name @acme/extra --no-sync
+chk grep -q '"@acme/extra"' "$P13/intelligence.lock"
+# A missing lock is not an upgrade signal. Refuse before manufacturing a
+# partial sync-only lock, then prove the committed lock restores the store.
+cp "$P13/intelligence.lock" "$OUT/p13.lock"
 rm -rf "$P13/.intelligence/packages"
 rm -f "$P13/intelligence.lock"
-xok "project alignment" "$P13" sync
+xfail "intelligence.lock is absent" "$P13" sync
+xfail "intelligence.lock is absent" "$P13" init --preview
+xfail "intelligence.lock is absent" "$P13" update --preview
+xfail "intelligence.lock is absent" "$P13" update --apply
+xok "Lockfile: MISSING" "$P13" status
+xok "lock missing" "$P13" package list
+chknot test -f "$P13/intelligence.lock"
+cp "$OUT/p13.lock" "$P13/intelligence.lock"
+xok "restoring package store" "$P13" sync
 chk test -f "$P13/intelligence.lock"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync"
+chk test -d "$P13/.intelligence/packages/@acme/extra"
+# A stale pre-package directory is removed even when source entries were
+# already migrated in an earlier interrupted RC alignment.
+mkdir -p "$P13/.intelligence/engine/rules"
+xok "removed stale .intelligence/engine" "$P13" init --apply
+chknot test -d "$P13/.intelligence/engine"
 xok "engine content follows" "$P13" update --preview
 xfail "--force" "$P13" package remove @ainova-systems/sync
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
@@ -408,7 +442,9 @@ EOF
 git -C "$U13" init --quiet
 CI=true xfail "intelligence init --apply" "$U13" sync
 CI=true xfail "intelligence init --apply" "$U13" update --apply
-xok "project alignment" "$U13" sync
+CI=True xfail "intelligence init --apply" "$U13" sync
+CI=on xfail "intelligence init --apply" "$U13" sync
+CI=true xok "project alignment" "$U13" init --apply
 chknot grep -q '^sync_version:' "$U13/intelligence.yaml"
 chk grep -q "^schema_version: \"$ENGINE_VER\"" "$U13/intelligence.yaml"
 chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
@@ -416,6 +452,30 @@ chknot test -d "$U13/.intelligence/engine"
 chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"
 chk test -d "$U13/.intelligence/packages/@ainova-systems/sync/rules"
 xok "IS_STATUS=ok" "$U13" sync
+
+# Conflicting old/new schema keys are ambiguous and remain byte-for-byte
+# untouched instead of being partially rewritten.
+D13="$OUT/d13"
+mkdir -p "$D13"
+cat > "$D13/intelligence.yaml" <<EOF
+project:
+  name: d13
+
+schema_version: "$ENGINE_VER"
+sync_version: "0.10.0"
+
+sources:
+  rules:
+  agents:
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+EOF
+git -C "$D13" init --quiet
+cp "$D13/intelligence.yaml" "$OUT/d13.before"
+xfail "conflicting schema_version" "$D13" init --apply
+chk cmp -s "$OUT/d13.before" "$D13/intelligence.yaml"
 
 echo "== 14. hostile inputs: lock keys, option-shaped urls, dispatcher =="
 H14="$OUT/h14"
@@ -490,6 +550,7 @@ echo "== 15. unified adapter commands =="
 # fail before a write.
 xfail "no intelligence project" "$EMPTY" adapter create myide
 xfail "no intelligence project" "$EMPTY" adapter enable claude
+xfail "usage: intelligence adapter remove" "$PROJ" adapter remove
 xfail "invalid target name" "$PROJ" adapter create ../escape
 xfail "invalid target name" "$PROJ" adapter enable my-ide
 xfail "adapter 'missing' not found" "$PROJ" adapter enable missing
@@ -506,6 +567,7 @@ xok "enabled: myide" "$PROJ" adapter enable myide
 chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
 xok "disabled: myide" "$PROJ" adapter disable myide
 chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
+xfail "Adapter 'myide' is disabled" "$PROJ" sync myide
 
 # Existing output is preserved byte-for-byte when a target is toggled.
 xok "disabled: claude" "$PROJ" adapter disable claude
@@ -531,6 +593,10 @@ echo "== 16. removed public commands stay removed =="
 for old in install upgrade migrate outdated target doctor add remove list search; do
     xfail "unknown command" "$PROJ" "$old"
 done
+run_in "$PROJ" help
+[ "$RC" -eq 0 ] || { echo "FAIL: help failed"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -qF -- "--targets a,b --dir name --bare --no-sync" \
+    || { echo "FAIL: init options missing from help"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

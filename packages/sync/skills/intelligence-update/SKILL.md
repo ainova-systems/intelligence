@@ -33,9 +33,10 @@ result.
    new executable. Apply the resulting plan with `intelligence update --apply`,
    or `intelligence update $ARGUMENTS --apply` when one package was requested.
 
-5. Run `intelligence status --check`, then `intelligence sync`. Require final
-   `IS_STATUS=ok`. Verify every crossed breaking post-condition directly and
-   report any item that cannot be machine-verified.
+5. An applied update that renders must finish with `IS_STATUS=ok`; preserve and
+   stop on any other status. Then run `intelligence status --check`. Do not run
+   a duplicate sync after `update --apply`. Verify every crossed breaking
+   post-condition directly and report any item that cannot be machine-verified.
 
 Report versions before and after, the applied plan, post-condition results,
 and any remaining action. On a refusal, preserve the full error and stop

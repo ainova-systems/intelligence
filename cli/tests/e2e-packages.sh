@@ -2,6 +2,7 @@
 # Hermetic e2e for the resolver stack: package add/list/remove, locked restore,
 # planned updates and registries against file:// fixture repos.
 set -euo pipefail
+unset CI
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
 REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"

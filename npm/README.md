@@ -3,7 +3,7 @@
 **npm for AI agent intelligence.** One CLI that builds, versions and distributes the rules, agents and skills your AI coding tools run on — rendered natively for Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Pi, OpenCode and `AGENTS.md`.
 
 ```bash
-npm install -g @ainova-systems/intelligence
+npm install -g @ainova-systems/intelligence@next
 
 cd your-project
 intelligence init
@@ -33,7 +33,7 @@ intelligence sync
 | Command | What it does |
 |---|---|
 | `intelligence init [--preview\|--apply]` | Create, convert, restore or align a project |
-| `intelligence sync [adapter]` | Restore locked content if needed, then render enabled adapters |
+| `intelligence sync [adapter]` | Restore locked content if needed, then render all or one enabled adapter |
 | `intelligence update [@scope/name] [--preview\|--apply]` | Plan or apply project and ranged-package updates |
 | `intelligence package add\|remove\|list\|search` | Manage versioned Intelligence Packages |
 | `intelligence adapter list\|create\|enable\|disable\|remove` | Manage render adapters |

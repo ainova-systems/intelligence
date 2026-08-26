@@ -19,7 +19,11 @@ manifest="$IP_ROOT/intelligence.yaml"
 
 stamp="$(read_schema_version "$manifest")"
 legacy_stamp="$(top_scalar "$manifest" "sync_version")"
+schema_key_count="$(awk '/^schema_version:[[:space:]]*/ { n++ } END { print n + 0 }' "$manifest")"
+legacy_key_count="$(awk '/^sync_version:[[:space:]]*/ { n++ } END { print n + 0 }' "$manifest")"
 eng="$(bundled_engine_version)"
+[ "$schema_key_count" -le 1 ] || die "manifest has duplicate schema_version keys"
+[ "$legacy_key_count" -le 1 ] || die "manifest has duplicate sync_version keys"
 if [ -n "$stamp" ] && _ver_gt "$stamp" "$eng"; then
     die "manifest schema $stamp is newer than this CLI's engine $eng — update the global CLI first"
 fi
@@ -36,8 +40,12 @@ fi
 # `sync_version`. Rename it without changing its value; the final stamp below
 # then aligns it with this engine. The archived v1 reader remains separate.
 if [ -n "$legacy_stamp" ]; then
-    tmp="$manifest.schema-key.tmp"
-    awk '$0 !~ /^sync_version:[[:space:]]*/' "$manifest" > "$tmp" && mv "$tmp" "$manifest"
+    if [ -n "$stamp" ]; then
+        [ "$stamp" = "$legacy_stamp" ] || die "manifest has conflicting schema_version '$stamp' and sync_version '$legacy_stamp'"
+        _qmap_stage "$manifest" '$0 !~ /^sync_version:[[:space:]]*/'
+    else
+        _qmap_stage "$manifest" '{ sub(/^sync_version:/, "schema_version:"); print }'
+    fi
     echo "  migrating: sync_version -> schema_version"
 fi
 
@@ -82,6 +90,14 @@ if [ "$have_pkg" -eq 1 ] && [ "$migrated" -eq 0 ]; then
 fi
 if [ "$have_pkg" -eq 0 ] && [ "$migrated" -eq 0 ]; then
     echo "  NOTE: $SYNC_PKG_NAME is not in this manifest (bare setup) — engine meta-skills stay uninstalled; 'intelligence package add $SYNC_PKG_NAME' opts back in." >&2
+fi
+
+# A previous RC could leave this managed directory even after its source
+# entries were already removed. Its presence is itself an upgrade predicate,
+# so always close that post-condition.
+if [ -d "$IP_ROOT/.intelligence/engine" ]; then
+    rm -rf "$IP_ROOT/.intelligence/engine"
+    echo "  removed stale .intelligence/engine"
 fi
 
 stamp_schema_version "$manifest" "$eng"

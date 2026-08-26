@@ -183,7 +183,12 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
 
     # Check if target is enabled in config
     enabled=$(is_target_enabled "$CONFIG_FILE" "$adapter")
-    if [ "$enabled" != "1" ] && [ -z "$TARGET_FILTER" ]; then
+    if [ "$enabled" != "1" ]; then
+        if [ -n "$TARGET_FILTER" ]; then
+            echo "ERROR: Adapter '$TARGET_FILTER' is disabled in $CONFIG_FILE." >&2
+            echo "       Enable it first: intelligence adapter enable $TARGET_FILTER" >&2
+            exit 1
+        fi
         continue
     fi
 

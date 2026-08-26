@@ -184,9 +184,36 @@ export_engine_env() {
 
 is_ci_environment() {
     case "${CI:-}" in
-        1|true|TRUE|yes|YES) return 0 ;;
+        1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Validate a repository-relative project content directory, including every
+# existing symlinked path component. Call before writing a new manifest.
+assert_safe_content_dir() {
+    local root="$1" content_dir="$2" repo_phys probe old_ifs part probe_phys
+    local -a parts
+    case "$content_dir" in
+        ""|/*|.|..|../*|*/../*|*/..|.git|.git/*|.intelligence|.intelligence/*|*\\*|[A-Za-z]:*)
+            die "unsafe content directory '$content_dir'"
+            ;;
+    esac
+    repo_phys="$(cd "$root" && pwd -P)"
+    probe="$root"
+    old_ifs="$IFS"; IFS='/'; read -r -a parts <<< "$content_dir"; IFS="$old_ifs"
+    for part in "${parts[@]}"; do
+        [ -n "$part" ] || continue
+        probe="$probe/$part"
+        if [ -e "$probe" ] || [ -L "$probe" ]; then
+            probe_phys="$(cd "$probe" 2>/dev/null && pwd -P)" \
+                || die "cannot resolve project content path '$content_dir'"
+            case "$probe_phys" in
+                "$repo_phys"|"$repo_phys"/*) ;;
+                *) die "project content directory resolves outside the repository: '$content_dir'" ;;
+            esac
+        fi
+    done
 }
 
 project_needs_upgrade() {
@@ -204,19 +231,36 @@ project_needs_upgrade() {
         pinned="$(qmap_field "$manifest" "packages" "$name" "version")"
         locked="$(qmap_field "$root/intelligence.lock" "packages" "$name" "resolved")"
         [ "$pinned" = "$eng" ] || return 0
-        [ -n "$locked" ] || return 0
-        [ "${locked#v}" = "$eng" ] || return 0
+        if [ -f "$root/intelligence.lock" ]; then
+            [ -n "$locked" ] || return 0
+            [ "${locked#v}" = "$eng" ] || return 0
+        fi
     done < <(qmap_keys "$manifest" "packages")
     return 1
 }
 
+# A manifest with packages but no lock has no trustworthy resolved state from
+# which lifecycle alignment can proceed. Never manufacture a partial lock.
+project_has_packages() {
+    local root="$1" name found=1
+    while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        assert_valid_pkg_name "$name"
+        found=0
+    done < <(qmap_keys "$root/intelligence.yaml" "packages")
+    return "$found"
+}
+
 ensure_project_current() {
-    local root="$1" manifest="$1/intelligence.yaml" stamp eng
+    local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
     check_version_compat "$manifest" || return $?
+    if project_has_packages "$root" && [ ! -f "$root/intelligence.lock" ]; then
+        die "manifest declares packages but intelligence.lock is absent — restore the committed lock before running project lifecycle commands"
+    fi
     project_needs_upgrade "$root" || return 0
     stamp="$(read_schema_version "$manifest")"
     eng="$(bundled_engine_version)"
-    if is_ci_environment; then
+    if is_ci_environment && [ "$explicit" != "--explicit" ]; then
         die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
     fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"

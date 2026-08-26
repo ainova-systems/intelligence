@@ -16,6 +16,8 @@ case "$IP_MODE" in
         echo "Manifest: intelligence.yaml (schema_version $(read_schema_version "$IP_ROOT/intelligence.yaml"))"
         if [ -f "$IP_ROOT/intelligence.lock" ]; then
             echo "Lockfile: intelligence.lock"
+        elif [ -n "$(qmap_keys "$IP_ROOT/intelligence.yaml" "packages")" ]; then
+            echo "Lockfile: MISSING (manifest declares packages)"
         else
             echo "Lockfile: none (no packages added yet)"
         fi
