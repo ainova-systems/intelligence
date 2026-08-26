@@ -12,7 +12,7 @@ LOCK_SEP=$'\x1f'
 
 # top_scalar <file> <key> — one top-level scalar (`key: "value"`), quotes and
 # trailing comment stripped. The declared exception to "no new parsing": the
-# engine's read_engine_stamp is hardwired to its own key.
+# engine's read_schema_version is hardwired to its own key.
 top_scalar() {
     [ -f "$1" ] || return 0
     awk -v key="$2" '

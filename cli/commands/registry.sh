@@ -36,10 +36,11 @@ case "$sub" in
         [ "${3:-}" = "--force" ] && force=1
         [ -n "$url" ] || die "usage: intelligence registry add <registry-repo-url> [--force]"
         case "$url" in
-            @*) die "registries are added by URL — names carry their own scope. To install a package: intelligence add $url/<name>" ;;
+            @*) die "registries are added by URL — names carry their own scope. To install a package: intelligence package add $url/<name>" ;;
         esac
         assert_safe_source_url "${url#git+}"
         require_v2
+        ensure_project_current "$IP_ROOT"
         # Fail closed: a URL that cannot produce an index is not a registry,
         # and recording it would turn a typo here into a confusing failure at
         # the first add. --force covers the one honest case: the registry is
@@ -59,7 +60,7 @@ case "$sub" in
             echo "        url: \"https://github.com/acme/intelligence.git\"" >&2
             echo "        path: \"packs/backend\"      # omit when the repo IS the package" >&2
             echo "  Format and an example: https://github.com/ainova-systems/intelligence-registry" >&2
-            echo "  A single repository needs no registry at all: intelligence add github:org/repo" >&2
+            echo "  A single repository needs no registry at all: intelligence package add github:org/repo" >&2
             echo "  Recording it ahead of a registry that does not exist yet: --force" >&2
             exit 1
         fi
@@ -70,6 +71,7 @@ case "$sub" in
         url="${2:-}"
         [ -n "$url" ] || die "usage: intelligence registry remove <url>"
         require_v2
+        ensure_project_current "$IP_ROOT"
         registries_remove "$IP_ROOT/intelligence.yaml" "$url"
         # The retired flat-map form also stored scope keys — drop one if the
         # argument names it, so old manifests clean up with the old command.

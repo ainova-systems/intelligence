@@ -9,15 +9,15 @@ agent: intelligence-architect
 
 Read-only audit of the project's rules, agents and skills, ending in a punch-list. This skill owns the **generic** audit — everything true of any repository. A project that adds laws of its own layers a thin project audit on top and invokes this one; it never re-implements these checks.
 
-Name reflects the umbrella usage of "skills" for all AI artifacts (rules + agents + skills).
+The name uses "skills" as shorthand for all AI artifacts (rules, agents, and skills).
 
 ## Scope: what to read, and what to leave alone
 
-1. **Resolve the layout — never assume folder names.** `<umbrella>/` is the content dir, `<module>/` the engine's own files, `<manifest>` the config — all localized to this project at sync time. Read authoring conventions from `<module>/docs/CONVENTIONS.md` and the `intelligence-authoring` rule.
+1. **Resolve the layout — never assume folder names.** `<content-dir>/` is the project content directory, `<module>/` the installed sync package, `<manifest>` the root manifest — all localized to this project at sync time. Read authoring conventions from `<module>/references/conventions.md` and the `intelligence-authoring` rule.
 
-2. **Enumerate from `<manifest>`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups (e.g. a shared one and a project one), they may be nested, and a remote entry is a declared pack (vendored setups, `packs:`) or an installed package (CLI setups, `packages:`, content under `.intelligence/packages/`). Take the list from the config; a literal `intelligence/rules/` is wrong in any project that named things differently.
+2. **Enumerate from `<manifest>`, not from a guessed path.** The artifacts are exactly the directories listed under `sources.rules`, `sources.agents` and `sources.skills` — there may be several groups, they may be nested, and installed packages live under `.intelligence/packages/`. Take the list from the manifest; a literal `intelligence/rules/` is wrong in any project that named things differently.
 
-3. **Skip everything the engine owns.** Sources under `<module>/` (`<module>/rules`, `<module>/agents`, `<module>/skills/intelligence-*`) are upstream-owned: every engine update replaces them wholesale, so a local "fix" there is deleted at the next update. Never propose an edit to them. If one of them is genuinely wrong, or a generic check is missing from this skill, that is a **proposal to upstream** — say so in the report rather than patching locally.
+3. **Skip installed package sources.** Sources under `<module>/` (`<module>/rules`, `<module>/agents`, `<module>/skills/intelligence-*`) are package-owned and restored by CLI lifecycle operations, so a local "fix" is not durable. Never propose a project-local edit to them. If one is wrong, make an upstream proposal instead.
 
 4. **Never read or edit generated output** (`.claude/`, `.cursor/`, `.github/`, `.codex/`, `.agents/`, `.pi/`, `.opencode/`, `AGENTS.md`). Sync owns those entirely; the finding always belongs to the source.
 
@@ -36,9 +36,9 @@ Name reflects the umbrella usage of "skills" for all AI artifacts (rules + agent
    | **Machine facts in a rule** | OS, shell, editor or a local absolute path (`R2`) | `MOVE` — these belong in a personal, gitignored `CLAUDE.md`; a rule is committed and read by everyone, including whoever is on another platform |
    | **Literal path or command in a skill** | A path *outside the skill's own folder* baked into a procedure (`R3`) | `PARAMETERIZE` — a skill is *executed*, so a literal path breaks the moment the layout moves; resolve it from a rule or from `<manifest>`. **Exempt:** the skill's own bundle (`references/`, `scripts/`, `assets/` — content is co-located with its skill by default); rules and agents (describing the repository is their job); an example inside an output-format block; the resolution step itself |
    | **Skill with no verification** | Nothing at the end proves the procedure worked (`R4`) | `FLAG` — a procedure that proves nothing is a note, or just the work: give it a verification, or delete it |
-   | **Reserved prefix** | A project artifact named `intelligence-*` | `RENAME` — the prefix belongs to the engine, which replaces or removes everything under it on update |
+   | **Reserved prefix** | A project artifact named `intelligence-*` | `RENAME` — the prefix belongs to the sync package and collides in generated output |
    | **Naming** | A skill that is not `<domain>-<verb>-<noun>`, or a domain invented rather than reused | `RENAME` — or introduce the new domain deliberately |
-   | **Stale** | No edits in 6+ months and nothing cross-references it | `ARCHIVE` — move to `<umbrella>/_archive/` |
+   | **Stale** | No edits in 6+ months and nothing cross-references it | `ARCHIVE` — move to `<content-dir>/_archive/` |
    | **Negative-framed judgement call** | "Never do X" where a positive default fits, outside safety / security / output-format | `REWRITE` — state the default; reserve NEVER for true must-nots |
    | **Unbacked reason** | A rule asserts a *why* — a number, a measurement, a tool's behaviour — that nothing in the repo or in that tool's documentation supports | `FLAG` — an invented reason is worse than none: it sounds like evidence. Surface it with a draft; never rewrite the meaning yourself |
    | **Always-on rule that should be scoped** | A concern that only matters in one area, loaded into every session and inlined into `AGENTS.md` | `SCOPE` — add `paths:`, or justify the cost out loud |

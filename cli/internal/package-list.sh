@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence list — packages with requested / locked / installed state.
+# Internal package list operation.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -14,8 +14,13 @@ while IFS= read -r name; do
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
     resolved="$(qmap_field "$lock" "packages" "$name" "resolved")"
-    state="missing — run 'intelligence install'"
-    [ -d "$IP_ROOT/.intelligence/packages/$name" ] && state="installed"
+    if [ ! -f "$lock" ]; then
+        state="lock missing — restore committed intelligence.lock"
+    elif [ -d "$IP_ROOT/.intelligence/packages/$name" ]; then
+        state="installed"
+    else
+        state="store missing — run 'intelligence sync'"
+    fi
     printf '%s  %s  locked:%s  %s\n' \
         "$name" \
         "${ref:+ref:$ref}${ref:-${range:-*}}" \
@@ -24,5 +29,5 @@ while IFS= read -r name; do
 done < <(qmap_keys "$manifest" "packages")
 
 if [ "$count" -eq 0 ]; then
-    echo "No packages. Add one: intelligence add @ainova-systems/core"
+    echo "No packages. Add one: intelligence package add @ainova-systems/core"
 fi

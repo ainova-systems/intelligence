@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence search [term] — what the registries offer, and what this project
+# Internal package search operation: what the registries offer and what this project
 # already has. The catalogue view `list` deliberately is not: `list` answers
 # "what does this project depend on", `search` answers "what could it".
 #
@@ -27,7 +27,7 @@ pkg_state() {
     elif [ -d "$IP_ROOT/.intelligence/packages/$name" ]; then
         printf 'installed %s' "$(qmap_field "$IP_ROOT/intelligence.lock" "packages" "$name" "resolved")"
     else
-        printf 'declared (run install)'
+        printf 'declared (run sync)'
     fi
 }
 
@@ -75,9 +75,9 @@ if [ "$rows" -eq 0 ]; then
     else
         echo "No trusted registries (or they offer nothing) — intelligence registry add <repo-url>."
     fi
-    echo "Explicit installs need no registry: intelligence add github:org/repo"
+    echo "Explicit installs need no registry: intelligence package add github:org/repo"
     exit 0
 fi
 
 echo ""
-echo "add one: intelligence add <name>   |   private registry: intelligence registry add <repo-url>"
+echo "add one: intelligence package add <name>   |   private registry: intelligence registry add <repo-url>"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence install [--frozen] [--force] [--no-sync]
+# Internal locked-store restore operation.
 #
 # Restore .intelligence/ from intelligence.lock — the fresh-clone command.
 # --frozen additionally refuses any manifest/lock divergence (CI mode) and
@@ -23,30 +23,22 @@ manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 
 # --frozen is the reproducibility contract: the lock must agree with the
-# manifest on the package SET and on every requested-source field before a
+# manifest on the package SET and on every requested-intent field before a
 # single byte is restored. Anything less lets a manifest edit ride on a stale
 # lock — the exact drift the flag exists to refuse.
 if [ "$frozen" -eq 1 ]; then
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         [ -n "$(qmap_field "$lock" "packages" "$name" "url")" ] \
-            || die "--frozen: $name is in the manifest but not in intelligence.lock"
+            || die "locked restore: $name is in the manifest but not in intelligence.lock"
         m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
         m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
-        m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
-        m_path="$(qmap_field "$manifest" "packages" "$name" "path")"
         l_req="$(qmap_field "$lock" "packages" "$name" "requested")"
         l_res="$(qmap_field "$lock" "packages" "$name" "resolved")"
-        l_url="$(qmap_field "$lock" "packages" "$name" "url")"
-        l_path="$(qmap_field "$lock" "packages" "$name" "path")"
         [ -z "$m_ver" ] || [ "$m_ver" = "$l_req" ] \
-            || die "--frozen: $name requests '$m_ver' but the lock recorded '$l_req' — run 'intelligence install' without --frozen"
+            || die "locked restore: $name requests '$m_ver' but the lock recorded '$l_req' — reconcile the manifest and lock"
         [ -z "$m_ref" ] || [ "$m_ref" = "$l_res" ] \
             || die "--frozen: $name pins ref '$m_ref' but the lock resolved '$l_res'"
-        [ -z "$m_url" ] || [ "$m_url" = "$l_url" ] \
-            || die "--frozen: $name declares url '$m_url' but the lock recorded '$l_url'"
-        [ -z "$m_path" ] || [ "$m_path" = "$l_path" ] \
-            || die "--frozen: $name declares path '$m_path' but the lock recorded '$l_path'"
     done < <(qmap_keys "$manifest" "packages")
     while IFS= read -r name; do
         [ -n "$name" ] || continue
@@ -76,14 +68,11 @@ if [ -n "$missing" ]; then
             sync_pkg_install "$IP_ROOT"
             continue
         fi
-        url="$(qmap_field "$manifest" "packages" "$name" "url")"
-        path="$(qmap_field "$manifest" "packages" "$name" "path")"
         ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
         range="$(qmap_field "$manifest" "packages" "$name" "version")"
-        if [ -z "$url" ]; then
-            resolve_package_source "$manifest" "$name"
-            url="$RES_URL"; path="$RES_PATH"
-        fi
+        resolve_package_source "$manifest" "$name"
+        url="$RES_URL"; path="$RES_PATH"
+        [ -n "$url" ] || die "no trusted registry declares '$name' and it is absent from intelligence.lock"
         resolved_tag=""
         if [ -z "$ref" ]; then
             picked="$(list_remote_versions "$url" | semver_pick_highest "$range")"

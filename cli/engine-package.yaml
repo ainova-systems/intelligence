@@ -6,8 +6,8 @@
 # The engine-content package is the one package whose content documents the
 # engine scripts bundled with the CLI: init writes this entry into the
 # manifest (visible, removable), its pin always equals the engine VERSION,
-# `upgrade` moves it, and at the matching version it materializes from the
-# bundle without network.
+# lifecycle preflight aligns it with the installed CLI, and at the matching
+# version it materializes from the bundle without network.
 name: "@ainova-systems/sync"
 url: "https://github.com/ainova-systems/intelligence.git"
 path: "packages/sync"

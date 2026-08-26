@@ -1,87 +1,93 @@
 #!/bin/bash
-# intelligence update [name] [--no-sync]
+# intelligence update [@scope/name] [--preview|--apply]
 #
-# Re-resolve version ranges against the remotes and rewrite the lock. Pinned
-# packages (`ref:`) never move here — repin by editing the manifest or
-# re-adding. `update <name>` limits the pass to one package.
+# One update surface: show the installed-CLI/project/package plan, then either
+# stop, ask interactively, or apply without a prompt. Updating the global npm
+# installation remains an explicit package-manager operation.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
-only="" no_sync=0
+only="" mode="ask" preview_seen=0 apply_seen=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        --no-sync) no_sync=1 ;;
-        @*) only="$1" ;;
-        *) die "unknown argument '$1'" ;;
+        --preview) preview_seen=1; mode="preview" ;;
+        --apply) apply_seen=1; mode="apply" ;;
+        @*) [ -z "$only" ] || die "only one package may be selected"; only="$1" ;;
+        *) die "usage: intelligence update [@scope/name] [--preview|--apply]" ;;
     esac
-    shift || true
+    shift
 done
+[ "$preview_seen" -eq 0 ] || [ "$apply_seen" -eq 0 ] || die "choose either --preview or --apply"
 
 require_v2
 manifest="$IP_ROOT/intelligence.yaml"
-lock="$IP_ROOT/intelligence.lock"
+check_version_compat "$manifest"
+eng="$(bundled_engine_version)"
+stamp="$(read_schema_version "$manifest")"
+project_change=0
 
-moved=0 found=0
-while IFS= read -r name; do
-    [ -n "$name" ] || continue
-    # Manifest keys are untrusted input on their way into store paths.
-    assert_valid_pkg_name "$name"
-    [ -n "$only" ] && [ "$name" != "$only" ] && continue
-    # A named package that exists is "found" whatever happens next — a skip
-    # message followed by "not in the manifest" would contradict itself.
-    found=1
-    if [ "$name" = "$SYNC_PKG_NAME" ]; then
-        echo "  $name: engine content moves with the engine — 'intelligence upgrade' owns it"
-        continue
+echo "Update plan"
+echo ""
+echo "CLI:"
+if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ "${IS_SKIP_NPM_CHECK:-0}" != "1" ] && command -v npm >/dev/null 2>&1; then
+    channel="latest"
+    case "$INTELLIGENCE_NPM_VERSION" in *-*) channel="next" ;; esac
+    available="$(npm view "@ainova-systems/intelligence" "dist-tags.$channel" 2>/dev/null || true)"
+    if [ -z "$available" ]; then
+        echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
+    elif [ "$available" = "$INTELLIGENCE_NPM_VERSION" ]; then
+        echo "  $INTELLIGENCE_NPM_VERSION (up to date on npm $channel)"
+    else
+        echo "  $INTELLIGENCE_NPM_VERSION -> $available (npm $channel)"
+        echo "  run: npm install -g @ainova-systems/intelligence@$channel"
+        echo "  then rerun: intelligence update --apply"
     fi
-    ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
-    [ -n "$ref" ] && { echo "  $name: pinned to ref '$ref' — skipped"; continue; }
-    range="$(qmap_field "$manifest" "packages" "$name" "version")"
-    # An exact version is a pin, same as ref: — update never moves pins.
-    if [ -n "$range" ] && semver_is_stable "$range"; then
-        echo "  $name: pinned to $range — edit the manifest to move it"
-        continue
-    fi
-    url="$(qmap_field "$manifest" "packages" "$name" "url")"
-    path="$(qmap_field "$manifest" "packages" "$name" "path")"
-    if [ -z "$url" ]; then
-        resolve_package_source "$manifest" "$name"
-        url="$RES_URL"; path="$RES_PATH"
-    fi
-    picked="$(list_remote_versions "$url" | semver_pick_highest "$range")"
-    [ -n "$picked" ] || { echo "  $name: nothing satisfies '${range:-*}' at $url" >&2; continue; }
-    read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
-    current="$(qmap_field "$lock" "packages" "$name" "resolved")"
-    cur_url="$(qmap_field "$lock" "packages" "$name" "url")"
-    cur_path="$(qmap_field "$lock" "packages" "$name" "path")"
-    # Same tag is not enough: a registry may re-point a name's source while
-    # keeping the version — the move doctor warns about must be actionable
-    # here, so url/path changes refetch too.
-    if [ "$tag" = "$current" ] && [ "$url" = "$cur_url" ] && [ "$path" = "$cur_path" ]; then
-        echo "  $name: ${current:-<none>} (up to date)"
-        continue
-    fi
-    rel=".intelligence/packages/$name"
-    # Fetch into staging FIRST: a failed clone must leave the current install
-    # fully wired and intact. Only after success is the old shape unwired
-    # (the new version may have dropped a section dir), the store swapped,
-    # and the new shape wired.
-    staging="$IP_ROOT/.intelligence/.staging-$$"
-    rm -rf "$staging"
-    sha="$(fetch_package "$url" "$tag" "$path" "$staging")"
-    unwire_package_sources "$manifest" "$rel"
-    rm -rf "${IP_ROOT:?}/$rel"
-    mkdir -p "$(dirname "$IP_ROOT/$rel")"
-    mv "$staging" "$IP_ROOT/$rel"
-    wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
-    lock_upsert "$lock" "$name" "$range" "$url" "$path" "$tag" "$sha"
-    echo "  $name: ${current:-<none>} -> $tag"
-    moved=$((moved + 1))
-done < <(qmap_keys "$manifest" "packages")
-
-[ -n "$only" ] && [ "$found" -eq 0 ] && die "package '$only' is not in the manifest"
-echo "updated: $moved package(s)"
-
-if [ "$moved" -gt 0 ] && [ "$no_sync" -eq 0 ]; then
-    exec bash "$CLI_DIR/commands/sync.sh"
+else
+    echo "  source checkout/registry check skipped; engine $eng"
 fi
+
+echo ""
+echo "Project:"
+if project_needs_upgrade "$IP_ROOT"; then
+    echo "  lifecycle alignment required (stamp ${stamp:-unstamped}, engine $eng)"
+    project_change=1
+else
+    echo "  schema/content $eng (up to date)"
+fi
+
+if project_has_packages "$IP_ROOT" && [ ! -f "$IP_ROOT/intelligence.lock" ]; then
+    die "manifest declares packages but intelligence.lock is absent — restore the committed lock before planning or applying updates"
+fi
+
+pkg_args=(--preview)
+[ -z "$only" ] || pkg_args+=("$only")
+pkg_plan="$(bash "$CLI_DIR/internal/package-update.sh" "${pkg_args[@]}")"
+echo ""
+echo "Packages:"
+printf '%s\n' "$pkg_plan"
+package_changes="$(printf '%s\n' "$pkg_plan" | awk '/^updates available:/ {print $3; exit}')"
+package_changes="${package_changes:-0}"
+
+if [ "$mode" = "preview" ]; then
+    exit 0
+fi
+if [ "$project_change" -eq 0 ] && [ "$package_changes" -eq 0 ]; then
+    echo ""
+    echo "Nothing to apply with the currently installed CLI."
+    exit 0
+fi
+if [ "$mode" = "ask" ]; then
+    [ -t 0 ] || die "update requires confirmation — rerun with --preview or --apply"
+    printf '\nApply this plan? [Y/n] '
+    read -r answer
+    case "$answer" in
+        ""|y|Y|yes|YES) ;;
+        *) echo "update cancelled"; exit 0 ;;
+    esac
+fi
+
+ensure_project_current "$IP_ROOT"
+apply_args=(--no-sync)
+[ -z "$only" ] || apply_args+=("$only")
+bash "$CLI_DIR/internal/package-update.sh" "${apply_args[@]}"
+exec bash "$CLI_DIR/commands/sync.sh"

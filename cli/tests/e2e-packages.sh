@@ -1,8 +1,10 @@
 #!/bin/bash
-# Hermetic e2e for the resolver stack: add / install --frozen / update /
-# list / remove / registry against file:// fixture repos.
+# Hermetic e2e for the resolver stack: package add/list/remove, locked restore,
+# planned updates and registries against file:// fixture repos.
 set -euo pipefail
+unset CI
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO="$(cd "$REPO" && pwd)"
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 CLI="$REPO/cli/intelligence"
@@ -32,7 +34,7 @@ cat > "$PROJ/intelligence.yaml" <<EOF
 project:
   name: e2e
 
-sync_version: "$ENGINE_VER"
+schema_version: "$ENGINE_VER"
 
 sources:
   rules:
@@ -47,40 +49,50 @@ EOF
 printf '# Ctx\n\nproject context\n' > "$PROJ/intelligence/rules/context.md"
 git -C "$PROJ" init --quiet
 
-echo "== add =="
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" add "git+$PACK_URL" --name @acme/shared)
+echo "== package add =="
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+$PACK_URL" --name @acme/shared)
 chk test -d "$PROJ/.intelligence/packages/@acme/shared/rules"
 chk grep -q '"@acme/shared"' "$PROJ/intelligence.yaml"
 chk grep -q 'version: "\^1.1.0"' "$PROJ/intelligence.yaml"
+chknot grep -q '^[[:space:]]*url:' "$PROJ/intelligence.yaml"
+chknot grep -q '^[[:space:]]*path:' "$PROJ/intelligence.yaml"
 chk grep -q '\.intelligence/packages/@acme/shared/rules' "$PROJ/intelligence.yaml"
 chk grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
 chk test -f "$PROJ/intelligence.lock"
 chk grep -q 'resolved: "v1.1.0"' "$PROJ/intelligence.lock"
+chk grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.lock"
 chk grep -q 'sha: "' "$PROJ/intelligence.lock"
 chk grep -q 'PACK_RULE_MARKER_11' "$PROJ/AGENTS.md"
 chk grep -q 'pack-do-thing' "$PROJ/AGENTS.md"
 
-echo "== list =="
-(cd "$PROJ" && bash "$CLI" list)
+echo "== package list =="
+(cd "$PROJ" && bash "$CLI" package list)
 
-echo "== fresh clone + install --frozen =="
+echo "== fresh clone + sync restores the locked store =="
 CLONE="$OUT/clone"
 mkdir -p "$CLONE"
 cp -r "$PROJ/intelligence" "$CLONE/intelligence"
 cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$CLONE/"
 git -C "$CLONE" init --quiet
-(cd "$CLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" install --frozen)
+(cd "$CLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)
 chk test -d "$CLONE/.intelligence/packages/@acme/shared/rules"
 chk grep -q 'PACK_RULE_MARKER_11' "$CLONE/AGENTS.md"
 sha_a="$(grep 'sha:' "$PROJ/intelligence.lock")"; sha_b="$(grep 'sha:' "$CLONE/intelligence.lock")"
-[ "$sha_a" = "$sha_b" ] || { echo "FAIL: install changed the lock sha"; fail=1; }
+[ "$sha_a" = "$sha_b" ] || { echo "FAIL: locked restore changed the lock sha"; fail=1; }
 
 echo "== update (new tag) =="
 printf '# Pack rule v1.2\n\nPACK_RULE_MARKER_12\n' > "$PACK/rules/pack-rule.md"
 git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -am v12
 git -C "$PACK" tag v1.2.0
 git -C "$PACK" tag v2.0.0   # out of ^1.1.0 range — must NOT be picked
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update)
+preview12="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q 'v1.1.0 -> v1.2.0' <<< "$preview12" \
+    || { echo "FAIL: preview omitted the available update"; fail=1; }
+if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update) >/dev/null 2>&1; then
+    echo "FAIL: non-interactive update applied without --apply"; fail=1
+fi
+chk grep -q 'resolved: "v1.1.0"' "$PROJ/intelligence.lock"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply)
 chk grep -q 'resolved: "v1.2.0"' "$PROJ/intelligence.lock"
 chknot grep -q 'resolved: "v2.0.0"' "$PROJ/intelligence.lock"
 chk grep -q 'PACK_RULE_MARKER_12' "$PROJ/AGENTS.md"
@@ -89,11 +101,22 @@ echo "== update to a version that DROPPED a section dir =="
 git -C "$PACK" rm -rq skills
 git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -m drop-skills
 git -C "$PACK" tag v1.3.0
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update)
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply)
 chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
 chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
 out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
-echo "$out13" | grep -q '^IS_STATUS=ok' || { echo "FAIL: sync after shape-changing update"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out13" || { echo "FAIL: sync after shape-changing update"; fail=1; }
+
+echo "== update requested range when resolved tag stays unchanged =="
+awk '{ gsub(/version: "\^1\.1\.0"/, "version: \"~1.3.0\""); print }' \
+    "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
+mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
+preview_req="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' <<< "$preview_req" \
+    || { echo "FAIL: preview omitted request-only lock alignment"; fail=1; }
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply >/dev/null)
+chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
 
 echo "== project file overrides a same-named package file =="
 printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
@@ -116,12 +139,15 @@ git -C "$REG" -c user.email=t@t -c user.name=t add -A
 git -C "$REG" -c user.email=t@t -c user.name=t commit --quiet -m idx
 (cd "$PROJ" && bash "$CLI" registry add "file://$REG")
 chk grep -q -- "- \"file://$REG\"" "$PROJ/intelligence.yaml"
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" add @acme/via-registry --no-sync)
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add @acme/via-registry --no-sync)
 chk test -f "$PROJ/.intelligence/packages/@acme/via-registry/pack-do-thing/SKILL.md"
 chk grep -q '"@acme/via-registry"' "$PROJ/intelligence.lock"
+chk grep -q 'version: "\^2.0.0"' "$PROJ/intelligence.yaml"
+chknot grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.yaml"
+chk grep -q 'path: "skills"' "$PROJ/intelligence.lock"
 
-echo "== remove =="
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" remove @acme/shared)
+echo "== package remove =="
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/shared)
 chknot grep -q '"@acme/shared"' "$PROJ/intelligence.yaml"
 chknot test -d "$PROJ/.intelligence/packages/@acme/shared"
 chknot grep -q '@acme/shared' "$PROJ/intelligence.lock"
@@ -129,7 +155,7 @@ chknot grep -q 'PACK_RULE_MARKER' "$PROJ/AGENTS.md"
 
 echo "== idempotent second sync =="
 out2="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
-echo "$out2" | grep -q '^IS_STATUS=ok' || { echo "FAIL: final sync not ok"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out2" || { echo "FAIL: final sync not ok"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E: ALL OK"
 exit "$fail"

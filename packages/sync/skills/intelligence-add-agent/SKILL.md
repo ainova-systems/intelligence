@@ -9,7 +9,7 @@ argument-hint: <domain> [description]
 ## Steps
 
 1. **Determine domain prefix** (the scope is required):
-   - **Reuse the existing domain when one fits**: list `<umbrella>/agents/` and `<umbrella>/skills/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
+   - **Reuse the existing domain when one fits**: list `<content-dir>/agents/` and `<content-dir>/skills/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
    - **When no existing domain fits**, derive from repo structure:
      - Single / root project → use the project codename from `<manifest>` → `project.name`
      - Backend service / API component → `backend-`
@@ -21,7 +21,7 @@ argument-hint: <domain> [description]
    - If the repo is a monorepo with named components (e.g., `apps/billing`, `services/auth`), prefer the component name as the domain (`billing-`, `auth-`).
    - **Every agent needs a domain prefix.** If the scope is unclear, ask the user before proceeding.
 
-2. **Check existing agents**: Read `<umbrella>/agents/` to avoid duplicates. If an agent for this domain exists, ask user whether to update it instead.
+2. **Check existing agents**: Read `<content-dir>/agents/` to avoid duplicates. If an agent for this domain exists, ask user whether to update it instead.
 
 3. **Determine tier and access**:
    - Developer agents: `tier: heavy`, `access: full`
@@ -36,7 +36,7 @@ argument-hint: <domain> [description]
    - Build and test commands
    - Key conventions and forbidden patterns
 
-5. **Create agent**: Write `<umbrella>/agents/<domain>-<role>.md` (create the directory if missing) with frontmatter:
+5. **Create agent**: Write `<content-dir>/agents/<domain>-<role>.md` (create the directory if missing) with frontmatter:
    ```yaml
    ---
    name: <domain>-<role>
@@ -52,11 +52,11 @@ argument-hint: <domain> [description]
 
 6. **Write body** with sections: **Expertise** -> **Boundaries** -> **Build & Verify**
    - An agent is **thin**: who it is, where it stops, how it verifies. Everything else already reaches it.
-   - **Do not tell the agent to read the rules.** Rules load on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor / Copilot / Codex / Pi / opencode receive always-on rules inlined in `AGENTS.md`. A `Read <umbrella>/rules/<domain>.md before starting` line duplicates content the agent already has — double the tokens, and a second copy that drifts from the rule it copied.
+   - **Do not tell the agent to read the rules.** Rules load on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor / Copilot / Codex / Pi / opencode receive always-on rules inlined in `AGENTS.md`. A `Read <content-dir>/rules/<domain>.md before starting` line duplicates content the agent already has — double the tokens, and a second copy that drifts from the rule it copied.
    - **Point at a rule, never restate it.** If you want to copy a rule into the agent, the rule is in the wrong place — move it, do not clone it.
    - **Do carry** what is genuinely the agent's own: its boundaries ("if the app is not running, stop — do not hand-write the output"), its verification commands, its definition of done.
    - All content must come from actual codebase analysis.
 
-7. **Link existing skills**: Find skills in `<umbrella>/skills/` matching this domain prefix and add them to the agent's `skills:` frontmatter.
+7. **Link existing skills**: Find skills in `<content-dir>/skills/` matching this domain prefix and add them to the agent's `skills:` frontmatter.
 
 8. **Run `/intelligence-sync`** to distribute to all enabled IDE targets.

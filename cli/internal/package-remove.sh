@@ -1,10 +1,10 @@
 #!/bin/bash
-# intelligence remove <@scope/name> [--no-sync]
+# Internal package remove operation.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 name="${1:-}"
-[ -n "$name" ] || die "usage: intelligence remove <@scope/name>"
+[ -n "$name" ] || die "usage: intelligence package remove <@scope/name>"
 shift || true
 no_sync=0 force=0
 for a in "$@"; do
@@ -24,7 +24,7 @@ if [ "$name" = "$SYNC_PKG_NAME" ] && [ "$force" -eq 0 ]; then
     echo "ERROR: $SYNC_PKG_NAME is the engine's own content — removing it drops every" >&2
     echo "  intelligence-* meta-skill, the authoring rule and the engine agents from" >&2
     echo "  the outputs. The sync engine itself keeps working (it ships with the CLI)." >&2
-    echo "  If that is what you want: intelligence remove $SYNC_PKG_NAME --force" >&2
+    echo "  If that is what you want: intelligence package remove $SYNC_PKG_NAME --force" >&2
     exit 1
 fi
 assert_valid_pkg_name "$name"

@@ -29,7 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # Strip frontmatter, return body only.
 # Direct call to the shared `strip_frontmatter` helper in lib/common.sh —
 # duplicating the awk block here would violate the "all parsing in common.sh"
-# convention (see CLAUDE.md / docs/CONVENTIONS.md).
+# convention (see CLAUDE.md / packages/sync/references/conventions.md).
 
 sync_opencode_skills() {
     local repo_root="$1"

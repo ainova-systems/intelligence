@@ -11,7 +11,7 @@
 # visible, reviewable, deletable.
 #
 # The NAME is the trust anchor a developer reasons with; source integrity is
-# a separate mechanism: the lock pins url+sha, and doctor flags
+# a separate mechanism: the lock pins url+sha, and `status --check` flags
 # resolution/lock url drift.
 #
 # An index is itself fetched with git (never curl): auth, proxies and private
@@ -93,7 +93,7 @@ suggest_similar() {
             cshort="${cand#*/}"; cshort="${cshort%s}"
             if [ "$cshort" = "$want" ] && [ "$cand" != "$name" ]; then
                 seen="$seen$cand "
-                echo "  Did you mean: intelligence add $cand" >&2
+                echo "  Did you mean: intelligence package add $cand" >&2
             fi
         done < <(qmap_keys "$idx" "packages")
     }
@@ -116,8 +116,8 @@ fetch_package() {
     assert_safe_source_url "$url"
     assert_safe_ref "$ref"
     # Bundle seed: the engine-content package at the CLI's own version copies
-    # from the npm bundle — no network, which keeps init / fresh-clone install
-    # / migrate offline exactly like the staging they replace. Keyed on the
+    # from the npm bundle — no network, which keeps init, sync restoration and
+    # archived-project conversion offline. Keyed on the
     # full (url, path, ref) triple; any other version or source falls through
     # to the normal clone.
     if [ "$url" = "$SYNC_PKG_URL" ] && [ "$subpath" = "$SYNC_PKG_PATH" ] \

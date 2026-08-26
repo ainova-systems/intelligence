@@ -16,16 +16,14 @@ normalize_file_to_lf() {
 
 # --- Layout tokens -----------------------------------------------------------
 #
-# The umbrella folder is named by the project (`intelligence/`, `Intelligence/`,
-# a codename) — so an artifact SHIPPED BY THE ENGINE cannot write that name
-# down. A rule that scopes itself to the intelligence layer needs `paths:` to
-# say "the umbrella", and an agent body needs to name the sync command. Both are
-# spelled with tokens, expanded here at output time:
+# The content directory is named by the project (`intelligence/`,
+# `Intelligence/`, a codename), so package-shipped artifacts cannot hardcode
+# it. Layout-sensitive paths and commands use tokens expanded at output time:
 #
-#   <umbrella>  ->  the repo-relative umbrella dir   (e.g. `Intelligence`)
-#   <module>    ->  the repo-relative engine module  (e.g. `Intelligence/sync`)
+#   <content-dir> -> the repo-relative project content dir (e.g. `Intelligence`)
+#   <module>      -> the repo-relative sync package store path
 #
-# Values come from IS_UMBRELLA_REL / IS_MODULE_REL, which sync.sh derives from
+# Values come from IS_CONTENT_REL / IS_MODULE_REL, which the CLI derives from
 # the detected layout (never hardcoded) and exports before any adapter runs.
 # Expansion happens in EVERY generated file, frontmatter and body alike, so a
 # scoped rule reaches Claude's `paths:`, Cursor's `globs:` and Copilot's
@@ -34,24 +32,18 @@ normalize_file_to_lf() {
 # finalize_output_file <file>
 # The single exit gate for every file an adapter writes: expand layout tokens,
 # then normalize CRLF -> LF. Adapters MUST call this (not normalize_file_to_lf)
-# on each output — a missed call ships a literal `<umbrella>` into an IDE.
+# on each output — a missed call ships a literal `<content-dir>` into an IDE.
 finalize_output_file() {
     local target="$1"
-    local umb="${IS_UMBRELLA_REL:-intelligence}"
-    local mod="${IS_MODULE_REL:-intelligence/sync}"
-    # `<sync-cmd>` is how engine content says "run a sync": vendored setups
-    # expand it to the script invocation (built from $mod, so it reproduces the
-    # exact pre-token string), the CLI overrides it via IS_SYNC_CMD
-    # (`intelligence sync`). `<manifest>` names the project's config file the
-    # same way: `config.yaml` vendored, `intelligence.yaml` under the CLI
-    # (IS_MANIFEST_NAME).
-    local sc="${IS_SYNC_CMD:-bash $mod/scripts/sync.sh}"
-    local mf="${IS_MANIFEST_NAME:-config.yaml}"
+    local content="${IS_CONTENT_REL:-intelligence}"
+    local mod="${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
+    local sc="${IS_SYNC_CMD:-intelligence sync}"
+    local mf="${IS_MANIFEST_NAME:-intelligence.yaml}"
     local tmp_file="$target.tmp"
     # Literal (index-based) substitution, not gsub: a regex replacement would
     # give `&` in a path its special meaning, and POSIX awk has no way to pass a
     # replacement string verbatim.
-    awk -v umb="$umb" -v mod="$mod" -v sc="$sc" -v mf="$mf" '
+    awk -v content="$content" -v mod="$mod" -v sc="$sc" -v mf="$mf" '
         function repl(s, from, to,   out, i) {
             out = ""
             while ((i = index(s, from)) > 0) {
@@ -65,7 +57,7 @@ finalize_output_file() {
             $0 = repl($0, "<sync-cmd>", sc)
             $0 = repl($0, "<manifest>", mf)
             $0 = repl($0, "<module>", mod)
-            $0 = repl($0, "<umbrella>", umb)
+            $0 = repl($0, "<content-dir>", content)
             print
         }
     ' "$target" > "$tmp_file"
@@ -798,7 +790,7 @@ warn_unsynced() {
     # from its location — it comes from the env contract the CLI exports.
     local intel_basename
     if [ "${IS_CLI:-0}" = "1" ]; then
-        intel_basename="$(basename "${IS_UMBRELLA_REL:-intelligence}")"
+        intel_basename="$(basename "${IS_CONTENT_REL:-intelligence}")"
     else
         intel_basename="$(basename "$(dirname "$config_file")")"
     fi

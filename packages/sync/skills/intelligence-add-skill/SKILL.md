@@ -9,7 +9,7 @@ argument-hint: <domain> <verb-noun> [description]
 ## Steps
 
 1. **Determine domain prefix** (the scope is required):
-   - **Reuse the existing domain when one fits**: list `<umbrella>/skills/` and `<umbrella>/agents/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
+   - **Reuse the existing domain when one fits**: list `<content-dir>/skills/` and `<content-dir>/agents/`. If a domain prefix is already established for the target area (`backend-`, `frontend-`, `devops-`), use it. Introduce a new domain only when the scope is materially different from all existing ones.
    - **When no existing domain fits**, derive from repo structure:
      - Single / root project → use the project codename from `<manifest>` → `project.name`
      - Backend service / API component → `backend-`
@@ -28,13 +28,13 @@ argument-hint: <domain> <verb-noun> [description]
    - `run-` — executes an operation (tests, build, sync)
    - `review-` — read-only analysis
 
-3. **Check for existing agent**: Find an agent in `<umbrella>/agents/` matching the domain
+3. **Check for existing agent**: Find an agent in `<content-dir>/agents/` matching the domain
    - If found — this skill will be linked to that agent
    - If not — ask user whether to create a new agent via `/intelligence-add-agent` first
 
 4. **Analyze codebase patterns**: Read existing implementations to extract the repeatable steps this skill should automate. Each step must come from actual code patterns, not generic knowledge.
 
-5. **Create skill**: Write `<umbrella>/skills/<full-name>/SKILL.md` (create the directory if missing — no config edit needed) with frontmatter:
+5. **Create skill**: Write `<content-dir>/skills/<full-name>/SKILL.md` (create the directory if missing — no config edit needed) with frontmatter:
    ```yaml
    ---
    name: <full-name>

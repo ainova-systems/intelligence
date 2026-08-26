@@ -1,102 +1,209 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file describes how to work safely and accurately in the v2 Intelligence product repository.
 
-## What this is
+## Start here
 
-intelligence-sync is the sync **engine**: a zero-dependency bash + awk pipeline that transforms tool-agnostic markdown (`intelligence/rules/`, `agents/`, `skills/`) into the native format each AI coding tool reads (Claude Code, Cursor, GitHub Copilot, OpenAI Codex, `AGENTS.md`). This repo *is* the upstream that downstream projects copy and pull updates from — it also dogfoods itself (the `intelligence-*` meta-skills under `intelligence/sync/skills/` are authored here).
+Read `decisions/0001-split-v1-archive-from-v2-product.md` before changing architecture, layout, conversion behavior or release plumbing. Read `decisions/0002-consolidate-v2-cli-lifecycle.md` before changing the public command model. Do not reconstruct either model from historical code.
 
-**Modular layout (0.3.1+), pure — no bridge, no duplication.** Everything upstream-owned lives in the one self-contained module `intelligence/sync/` (`scripts/`, `skills/intelligence-*`, `INIT.md`, vendored `docs/`, `scripts/VERSION`). The umbrella folder (`intelligence/`) holds only `config.yaml` + project content (`rules/ agents/ skills/<project>/`) and is **never hardcoded** — code derives it as "the dir holding config.yaml" (`detect_layout` in `lib/layout.sh`). Future modules (e.g. `domain/`) sit beside `sync/`, each updated independently. The repo has **no flat twin**: a pre-0.3.1 client's frozen `update.sh` fails *closed* against this layout (exit ≠ 0, changes nothing — verified back to v0.1.0, guard precedes any destructive op), so there is no data-loss path and no calendar cutover. Repo-root `docs/` is the doc source; `intelligence/sync/docs/` is its vendored copy (regenerated, kept identical by CI).
+This repository is `ainova-systems/intelligence`, the v2 product. The archived v1 product remains in `ainova-systems/intelligence-sync`. Do not edit the v1 repository from this workspace. Do not add compatibility machinery back into v2.
 
-## Commands
+v2 is not approved as a stable release. Do not publish a stable package or create a stable release unless the owner explicitly says the CLI is ready. If publishing is requested before then, use an `X.Y.Z-rc.N` prerelease and npm dist-tag `next`.
+
+## Product model
+
+The CLI owns a project's full lifecycle: initialization, package resolution, locked-store restoration, updates, schema alignment, v1 conversion and sync. `intelligence init` is the single entry point for setup, conversion and alignment. A v2 project contains:
+
+```text
+intelligence.yaml       root manifest
+intelligence.lock       resolved package state; committed
+intelligence/           project-owned rules, agents, skills and adapters
+.intelligence/          CLI-owned package store; gitignored
+AGENTS.md / tool dirs   generated output
+```
+
+No engine scripts live in consuming projects.
+
+This repository deliberately separates the executable from its content:
+
+```text
+cli/                 dispatcher, commands, package manager and tests
+engine/              executable sync engine bundled in the npm package
+packages/sync/       rules, agents, meta-skills and references installed as @ainova-systems/sync
+npm/                 Node launcher and distribution build
+docs/                product/CLI documentation
+examples/            v2 manifest fixtures
+decisions/           internal architecture decisions; never package content
+```
+
+Keep `engine/` and `packages/sync/` separate. The bundle seed must copy package content only; engine scripts must never enter `.intelligence/packages/@ainova-systems/sync`.
+
+`@ainova-systems/sync` remains in this repository while it is exact-pinned to `engine/VERSION`. Moving it to another repository requires independent pinning and is out of scope.
+
+## Commands and validation
+
+The public lifecycle surface is intentionally small:
+
+```text
+intelligence init [--preview|--apply]        initialize, convert v1, restore or align v2
+intelligence sync [adapter]                 restore the locked store if missing, then render enabled targets
+intelligence update [@scope/name] [--preview|--apply]  plan, confirm or apply project/package updates
+intelligence package <add|remove|list|search>   manage packages
+intelligence adapter <list|create|enable|disable|remove>  manage adapters and target state
+intelligence status [--check]               summarize state or run deep consistency checks
+intelligence registry <list|add|remove>      manage the ordered registry trust list
+```
+
+Do not add top-level aliases for package or adapter subcommands. Conversion, v2 alignment, locked restore, deep checks and target-state edits are internal operations reached through the public commands above.
+
+Mutating project-aware commands bring an older v2 manifest and exact sync-content pin to the bundled engine before continuing. CI refuses that tracked mutation and tells the user to run `intelligence init --apply` locally, review the diff and commit it.
+
+Run the five CLI suites from the repository root:
 
 ```bash
-# Run the full sync against this repo's config (intelligence/config.yaml — note:
-# this upstream repo ships no config.yaml; sync runs in downstream projects)
-bash intelligence/sync/scripts/sync.sh
+bash cli/tests/unit-semver.sh .
+bash cli/tests/unit-manifest.sh .
+bash cli/tests/e2e-packages.sh .
+bash cli/tests/e2e-lifecycle.sh .
+bash cli/tests/e2e-negative.sh .
+```
 
-# Sync / test a single adapter (the only practical "single test" — no unit harness)
-bash intelligence/sync/scripts/sync.sh claude
-REPO_ROOT=/path/to/test/project bash intelligence/sync/scripts/sync.sh cursor
+Build and inspect the npm distribution with:
 
-# Lint shell (matches CI; template is intentionally excluded — `<name>` breaks the parser)
-find intelligence/sync/scripts -name '*.sh' -not -path '*/adapters/_template.sh' \
+```bash
+bash npm/build.sh 0.0.0-dev
+(cd npm/dist && npm pack --dry-run)
+```
+
+Lint commands matching CI:
+
+```bash
+shellcheck --severity=warning cli/intelligence
+find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+find engine -name '*.sh' -not -path '*/adapters/_template.sh' \
   -print0 | xargs -0 shellcheck --severity=warning
-
-# Self-update engine from upstream (clones to mktemp, diffs, prompts; --yes skips)
-bash intelligence/sync/scripts/update.sh
 ```
 
-There is no build step and no test framework. Correctness is verified by the CI **smoke job** (`.github/workflows/ci.yml`): it stages each `examples/*/config.yaml` as a throwaway project, runs sync, and greps the generated outputs. Reproduce a failure locally by replicating those steps against `examples/<name>/`.
+The adapter template is intentionally excluded because its `<name>` placeholders are not valid shell until scaffolded.
 
-## Architecture
+CI also verifies npm installation on Linux, macOS and Windows; v2 layout purity; engine/package stamp lockstep; sync behavior against examples; idempotence; and destructive-path guardrails. Keep local tests hermetic: package test fixtures use `file://` Git repositories and must not depend on a public registry.
 
-`sync.sh` (entry point) → `lib/common.sh` (shared helpers) → `adapters/<name>.sh` (one per target tool). Flow:
+## CLI architecture
 
-1. Resolve `REPO_ROOT` (git toplevel, normalized via `cd && pwd` so Git Bash `D:/` vs `/d/` styles match) and `config.yaml`.
-2. Enforce the **agents invariant**: if `cursor`/`copilot`/`codex` is enabled, `agents` must also be enabled — those tools get always-on rules *only* via `AGENTS.md` (skipped in their own channels to avoid duplication). Skipped when a single target is requested via `$1`.
-3. `lint_frontmatter` every source file (warns on unquoted colons / leading tabs — strict YAML consumers like Codex CLI reject these).
-4. For each enabled adapter: resolve output dir, run `validate_output_path` (refuses paths that resolve to repo root, the intelligence source tree, or any configured source — adapters `rm -rf` their output, so a misconfigured path would destroy work; `agents` is exempt as it writes a single file), then `source` the adapter and call `sync_to_<name>()`.
-5. Post-sync: `warn_unsynced` (flags `rules/`/`agents/`/`skills/` dirs not in config) and `report_model_drift` (config `models:` override differs from current hardcoded default).
+`cli/intelligence` is a small dispatcher. The lifecycle commands are implemented in `cli/commands/{init,sync,update,package,adapter,status,registry}.sh`; shared CLI plumbing lives in `cli/lib/`.
 
-**The central design decision — rule routing, not flagging:** always-on rules (no `paths:`) are inlined *once* into `AGENTS.md`, which Cursor/Copilot/Codex read natively, so their adapters skip always-on rules entirely (no duplicated context burning the window). Path-scoped rules stay in per-IDE channels with native scoping (`.cursor/rules/*.mdc` `globs:`, `.github/instructions/*.instructions.md` `applyTo:`) so monorepo glob targeting works. Claude Code does not read `AGENTS.md`, so `claude.sh` receives the *full* rule set. Understanding this requires reading `agents.sh`, `claude.sh`, and the routing tables in `docs/CONVENTIONS.md` together.
+Non-public mechanics live in `cli/internal/`: package operations, locked restore, deep checking, v1 conversion, v2 alignment and target-state editing. Keep them behind the lifecycle commands instead of expanding the dispatcher surface.
 
-**Adapter contract:** each adapter is one file defining `sync_to_<name>(repo_root, config_file, output_dir)`, discovered by filename (`_template.sh` excluded). The tool-agnostic source vocabulary — `tier: heavy|standard|light`, `access: full|readonly` — is mapped per-tool inside adapters via `lib/common.sh` helpers (`get_model`, `map_access_to_claude_tools`, etc.). Model defaults live in `get_model_default()`; bumping them is intentionally surfaced downstream via the drift report. See `docs/ADAPTERS.md`.
+The repository and npm bundle both have one discovery layout: `<root>/{cli,engine,packages/sync}`. Do not add distribution-specific engine candidates.
 
-**Breaking-change update architecture + bash↔skill contract:** `lib/layout.sh` (`detect_layout` → `LS_*`, self-locating, name-agnostic) and `lib/migrations.sh` (`MIGRATIONS=()` ascending append-only registry + `run_migrations` dispatcher + `migrate_to_<v>` + `check_version_compat` + `is_status` + `read_engine_stamp`/`stamp_version`). The applied schema version is the **frozen contract key `sync_version` in `config.yaml`** (a permanent top-level scalar — never `scripts/VERSION`, never a dotfile; no migration may rename/move it). Correctness rests on **idempotent structural preconditions**: each `migrate_to_*` self-detects whether its change is applied and no-ops; the dispatcher runs the whole chain in order and does **not** gate on the stamp — a wrong/missing stamp can never skip a migration. Each migration is transactional/fail-closed (stage → verify sentinel → commit → only then delete prior state). Any unresolvable state emits `IS_STATUS=<code>` + stable exit (`IS_RC_*`: ok/migrated 0, error 1, config-missing 2, ambiguous 3 [skill-only], ahead-of-engine 4, aborted-incomplete 5, needs-update 6). The stamp's only role is the `ahead-of-engine` guard (stale engine refuses a project schema newer than `scripts/VERSION`). **`sync.sh` is a pure synchronizer — never migrates**; it fails closed (`needs-update`) when non-modular or stamp < engine. **`update.sh` is the sole migrator.** The **`intelligence-update` skill** (trigger: "Update intelligence-sync") is the brain: discovers the engine *by role* (a dir with `scripts/sync.sh`+`scripts/VERSION`, highest VERSION, never an old flat one), reads the CHANGELOG across the version gap (each breaking release has a **`### Breaking`** subsection with post-conditions), runs `update.sh`, branches on `IS_STATUS`, and verifies each breaking post-condition after. Contract documented in `docs/CONVENTIONS.md`; callers capture rc via `cmd || rc=$?` (never `if ! cmd; then exit $?`).
+`cli/lib/cli-common.sh` is the integration boundary:
 
-## Conventions for engine code
+- sources engine readers and the status contract;
+- detects v2 versus archived vendored projects;
+- derives the project content directory from `project.intelligence_dir`;
+- describes `@ainova-systems/sync` from `cli/engine-package.yaml` rather than hardcoding its identity in commands;
+- exports the environment used to invoke the engine.
 
-- **Zero dependencies beyond bash + awk.** `mktemp`/`find`/`cp` are POSIX-OK. No `jq`, no Python, no gawk extensions — awk must be **POSIX** (no 3-arg `match()`; see the inline-vs-block parsing in `get_target_field`).
-- **Never duplicate parsing logic.** All frontmatter extraction, YAML reading, and model resolution go through `lib/common.sh`. Adding a parser elsewhere is the main thing to push back on.
-- **Cross-platform awk hygiene.** Every awk program strips `\r` (`sub(/\r$/, "")`) because source files may be CRLF on Windows. Frontmatter parsers are scoped to the first `--- ... ---` block so body content (e.g. a code sample mentioning `paths:`) is never miscounted.
-- `set -euo pipefail` in every script. Shell scripts are forced to LF via `.gitattributes` (`*.sh text eol=lf`) — critical for bash on all platforms; do not let an editor reintroduce CRLF.
-- Comments explain *why*, not *what*; skip them where names already carry intent.
-- `intelligence/sync/scripts/` and `intelligence/sync/INIT.md` are the only files `update.sh` overwrites downstream — treat them as the public engine API. Project content (`config.yaml`, `rules/`, `agents/`, `skills/`) is never touched by updates.
+The engine reads ordinary local paths from `sources:`. It does not resolve or fetch packages. Registry resolution, Git tags, semver ranges, store installation and `intelligence.lock` belong to the CLI.
 
-## Authoring artifacts (skills/rules/agents in `intelligence/`)
+The quoted-key `packages:` and `registries:` blocks are CLI-owned. Their parsing/editing belongs in `cli/lib/manifest.sh`; the engine deliberately does not read them. Reuse engine readers for shared manifest shapes instead of adding a parallel parser.
 
-When editing the `intelligence-*` skills or any rule/agent, follow `docs/CONVENTIONS.md`: rule = constraint the LLM respects (auto-loaded), skill = procedure the LLM performs (explicit `/name`), agent = persona the LLM adopts. Names are `<domain>-<verb>-<noun>`; `description` fields share a global token budget (keep short — 4–8 words if unique, ≤250 chars with a distinguishing trigger if there are siblings). Update `CHANGELOG.md` for user-facing changes.
+Registries are an ordered trust list and the only resolver for package names. Do not add a built-in catalog or infer a GitHub URL from `@org/name`. Explicit `github:` and `git+` specs remain the registry-free path. Names are global and one version of a package name may exist in a project.
 
-## Releasing
+Manifest package entries contain requested intent only: `version` or `ref`.
+Resolved `url`, `path`, tag/ref and SHA belong in `intelligence.lock` for every
+source type, including the built-in sync package. Updates use the locked source;
+changing source is an explicit package re-add.
 
-A version bump is **not released** until a git tag *and* a matching GitHub release exist — generating the tarball/release is the final, mandatory step, not optional polish. Releases are cut **directly on `main`** (house style — see `… released the fix as 0.5.0` in history; no release branch, no PR).
+## Engine architecture
 
-**Version numbers: default to patch.** The minor is not a changelog counter — it is reserved for a genuinely **new capability**, something a downstream project can now *do* that it could not before (a new adapter, a new engine feature like project-owned adapters or layout tokens, a new shipped artifact). Everything else is a **patch**, however large the diff: bug fixes, rewritten rule/skill/doc content, sharper prose, extra checks inside an existing skill, refactors. A minor bump for "we improved the text" is version inflation — ask "what can a user do now that they could not yesterday?", and if the answer is nothing, it is a patch.
+`engine/sync.sh` sources `engine/lib/common.sh` and `engine/lib/contract.sh`, discovers built-in plus project-owned adapters, and runs enabled targets.
 
-- **patch** — fixes and content changes, no new capability.
-- **minor** — a new capability, back-compatible.
-- **breaking (minor or major)** — needs a `migrate_to_<v>` in `lib/migrations.sh` *and* a `### Breaking` subsection in `CHANGELOG.md` with verifiable post-conditions.
+The CLI must export:
 
-There is no `[Unreleased]` section in `CHANGELOG.md`: every change ships as a release, so nothing ever waits in one. Write the dated `## [X.Y.Z]` section directly.
+- `IS_CLI` — `1`;
+- `CONFIG_FILE` — root `intelligence.yaml`;
+- `REPO_ROOT` — project root;
+- `IS_CONTENT_REL` — project content directory;
+- `IS_MODULE_REL` — installed `@ainova-systems/sync` directory;
+- `IS_MANIFEST_NAME` — `intelligence.yaml`;
+- `IS_SYNC_CMD` — `intelligence sync`;
+- `IS_PROTECTED_DIRS` — project content and package-store directories.
 
-The engine version lives in `intelligence/sync/scripts/VERSION` and is **lockstep** with the `sync_version` stamp: `sync.sh` fails closed (`needs-update`) when its `VERSION` is newer than a project's `sync_version`, and CI (`repo-purity` job) asserts every `examples/*/config.yaml` is stamped at exactly `VERSION`. So every release bumps, in one commit, **all** of: `scripts/VERSION`, the `sync_version:` example in `intelligence/sync/INIT.md`, and `sync_version:` in **every** `examples/*/config.yaml`. Mismatch = red CI.
+`sync.sh` is a pure synchronizer. It never changes schemas or fetches packages. The CLI preflight aligns older v2 schema/content before mutating commands; `init --apply` is the explicit reviewed path and `update` includes alignment in its plan.
 
-Procedure (run from a clean `main`, working tree already holding the change):
+`intelligence sync` is the normal fresh-clone path: it restores a missing `.intelligence/` store strictly from `intelligence.lock`, exports the engine contract and then renders. It never re-resolves package versions during restore.
+
+`intelligence update` always prints the installed-CLI, project and package plan. `--preview` stops without prompting or writing, the default asks interactively, and `--apply` applies without prompting before syncing.
+
+The permanent schema key is the top-level scalar `schema_version`. `engine/lib/contract.sh` owns its readers, compatibility guard and the stable `IS_STATUS`/`IS_RC_*` contract. Do not renumber return codes. Callers must preserve the command's real status, for example `cmd || rc=$?`; `if ! cmd; then rc=$?` captures the negation instead.
+
+### Rule routing
+
+Always-on rules are inlined once into `AGENTS.md`. Cursor, Copilot, Codex, Pi and OpenCode consume that file, so their adapters omit always-on rules from tool-specific channels. Path-scoped rules use native channels where available. Claude Code does not consume `AGENTS.md`, so its adapter receives every rule.
+
+The `agents` target is therefore required whenever an enabled target relies on `AGENTS.md`. Keep that invariant synchronized with the list in `engine/sync.sh` when adding an adapter.
+
+### Adapter contract
+
+An adapter is one file defining:
 
 ```bash
-# 1. Lockstep version bump (VERSION + INIT.md example + all examples/*/config.yaml)
-#    and a NEW CHANGELOG.md [X.Y.Z] — <date> section written directly — there is no
-#    [Unreleased] section: every change ships as a release, so nothing ever waits in
-#    one. (Breaking releases add a ### Breaking subsection with verifiable
-#    post-conditions.)
-# 2. Verify lockstep locally (mirrors CI repo-purity):
-V=$(tr -d ' \t\r\n' < intelligence/sync/scripts/VERSION)
-for cf in examples/*/config.yaml; do
-  [ "$(awk -F'\"' '/^sync_version:/{print $2;exit}' "$cf")" = "$V" ] || echo "DRIFT: $cf"
-done
-# 3. Commit + push to main, then tag and publish the GitHub release:
-git commit -am "…released … as $V"        # one-sentence, past-tense message
-git push origin main
-git tag "v$V" && git push origin "v$V"     # tag convention is vX.Y.Z
-gh release create "v$V" --title "v$V" --notes-file <notes>   # notes mirror v0.5.0:
-#   one-paragraph description → ## Highlights (### Added/Changed/Fixed, condensed
-#   from the CHANGELOG section) → Full changelog link → ## Install. Latest release
-#   is what downstream `update.sh` pulls, so the release must point at the tagged commit.
+sync_to_<name>(repo_root, config_file, output_dir)
 ```
+
+Built-ins live in `engine/adapters/`. Project adapters live in `<content-dir>/adapters/`, survive upgrades, and override a built-in of the same name with a visible note.
+
+Every emitted text file must pass through `finalize_output_file`; skill directories must be copied with `copy_skill_bundle`, and adapters sharing `.agents/skills/` must use `sync_open_skill_dirs`. Never delete an entire tool root when the adapter owns only subpaths. `validate_output_path` is the mandatory engine-side guard against source, store, root and out-of-repository writes.
+
+See `packages/sync/references/adapters.md` for the adapter contract and `packages/sync/references/conventions.md` for artifact formats.
+
+## Shell conventions
+
+- Use Bash with `set -euo pipefail` and LF line endings.
+- Engine code may rely on Bash, awk and ordinary POSIX utilities, but not jq, Python or GNU-only awk features.
+- Strip `\r` in awk readers because inputs may use CRLF.
+- Validate every manifest, registry, package-name, URL and ref value before it reaches Git arguments or filesystem operations.
+- Prefer the shared parsers and helpers in `engine/lib/common.sh` and `cli/lib/`; do not copy YAML/frontmatter logic into commands or adapters.
+- Keep transactional filesystem changes staged and verified before replacing project state.
+- Comments explain constraints and intent, not visible syntax.
+
+## Artifact authoring
+
+Content under `packages/sync/` is installed into consuming projects. Do not put repository-only decisions or release instructions there.
+
+Rules express constraints, skills express explicit procedures, and agents express personas. Follow `packages/sync/references/conventions.md`. The `intelligence-` prefix is reserved for engine-owned artifacts.
+
+Meta-skills are interpreters of deterministic CLI behavior, not alternate implementations. Keep mechanics in commands; skills may research external formats, read changelog context, choose a command and interpret `IS_STATUS`.
+
+## Initialization boundary
+
+`intelligence init` detects absent, v2 and vendored v1 states. On v2 it restores or aligns idempotently; on v1 it previews a conversion and requires confirmation or `--apply`. An older v1 project must first reach schema `0.10.0` with its archived engine.
+
+V1 conversion must remain transactional: stage, verify target/source equivalence, run a real staged sync, then commit and remove the vendored engine. `init --preview` writes nothing to the project.
+
+## Documentation and changelog
+
+Documentation must use v2 paths and CLI commands. References to `INIT.md`, a vendored `scripts/update.sh`, `packs:`, engine scripts inside a project, or `intelligence/sync/...` are v1 concepts and belong only in narrowly scoped migration/archive explanations.
+
+Files inside any `docs/` directory use lowercase kebab-case (`cli.md`, `adapter-contract.md`). Standard root documents such as `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CLAUDE.md` and `ROADMAP.md` keep their conventional names.
+
+The v2 `CHANGELOG.md` is compact: one line per change, minimal context, no rationale. Put rationale in `decisions/`. A `### Breaking` subsection is a checklist of verifiable post-conditions consumed by the update skill.
+
+## Versioning and releases
+
+`engine/VERSION`, every example's `schema_version`, and every example's exact `@ainova-systems/sync` pin must stay in lockstep. `repo-purity` enforces this.
+
+`npm/build.sh` assembles the distribution from `cli/`, `engine/` and `packages/sync/`. npm publishes with provenance, so `npm/package.json` repository metadata must continue naming this repository.
+
+The `release-npm` workflow is manual:
+
+- `X.Y.Z-rc.N` may publish from any ref to npm dist-tag `next`;
+- stable `X.Y.Z` may publish to `latest` only from the matching `vX.Y.Z` tag;
+- the v2 tag line starts at `v0.11.0`; never recreate v1 tags here.
+
+Do not release, push to the public registry repository, or change the repository workflow from direct-main to branches/PRs without explicit owner direction.
 
 ## Commit messages
 
-Capitalized, past tense, one sentence (e.g. `Added Codex adapter with AGENTS.md generation`) — matches existing history.
-
-**Never add a `Co-Authored-By` trailer or any AI/tool attribution to commit messages or pull request bodies.**
+Use one capitalized, past-tense sentence. Do not add AI/tool attribution or `Co-Authored-By` trailers.

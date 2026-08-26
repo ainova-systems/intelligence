@@ -1,16 +1,16 @@
 #!/bin/bash
-# shellcheck disable=SC2034  # IS_RC_*/IS_VERSION_KEY are the public bash<->CLI contract, consumed by the scripts that source this lib
+# shellcheck disable=SC2034  # IS_RC_*/IS_SCHEMA_VERSION_KEY are the public bash<->CLI contract, consumed by the scripts that source this lib
 # intelligence-sync: the version and status contract.
 # Source this file — never execute directly.
 #
 # Two things live here, and both are contracts other programs depend on:
-#   * the applied-schema stamp (`sync_version` in the manifest) with its
+#   * the applied-schema stamp (`schema_version` in the manifest) with its
 #     read / write / compare helpers, and
 #   * the IS_STATUS / IS_RC_* codes every engine flow reports.
 #
-# Schema migrations themselves are NOT here: the CLI owns them (v2 migrations
-# live in `intelligence upgrade`), and a v1 project is brought forward by the
-# archived v1 engine before `intelligence migrate` converts it.
+# Schema migrations themselves are NOT here: the CLI owns them behind
+# `intelligence init`, and a v1 project is brought forward by the archived v1
+# engine before `intelligence init` converts it.
 
 # The applied-schema version is a managed key in the manifest.
 #
@@ -18,13 +18,13 @@
 # Anything else in the manifest may be reshaped; the name, location and shape of
 # this key never are - so any engine, however old or new, can always read "what
 # schema is this?" before parsing the rest.
-IS_VERSION_KEY="sync_version"
+IS_SCHEMA_VERSION_KEY="schema_version"
 
-# read_engine_stamp <config_file> → applied version, or "" if absent.
-read_engine_stamp() {
+# read_schema_version <config_file> → applied version, or "" if absent.
+read_schema_version() {
     local cf="$1"
     [ -f "$cf" ] || return 0
-    awk -v k="$IS_VERSION_KEY" '
+    awk -v k="$IS_SCHEMA_VERSION_KEY" '
         { sub(/\r$/, "") }
         $0 ~ "^" k ":" {
             v = $0; sub(/^[^:]*:[[:space:]]*/, "", v)
@@ -35,14 +35,14 @@ read_engine_stamp() {
     ' "$cf"
 }
 
-# stamp_version <config_file> <version> — idempotent, transactional upsert of
+# stamp_schema_version <config_file> <version> — idempotent, transactional upsert of
 # the contract key (replace in place if present, else append at top level).
 # No-op if config.yaml does not exist yet (pre-bootstrap).
-stamp_version() {
+stamp_schema_version() {
     local cf="$1" ver="$2"
     [ -f "$cf" ] || return 0
     local tmp="$cf.ver.tmp"
-    awk -v k="$IS_VERSION_KEY" -v val="$ver" '
+    awk -v k="$IS_SCHEMA_VERSION_KEY" -v val="$ver" '
         { sub(/\r$/, "") }
         $0 ~ "^" k ":" { print k ": \"" val "\""; found=1; next }
         { print }
@@ -62,7 +62,7 @@ IS_RC_CONFIG_MISSING=2      # no manifest found
 IS_RC_AMBIGUOUS=3           # conflicting state; agent/human-only — bash never emits this itself
 IS_RC_AHEAD=4               # project stamped newer than this engine understands
 IS_RC_ABORTED_INCOMPLETE=5  # staged state incomplete; the project was left untouched
-IS_RC_NEEDS_UPDATE=6        # pending schema changes (stamp < engine) — run `intelligence upgrade` first
+IS_RC_NEEDS_UPDATE=6        # pending schema changes (stamp < engine) — run `intelligence init --apply`
 
 # is_status <code-name> [detail] — emit one parseable line for the skill.
 is_status() {
@@ -106,7 +106,7 @@ _ver_gt() {
 # conflict, else 0.
 check_version_compat() {
     local cf="$1" stamp eng
-    stamp="$(read_engine_stamp "$cf")"
+    stamp="$(read_schema_version "$cf")"
     [ -n "$stamp" ] || return 0
     eng="$(engine_version)"
     [ -n "$eng" ] || return 0

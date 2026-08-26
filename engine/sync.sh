@@ -7,7 +7,7 @@
 #
 #   CONFIG_FILE        the project's manifest (intelligence.yaml at the root)
 #   REPO_ROOT          the project root
-#   IS_UMBRELLA_REL    the project's content dir, repo-relative
+#   IS_CONTENT_REL     the project's content dir, repo-relative
 #   IS_MODULE_REL      the installed sync package, repo-relative
 #   IS_PROTECTED_DIRS  dirs an adapter output may never overlap
 #
@@ -35,21 +35,21 @@ _vc_rc=0
 check_version_compat "$_cf" || _vc_rc=$?
 if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi
 
-# Schema gap → refuse. sync is a PURE synchronizer: it never migrates, so a
-# project behind this engine must be brought forward by `intelligence upgrade`
-# first. An ABSENT stamp means the same thing — a manifest with no
-# `sync_version` must not silently sync past a schema change.
-_stamp="$(read_engine_stamp "$_cf")"
+# Schema gap → refuse. sync is a PURE synchronizer: it never changes schemas,
+# so the CLI lifecycle preflight must align the project first. An ABSENT stamp
+# means the same thing — a manifest with no
+# `schema_version` must not silently sync past a schema change.
+_stamp="$(read_schema_version "$_cf")"
 _eng="$(engine_version)"
 if [ -z "$_stamp" ]; then
-    is_status needs-update "stamped= engine=$_eng (no sync_version)"
-    echo "ERROR: the manifest has no sync_version — schema un-applied." >&2
-    echo "       Run: intelligence upgrade" >&2
+    is_status needs-update "stamped= engine=$_eng (no schema_version)"
+    echo "ERROR: the manifest has no schema_version — schema un-applied." >&2
+    echo "       Run: intelligence init --apply" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 elif [ -n "$_eng" ] && _ver_gt "$_eng" "$_stamp"; then
     is_status needs-update "stamped=$_stamp engine=$_eng"
     echo "ERROR: project at $_stamp but engine is $_eng — pending schema changes." >&2
-    echo "       Run: intelligence upgrade" >&2
+    echo "       Run: intelligence init --apply" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 fi
 
@@ -64,19 +64,19 @@ CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")
 
 # Layout tokens for generated output (see finalize_output_file in common.sh).
 # Package-shipped rules/agents cannot hardcode the content dir's name — the
-# project chooses it — so they write `<umbrella>` / `<module>` and every adapter
+# project chooses it — so they write `<content-dir>` / `<module>` and every adapter
 # expands them on the way out.
-IS_UMBRELLA_REL="${IS_UMBRELLA_REL:-intelligence}"
+IS_CONTENT_REL="${IS_CONTENT_REL:-intelligence}"
 # No vendor default: the CLI always exports the package path (derived from its
 # distribution data), so a bare invocation must say so rather than guess.
 if [ -z "${IS_MODULE_REL:-}" ]; then
     echo "ERROR: the engine needs IS_MODULE_REL (exported by the intelligence CLI)." >&2
     exit 1
 fi
-export IS_UMBRELLA_REL IS_MODULE_REL
+export IS_CONTENT_REL IS_MODULE_REL
 
-# Project-owned adapters live in the content dir: <umbrella>/adapters/.
-INTELLIGENCE_DIR="$REPO_ROOT/$IS_UMBRELLA_REL"
+# Project-owned adapters live in the content dir: <content-dir>/adapters/.
+INTELLIGENCE_DIR="$REPO_ROOT/$IS_CONTENT_REL"
 
 TARGET_FILTER="${1:-}"
 
@@ -132,8 +132,8 @@ done
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):
 #
-#   1. Built-in   — shipped inside the CLI, replaced wholesale on every upgrade
-#   2. Project    — <umbrella>/adapters/, owned by the project and never touched
+#   1. Built-in   — shipped inside the CLI, replaced with each CLI installation
+#   2. Project    — <content-dir>/adapters/, owned by the project and never touched
 #
 # A custom adapter therefore belongs in the content dir's `adapters/`; the
 # built-in directory lives inside the installed CLI and is not the project's to
@@ -183,7 +183,12 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
 
     # Check if target is enabled in config
     enabled=$(is_target_enabled "$CONFIG_FILE" "$adapter")
-    if [ "$enabled" != "1" ] && [ -z "$TARGET_FILTER" ]; then
+    if [ "$enabled" != "1" ]; then
+        if [ -n "$TARGET_FILTER" ]; then
+            echo "ERROR: Adapter '$TARGET_FILTER' is disabled in $CONFIG_FILE." >&2
+            echo "       Enable it first: intelligence adapter enable $TARGET_FILTER" >&2
+            exit 1
+        fi
         continue
     fi
 
@@ -227,7 +232,7 @@ warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
 report_model_drift "$CONFIG_FILE"
 
 echo ""
-# sync.sh never migrates (`intelligence upgrade` owns that), so success is
-# always ok.
+# sync.sh never changes project schemas (the CLI preflight owns that), so
+# success is always ok.
 is_status ok "synced=$synced"
 echo "=== Done: $synced target(s) synced ==="

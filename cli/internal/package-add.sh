@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence add <spec> [--name @scope/name] [--no-sync]
+# Internal package add operation.
 #
 # Specs:
 #   @scope/name[@range]            resolved ONLY through the manifest's trusted registries
@@ -9,7 +9,7 @@ set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 spec="${1:-}"
-[ -n "$spec" ] || die "usage: intelligence add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]>"
+[ -n "$spec" ] || die "usage: intelligence package add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]>"
 shift || true
 
 no_sync=0
@@ -85,7 +85,7 @@ if [ "$mode" = "registry" ]; then
         echo "  ('intelligence registry list' shows them). Either add its registry:" >&2
         echo "    intelligence registry add <registry-repo-url>" >&2
         echo "  or install from an explicit source you name yourself:" >&2
-        echo "    intelligence add github:org/repo   |   intelligence add git+<url>[@ref][#path]" >&2
+        echo "    intelligence package add github:org/repo   |   intelligence package add git+<url>[@ref][#path]" >&2
         suggest_similar "$manifest" "$name"
         exit 1
     fi
@@ -117,6 +117,7 @@ if [ -z "$ref" ]; then
             die "'$name' has no stable version tags at $url — a registry package must be versioned; use github:/git+ with @<ref> to pin a branch or commit"
         fi
         echo "  NOTE: no version tags at $url — pinning the default branch head" >&2
+        ref="HEAD"
     fi
 fi
 
@@ -125,22 +126,16 @@ sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 
 wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
 
-# Manifest entry: a registry package records its range; a direct one records
-# its source so resolution never has to guess it again. The entry is replaced
-# WHOLE — re-adding under a different spec must not leave the old spec's
-# fields behind (a stale ref: would freeze update, a stale url: would pin the
-# old source).
+# The manifest records requested intent only. The resolved source URL/path,
+# tag/ref and SHA live in the required lock. Re-adding a package is the
+# explicit operation for changing its trusted source.
 qmap_delete_key "$manifest" "packages" "$name"
-if [ "$mode" = "registry" ]; then
+if [ -n "$ref" ]; then
+    qmap_set "$manifest" "packages" "$name" "ref" "$ref"
+elif [ -n "$requested" ]; then
     qmap_set "$manifest" "packages" "$name" "version" "$requested"
 else
-    qmap_set "$manifest" "packages" "$name" "url" "$url"
-    [ -n "$path" ] && qmap_set "$manifest" "packages" "$name" "path" "$path"
-    if [ -n "$ref" ]; then
-        qmap_set "$manifest" "packages" "$name" "ref" "$ref"
-    elif [ -n "$requested" ]; then
-        qmap_set "$manifest" "packages" "$name" "version" "$requested"
-    fi
+    die "internal: package '$name' has neither a requested version nor ref"
 fi
 
 lock_upsert "$lock" "$name" "$requested" "$url" "$path" "${ref:-$resolved_tag}" "$sha"

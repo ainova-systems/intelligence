@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence migrate [--dry-run] [--force] — convert a vendored (v1) setup
+# Internal v1-to-v2 migration operation.
 # to the CLI setup: root intelligence.yaml, .intelligence/ store,
 # intelligence.lock, no vendored engine.
 #
@@ -24,7 +24,7 @@ done
 detect_project
 case "$IP_MODE" in
     legacy) ;;
-    v2) die "already on the CLI setup ($IP_ROOT/intelligence.yaml)" ;;
+    v2) die "already on the v2 setup ($IP_ROOT/intelligence.yaml)" ;;
     *) die "no vendored setup found here — 'intelligence init' starts a fresh project" ;;
 esac
 root="$IP_ROOT"
@@ -32,15 +32,22 @@ umbrella="$IP_UMBRELLA"
 module_dir="$IP_MODULE_DIR"
 config="$umbrella/config.yaml"
 module_rel="${module_dir#"$root"/}"
+umbrella_rel="${umbrella#"$root"/}"
 
-[ -f "$root/intelligence.yaml" ] && die "intelligence.yaml already exists at the root — half-migrated state; resolve it manually"
+for existing in intelligence.yaml intelligence.lock .intelligence; do
+    if [ -e "$root/$existing" ] || [ -L "$root/$existing" ]; then
+        die "$existing already exists at the root — conflicting v2 state; move it aside or restore the project before migrating"
+    fi
+done
 if [ "$dry_run" -eq 0 ] && [ "$force" -eq 0 ]; then
     if [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then
         die "working tree is not clean — commit or stash first (or --force); migrate wants a one-commit diff you can review and revert"
     fi
 fi
 
-stamp="$(read_engine_stamp "$config")"
+# `sync_version` belongs to the archived v1 format. The v2 contract uses
+# `schema_version`, so conversion reads the legacy scalar explicitly.
+stamp="$(top_scalar "$config" "sync_version")"
 eng="$(bundled_engine_version)"
 [ -n "$stamp" ] && _ver_gt "$stamp" "$eng" && die "project schema $stamp is newer than this CLI's engine $eng — update the CLI first"
 
@@ -50,9 +57,60 @@ get_pack_field() {
     get_nested_yaml_value "$1" "packs" "$2" "$3"
 }
 
+paths_overlap() {
+    case "$1" in "$2"|"$2"/*) return 0 ;; esac
+    case "$2" in "$1"|"$1"/*) return 0 ;; esac
+    return 1
+}
+
+validate_mirror_path() {
+    local pack="$1" mirror="$2" canon rel src src_canon src_rel target output protected mirror_phys
+    [ -n "$mirror" ] || return 0
+    case "$mirror" in
+        .|/*|*..*|*\\*|[A-Za-z]:*) die "pack '$pack' has unsafe mirror path '$mirror'" ;;
+    esac
+    canon="$(normalize_path "$root/$mirror")"
+    case "$canon" in "$root"/*) ;; *) die "pack '$pack' mirror escapes the repository: '$mirror'" ;; esac
+    rel="${canon#"$root"/}"
+
+    # A v1 mirror may live below the content directory (the normal location is
+    # intelligence/external/<pack>), but it must never own the directory itself,
+    # the vendored module, CLI state, authored sources, or generated outputs.
+    case "$umbrella_rel" in "$rel"|"$rel"/*) die "pack '$pack' mirror '$mirror' contains the v1 content directory" ;; esac
+    for protected in .git .intelligence "$module_rel"; do
+        paths_overlap "$rel" "$protected" && die "pack '$pack' mirror '$mirror' overlaps protected path '$protected'"
+    done
+    for section in rules agents skills; do
+        while IFS= read -r src; do
+            case "$src" in ""|git+*|@*) continue ;; esac
+            src_canon="$(normalize_path "$root/$src")"
+            case "$src_canon" in "$root"/*) src_rel="${src_canon#"$root"/}" ;; *) continue ;; esac
+            paths_overlap "$rel" "$src_rel" \
+                && die "pack '$pack' mirror '$mirror' overlaps configured source '$src'"
+        done < <(read_yaml_list "$config" "$section")
+    done
+    while IFS= read -r target; do
+        [ -n "$target" ] || continue
+        output="$(get_target_output "$config" "$target")"
+        [ -n "$output" ] || continue
+        case "$output" in /*|*..*) continue ;; esac
+        paths_overlap "$rel" "${output%/}" \
+            && die "pack '$pack' mirror '$mirror' overlaps target '$target' output '$output'"
+    done < <(read_yaml_keys "$config" "targets")
+
+    if [ -d "$canon" ]; then
+        mirror_phys="$(cd "$canon" && pwd -P)"
+        case "$mirror_phys" in "$root"|"$root"/*) ;; *) die "pack '$pack' mirror resolves outside the repository: '$mirror'" ;; esac
+        [ -f "$canon/.pack" ] || die "pack '$pack' mirror '$mirror' has no .pack ownership stamp — refusing to copy or delete project-owned content"
+    fi
+}
+
 # ---- Stage ----------------------------------------------------------------
-stage="$root/.intelligence-migrate-stage.$$"
-[ "$dry_run" -eq 1 ] && stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
+if [ "$dry_run" -eq 1 ]; then
+    stage="$(mktemp -d -t intelligence-migrate-XXXXXX 2>/dev/null || mktemp -d)"
+else
+    stage="$(mktemp -d "$root/.intelligence-migrate-stage.XXXXXX")"
+fi
 cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
@@ -67,7 +125,7 @@ if [ -z "$stamp" ] || _ver_gt "$V1_FINAL_SCHEMA" "$stamp"; then
     echo "ERROR: project schema is ${stamp:-absent (pre-0.3.1)}, older than the final v1 schema $V1_FINAL_SCHEMA." >&2
     echo "       Bring it forward with its own engine first — that still works:" >&2
     echo "         bash $module_rel/scripts/update.sh --yes" >&2
-    echo "       then re-run: intelligence migrate" >&2
+    echo "       then re-run: intelligence init" >&2
     exit 1
 fi
 
@@ -81,12 +139,21 @@ sync_pkg_sha="$(fetch_package "$SYNC_PKG_URL" "v$eng" "$SYNC_PKG_PATH" "$stage/$
 pack_rows="$stage/packs.rows"
 : > "$pack_rows"
 seen_names=" "
+seen_mirrors=" "
 while IFS= read -r pack; do
     [ -n "$pack" ] || continue
     url="$(get_pack_field "$config" "$pack" "url")"
     ref="$(get_pack_field "$config" "$pack" "ref")"
     mirror="$(get_pack_field "$config" "$pack" "mirror")"
     [ -n "$url" ] || die "pack '$pack' has no url in config.yaml"
+    assert_safe_source_url "$url"
+    assert_safe_ref "$ref"
+    validate_mirror_path "$pack" "$mirror"
+    if [ -n "$mirror" ]; then
+        mirror_key="$(normalize_path "$root/$mirror")"
+        case "$seen_mirrors" in *" $mirror_key "*) die "pack '$pack' shares mirror '$mirror' with another pack" ;; esac
+        seen_mirrors="$seen_mirrors$mirror_key "
+    fi
     base="${url%.git}"; base="${base%/}"
     repo="$(basename "$base")"
     org="$(basename "$(dirname "$base")")"
@@ -125,8 +192,9 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
         echo "  pack '$pack' -> $name (fetched)"
     fi
     if [ -z "$sha" ] || [ "$sha" = "unknown" ]; then
-        sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
+        sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
     fi
+    [ -n "$ref" ] || ref="HEAD"
     printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
         "$name" "" "$url" "" "$ref" "$sha" >> "$lock_rows"
 done < "$pack_rows"
@@ -192,19 +260,16 @@ while IFS= read -r line || [ -n "$line" ]; do
     fi
     echo "$line"
 done < "$config" > "$manifest_stage"
-stamp_version "$manifest_stage" "$eng"
+stamp_schema_version "$manifest_stage" "$eng"
 
-# packages: entries (pin preserved — no invented ranges).
+# packages: requested pins only; resolved source details live in the lock.
 while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     [ -n "$pack" ] || continue
-    qmap_set "$manifest_stage" "packages" "$name" "url" "$url"
-    [ -n "$ref" ] && qmap_set "$manifest_stage" "packages" "$name" "ref" "$ref"
+    qmap_set "$manifest_stage" "packages" "$name" "ref" "${ref:-HEAD}"
 done < "$pack_rows"
 
 # The engine's own content rides along as a package, pinned to the engine.
 qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "version" "$eng"
-qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "url" "$SYNC_PKG_URL"
-qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "path" "$SYNC_PKG_PATH"
 printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
     "$SYNC_PKG_NAME" "$eng" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$eng" "$sync_pkg_sha" >> "$lock_rows"
 
@@ -221,14 +286,24 @@ for section in rules agents skills; do
         esac
     done < <(read_yaml_list "$manifest_stage" "$section")
 done
-for adapter in agents claude cursor copilot codex pi opencode; do
+target_keys() {
+    awk '
+        /^targets:[[:space:]]*$/ { in_targets=1; next }
+        in_targets && /^[^[:space:]#]/ { exit }
+        in_targets && /^  [A-Za-z_][A-Za-z0-9_]*:/ {
+            line=$0; sub(/^  /, "", line); sub(/:.*/, "", line); print line
+        }
+    ' "$1"
+}
+while IFS= read -r adapter; do
+    [ -n "$adapter" ] || continue
     old_e="$(is_target_enabled "$config" "$adapter")"
     new_e="$(is_target_enabled "$manifest_stage" "$adapter")"
     [ "$old_e" = "$new_e" ] || { echo "  TARGET DRIFT: $adapter enabled '$old_e' -> '$new_e'"; fail=1; }
     old_o="$(get_target_output "$config" "$adapter")"
     new_o="$(get_target_output "$manifest_stage" "$adapter")"
     [ "$old_o" = "$new_o" ] || { echo "  TARGET DRIFT: $adapter output '$old_o' -> '$new_o'"; fail=1; }
-done
+done < <({ target_keys "$config"; target_keys "$manifest_stage"; } | sort -u)
 [ "$fail" -eq 0 ] || die "staged state failed verification — nothing changed"
 
 if [ "$dry_run" -eq 1 ]; then
@@ -250,40 +325,51 @@ if [ -f "$root/.gitignore" ]; then
     gitignore_existed=1
     cp "$root/.gitignore" "$stage/gitignore.orig"
 fi
-if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
-    {
-        [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
-        echo "# intelligence CLI package store (restored by 'intelligence install')"
-        echo ".intelligence/"
-    } >> "$root/.gitignore"
-fi
+commit_active=1
 rollback() {
+    [ "$commit_active" -eq 1 ] || return 0
+    commit_active=0
+    set +e
     rm -rf "$root/.intelligence" "$root/intelligence.yaml" "$root/intelligence.lock"
     if [ "$gitignore_existed" -eq 1 ]; then
         cp "$stage/gitignore.orig" "$root/.gitignore"
     else
         rm -f "$root/.gitignore"
     fi
+    rm -rf "$stage"
     echo "rolled back — the vendored setup is untouched" >&2
 }
-# From the first moved file until success, an interrupt must roll back too.
+rollback_on_exit() {
+    local rc=$?
+    rollback
+    exit "$rc"
+}
+# Every live write through verified sync is covered by rollback, including a
+# plain set -e/EXIT failure rather than only an explicit sync refusal.
+trap rollback_on_exit EXIT
 trap 'rollback; exit 130' INT TERM
+if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
+    {
+        [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
+        echo "# intelligence CLI package store (restored automatically by 'intelligence sync')"
+        echo ".intelligence/"
+    } >> "$root/.gitignore"
+fi
 mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
-    rollback
-    die "sync of the migrated state failed — rolled back"
+    die "sync of the migrated state failed"
 }
 echo "$sync_out" | grep -q '^IS_STATUS=ok' || {
     echo "$sync_out"
-    rollback
-    die "sync of the migrated state did not report ok — rolled back"
+    die "sync of the migrated state did not report ok"
 }
 # Point of no return: the new state is verified. From here an interrupt must
 # NOT roll back (the old setup is being removed) — only clean the stage.
+commit_active=0
 trap cleanup_stage EXIT INT TERM
 
 # Only now is anything of the old setup removed — and config.yaml is kept as
@@ -298,7 +384,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     esac
     if [ -d "$root/$mirror" ]; then
         rm -rf "${root:?}/$mirror"
-        # An emptied mirror parent (e.g. <umbrella>/external/) goes with it.
+        # An emptied v1 mirror parent (for example intelligence/external/) goes with it.
         rmdir "$(dirname "$root/$mirror")" 2>/dev/null || true
     fi
 done < "$pack_rows"
@@ -310,4 +396,5 @@ rmdir "$umbrella" 2>/dev/null || true
 
 echo ""
 echo "migrated. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
-echo "From now on: intelligence sync | add | install | doctor."
+echo "From now on: intelligence sync | package | update | status."
+echo "Next: ask your agent to run /intelligence-learn-from-repository to review the migrated project context."

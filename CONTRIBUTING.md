@@ -1,56 +1,117 @@
-# Contributing to intelligence-sync
+# Contributing to Intelligence
 
-Thank you for your interest in contributing to intelligence-sync.
+Thank you for improving the v2 Intelligence CLI, sync engine or package content.
 
-## How to Contribute
+## Before you change code
 
-### Reporting Issues
+Read [decision 0001](decisions/0001-split-v1-archive-from-v2-product.md) and [decision 0002](decisions/0002-consolidate-v2-cli-lifecycle.md). Keep the v1/v2 split and the compact public command model intact; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the v1 migration chain.
 
-- Open an issue on GitHub with a clear description of the problem
-- Include your OS, shell version, and the IDE adapter involved
-- Paste the relevant part of `config.yaml` if applicable
+Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-systems/intelligence/issues). Include the operating system, shell, installed npm package version, `intelligence status`, the failing command and a minimal redacted `intelligence.yaml` when relevant.
 
-### Submitting Changes
+## Submitting a change
 
-1. Fork the repository
-2. Create a feature branch from `main`
-3. Make your changes
-4. Test with at least one adapter (`bash intelligence/sync/scripts/sync.sh claude`) — `sync.sh` runs `lint_frontmatter` over every source file before adapters fire, so unquoted YAML colons and other parse hazards surface as warnings on stderr.
-5. If the change touches model defaults, run sync against a project that overrides them under `models:` — verify the drift report fires correctly.
-6. Submit a pull request.
+1. Fork the repository and branch from `main`.
+2. Keep the change within the relevant boundary: package and lifecycle mechanics in `cli/`, deterministic rendering in `engine/`, installed content in `packages/sync/`.
+3. Add or update the narrowest automated test that proves the behavior.
+4. Run the relevant checks below.
+5. Update user-facing documentation and the compact v2 changelog when behavior changes.
+6. Open a pull request explaining the observable result and validation performed.
 
-### Testing Engine Changes Across Projects
+## Public CLI contract
 
-Downstream projects pick up engine changes via `intelligence/sync/scripts/update.sh` — point its `REPO_URL` at your fork to dry-run a release before merging:
+Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
+
+- `init` owns new-project setup, archived-project conversion and v2 alignment.
+- Project-aware mutations align v2 automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
+- `sync` restores a missing package store from the committed lock before rendering.
+- Planned writes use `--preview` and `--apply` consistently.
+- Deep consistency validation belongs to `status --check`.
+
+Do not add a top-level command when one of these groups already owns the lifecycle state or resource.
+
+## Validation
+
+Run the full CLI baseline from the repository root:
 
 ```bash
-REPO_URL=https://github.com/<you>/intelligence-sync.git \
-  bash intelligence/sync/scripts/update.sh --yes
+bash cli/tests/unit-semver.sh .
+bash cli/tests/unit-manifest.sh .
+bash cli/tests/e2e-packages.sh .
+bash cli/tests/e2e-lifecycle.sh .
+bash cli/tests/e2e-negative.sh .
 ```
 
-`update.sh` clones into `mktemp -d`, replaces `intelligence/sync/scripts/` and `intelligence/sync/INIT.md`, and never touches project content (`config.yaml`, `rules/`, `agents/`, `skills/`).
+The end-to-end tests use local `file://` Git fixtures. Keep new tests hermetic and independent of public registries.
 
-### Adding a New IDE Adapter
+For shell changes, run the same lint scopes as CI:
 
-1. Copy `intelligence/sync/scripts/adapters/_template.sh` to `intelligence/sync/scripts/adapters/<name>.sh`.
-2. Replace every `<name>` placeholder with your adapter name (the template intentionally fails to parse otherwise — `<` is a bash redirection operator).
-3. Implement the `sync_to_<name>()` function.
-4. Use `get_model "$config_file" "<name>" "$tier"` instead of hardcoding model names — this lets users override per-tier under `models:` in `config.yaml`.
-5. Add an example target entry to the docs.
-6. See [docs/ADAPTERS.md](docs/ADAPTERS.md) for the full guide.
+```bash
+shellcheck --severity=warning cli/intelligence
+find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+find engine -name '*.sh' -not -path '*/adapters/_template.sh' \
+  -print0 | xargs -0 shellcheck --severity=warning
+```
 
-### Code Style
+The unexpanded adapter template is intentionally excluded from shellcheck.
 
-- Shell scripts: `set -euo pipefail`, LF line endings (enforced by `.gitattributes`).
-- Use helpers from `intelligence/sync/scripts/lib/common.sh` — never duplicate frontmatter parsing, model resolution, or YAML reading logic.
-- No external dependencies beyond `bash` and `awk` (`mktemp`, `find`, `cp` are POSIX-OK).
-- Comments should explain "why", not "what". Skip comments where well-named identifiers already make intent obvious.
+For distribution changes, verify the npm payload:
 
-### Commit Messages
+```bash
+bash npm/build.sh 0.0.0-dev
+(cd npm/dist && npm pack --dry-run)
+```
 
-- Capital letter, past tense, one sentence
-- Example: `Added Codex adapter with AGENTS.md generation`
+Confirm that it contains `cli/`, `engine/` and `packages/sync/`, and that the bundled sync package contains content only—never `engine/sync.sh` or other executable engine files.
+
+## Adding a built-in adapter
+
+1. Copy `engine/adapters/_template.sh` to `engine/adapters/<name>.sh`.
+2. Replace every `<name>` placeholder and implement `sync_to_<name>()`.
+3. Use shared functions from `engine/lib/common.sh` for source iteration, frontmatter, model mapping, skill bundles and output finalization.
+4. Clean only adapter-owned paths; never delete an entire tool root that may contain user files.
+5. Add adapter coverage to the smoke or lifecycle suite and document the output in [the adapter guide](packages/sync/references/adapters.md).
+
+The template is invalid shell until its placeholders are replaced because `<` is parsed as redirection.
+
+## Testing a project-owned adapter
+
+In a disposable v2 project:
+
+```bash
+intelligence adapter create mytool
+# implement intelligence/adapters/mytool.sh
+intelligence adapter enable mytool
+intelligence sync mytool
+```
+
+Verify the generated paths, run a second sync to prove idempotence, and confirm unrelated hand-authored files under the same tool root survive.
+
+## Code style and safety
+
+- Use Bash with `set -euo pipefail` and LF line endings.
+- Keep engine dependencies to Bash, awk and ordinary POSIX utilities; do not add jq, Python or GNU-only awk syntax.
+- Reuse parsers in `engine/lib/common.sh` and `cli/lib/`; do not fork YAML or frontmatter parsing logic.
+- Treat manifest, lock and registry values as untrusted before passing them to Git or filesystem operations.
+- Stage and verify migrations or package-store replacements before committing them.
+- Pass every emitted text file through `finalize_output_file`; copy complete skills with `copy_skill_bundle`.
+- Explain constraints and intent in comments, not code that is already clear from its names.
+
+## Versioned files
+
+When a change includes an engine version bump, keep these exact values aligned:
+
+- `engine/VERSION`;
+- `schema_version` in every `examples/*/intelligence.yaml`;
+- the `@ainova-systems/sync` exact pin in every example.
+
+Do not create releases as part of an ordinary contribution. v2 remains prerelease until the owner approves a stable release.
+
+## Commit messages
+
+Use one capitalized, past-tense sentence, for example: `Added adapter lifecycle coverage`.
+
+Do not add `Co-Authored-By` trailers or AI/tool attribution.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+By contributing, you agree that your contribution is licensed under the [MIT License](LICENSE).

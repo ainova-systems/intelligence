@@ -1,12 +1,12 @@
 # Example: Platform with git submodules
 # Submodules are separate repos — excluded from parent sync.
-# They may have their own intelligence-sync setup internally.
+# They may have their own Intelligence project internally.
 # Paths here are EXAMPLES — use whatever your repo actually has.
 
 project:
   name: my-platform
 
-sync_version: "0.11.0"
+schema_version: "0.11.0"
 
 sources:
   rules:
@@ -54,5 +54,3 @@ submodules:
 packages:
   "@ainova-systems/sync":
     version: "0.11.0"
-    url: "https://github.com/ainova-systems/intelligence.git"
-    path: "packages/sync"
