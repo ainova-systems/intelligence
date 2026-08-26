@@ -139,14 +139,12 @@ bundled_engine_version() {
 }
 
 # --- The sync package's manifest/lock plumbing ---------------------------
-# sync_pkg_entry <manifest> — write/refresh the package's manifest entry:
-# name + exact pin + explicit url/path, so resolution never depends on any
-# registry (a project registry shadowing the name cannot brick the engine).
+# sync_pkg_entry <manifest> — write/refresh only the requested exact pin.
+# The built-in source lives in engine-package.yaml and resolved source state
+# belongs exclusively to intelligence.lock.
 sync_pkg_entry() {
     local manifest="$1"
     qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "version" "$(bundled_engine_version)"
-    qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "url" "$SYNC_PKG_URL"
-    qmap_set "$manifest" "packages" "$SYNC_PKG_NAME" "path" "$SYNC_PKG_PATH"
 }
 
 # sync_pkg_install <root> — materialize the package into the store and lock
@@ -227,13 +225,19 @@ project_needs_upgrade() {
     [ -d "$root/.intelligence/engine" ] && return 0
 
     while IFS= read -r name; do
-        [ "$name" = "$SYNC_PKG_NAME" ] || continue
-        pinned="$(qmap_field "$manifest" "packages" "$name" "version")"
-        locked="$(qmap_field "$root/intelligence.lock" "packages" "$name" "resolved")"
-        [ "$pinned" = "$eng" ] || return 0
-        if [ -f "$root/intelligence.lock" ]; then
-            [ -n "$locked" ] || return 0
-            [ "${locked#v}" = "$eng" ] || return 0
+        [ -n "$name" ] || continue
+        # Early RC manifests mixed requested intent with resolved source
+        # details. Source URL/path now live only in the required lockfile.
+        [ -n "$(qmap_field "$manifest" "packages" "$name" "url")" ] && return 0
+        [ -n "$(qmap_field "$manifest" "packages" "$name" "path")" ] && return 0
+        if [ "$name" = "$SYNC_PKG_NAME" ]; then
+            pinned="$(qmap_field "$manifest" "packages" "$name" "version")"
+            locked="$(qmap_field "$root/intelligence.lock" "packages" "$name" "resolved")"
+            [ "$pinned" = "$eng" ] || return 0
+            if [ -f "$root/intelligence.lock" ]; then
+                [ -n "$locked" ] || return 0
+                [ "${locked#v}" = "$eng" ] || return 0
+            fi
         fi
     done < <(qmap_keys "$manifest" "packages")
     return 1

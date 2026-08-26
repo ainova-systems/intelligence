@@ -57,9 +57,9 @@ if [ -d "$IP_ROOT/.intelligence/engine" ]; then
     warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence init'"
 fi
 
-# Manifest packages: names valid, locked, installed — and the lock's source
-# still the one resolution would pick today (a registry silently re-pointing
-# an installed name is the dependency-confusion tail this check cuts off).
+# Manifest packages: names valid, requested intent only, locked and installed.
+# The lock is authoritative for resolved source URL/path until an explicit
+# package re-add changes that trust decision.
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     assert_valid_pkg_name "$name"
@@ -68,32 +68,21 @@ while IFS= read -r name; do
     else
         m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
         m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
-        m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
-        m_path="$(qmap_field "$manifest" "packages" "$name" "path")"
         l_req="$(qmap_field "$lock" "packages" "$name" "requested")"
         l_res="$(qmap_field "$lock" "packages" "$name" "resolved")"
-        l_url="$(qmap_field "$lock" "packages" "$name" "url")"
-        l_path="$(qmap_field "$lock" "packages" "$name" "path")"
         [ -z "$m_ver" ] || [ "$m_ver" = "$l_req" ] \
             || warn "$name requests '$m_ver' but the lock recorded '$l_req' — run 'intelligence update --preview'"
         [ -z "$m_ref" ] || [ "$m_ref" = "$l_res" ] \
             || warn "$name pins ref '$m_ref' but the lock resolved '$l_res'"
-        [ -z "$m_url" ] || [ "$m_url" = "$l_url" ] \
-            || warn "$name declares url '$m_url' but the lock recorded '$l_url'"
-        [ -z "$m_path" ] || [ "$m_path" = "$l_path" ] \
-            || warn "$name declares path '$m_path' but the lock recorded '$l_path'"
+        if [ -n "$(qmap_field "$manifest" "packages" "$name" "url")" ] \
+            || [ -n "$(qmap_field "$manifest" "packages" "$name" "path")" ]; then
+            warn "$name stores source details in the manifest — run 'intelligence init --apply' to move them to the lock-only model"
+        fi
         if [ ! -d "$IP_ROOT/.intelligence/packages/$name" ]; then
             warn "$name is locked but not installed — run 'intelligence sync'"
             continue
         fi
         ok "$name @ $(qmap_field "$lock" "packages" "$name" "resolved")"
-        if [ -z "$(qmap_field "$manifest" "packages" "$name" "url")" ]; then
-            locked_url="$(qmap_field "$lock" "packages" "$name" "url")"
-            resolve_package_source "$manifest" "$name" 2>/dev/null || true
-            if [ -n "${RES_URL:-}" ] && [ -n "$locked_url" ] && [ "$RES_URL" != "$locked_url" ]; then
-                warn "$name now resolves to $RES_URL but the lock pins $locked_url — a registry re-pointed the name; verify with 'intelligence update --preview'"
-            fi
-        fi
     fi
 done < <(qmap_keys "$manifest" "packages")
 

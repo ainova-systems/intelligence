@@ -42,4 +42,8 @@ intelligence sync
 
 Any git repo with `rules/`, `agents/` or `skills/` at its root is already an Intelligence Package: install it from an explicit source — `intelligence package add github:your-org/your-repo` — with versions from its `x.y.z` git tags. Names (`@scope/name`) resolve only through registries this project explicitly trusts; a monorepo of packages needs one line in such an index.
 
+Every package has the same compact manifest entry: requested `version` or
+`ref` only. Repository URL/path, resolved tag/ref and commit SHA are recorded
+in the committed `intelligence.lock`.
+
 Requires `git` (and on Windows the bash it ships with — Git for Windows). Engine and docs: [ainova-systems/intelligence](https://github.com/ainova-systems/intelligence).

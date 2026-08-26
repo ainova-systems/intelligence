@@ -197,6 +197,27 @@ cp "$M4" "$OUT/m4.before"
 qmap_delete_key "$M4" packages "@acme/none"  # nonexistent key: no-op
 chk diff "$OUT/m4.before" "$M4"
 
+echo "== qmap_delete_field =="
+M4F="$OUT/m4-field.yaml"
+cat > "$M4F" <<'EOF'
+packages:
+  "@acme/one":
+    version: "^1.0.0"
+    url: "https://h/one.git"
+    path: "skills"
+  "@acme/two":
+    ref: "main"
+EOF
+qmap_delete_field "$M4F" packages "@acme/one" url
+qmap_delete_field "$M4F" packages "@acme/one" path
+chk eq "$(qmap_field "$M4F" packages "@acme/one" version)" "^1.0.0"
+chk eq "$(qmap_field "$M4F" packages "@acme/one" url)" ""
+chk eq "$(qmap_field "$M4F" packages "@acme/one" path)" ""
+chk eq "$(qmap_field "$M4F" packages "@acme/two" ref)" "main"
+cp "$M4F" "$OUT/m4-field.once"
+qmap_delete_field "$M4F" packages "@acme/one" url
+chk diff "$OUT/m4-field.once" "$M4F"
+
 echo "== sources_remove_entry =="
 M5="$OUT/m5.yaml"
 cat > "$M5" <<'EOF'

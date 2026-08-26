@@ -301,6 +301,29 @@ qmap_delete_key() {
     '
 }
 
+# qmap_delete_field <file> <block> <key> <field> — drop one field from a
+# quoted-key entry without disturbing its other fields or surrounding YAML.
+qmap_delete_field() {
+    local file="$1" block="$2" key="$3" field="$4"
+    [ -f "$file" ] || return 0
+    _qmap_stage "$file" -v block="$block" -v key="$key" -v field="$field" '
+        { sub(/\r$/, "") }
+        $0 ~ "^" block ":[ \t]*$" { inb = 1; print; next }
+        inb && /^[^ #]/ { inb = 0; ink = 0 }
+        inb && /^  "/ {
+            s = substr($0, 4); q = index(s, "\"")
+            ink = (q > 0 && substr(s, 1, q - 1) == key)
+            print; next
+        }
+        inb && ink && /^    [A-Za-z_]/ {
+            line = $0; sub(/^    /, "", line)
+            c = index(line, ":")
+            if (c > 0 && substr(line, 1, c - 1) == field) next
+        }
+        { print }
+    '
+}
+
 # --- registries: a trust LIST, not a scope map -----------------------------
 # The block holds registry repo URLs in trust order. Two shapes are read so
 # early manifests keep working: the list form (`- "url"`) and the retired

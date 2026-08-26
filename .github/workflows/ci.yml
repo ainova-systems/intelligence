@@ -167,6 +167,14 @@ jobs:
             if [ -n "$pin" ] && [ "$pin" != "$V" ]; then
               echo "PIN DRIFT: $cf pins the sync package at \"$pin\", expected \"$V\""; fail=1
             fi
+            if awk '
+              /^packages:[[:space:]]*$/ { in_packages=1; next }
+              in_packages && /^[^ #]/ { in_packages=0 }
+              in_packages && /^    (url|path):/ { found=1 }
+              END { exit !found }
+            ' "$cf"; then
+              echo "SOURCE LEAK: $cf stores package url/path outside intelligence.lock"; fail=1
+            fi
           done
           for example in go-api dotnet-api-with-react-frontend platform-with-submodules; do
             test -f "examples/$example/intelligence.lock" \

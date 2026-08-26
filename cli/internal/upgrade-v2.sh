@@ -49,7 +49,32 @@ if [ -n "$legacy_stamp" ]; then
     echo "  migrating: sync_version -> schema_version"
 fi
 
-# v2 migration 1: staged engine content -> the @ainova-systems/sync package.
+# v2 migration 1: package entries contain requested intent only. Early RCs
+# also copied resolved url/path into the manifest. Preserve the existing lock
+# as the trusted source and remove that duplicate representation. A direct
+# unversioned package becomes an explicit HEAD pin so its manifest entry stays
+# meaningful after the source fields are removed.
+source_fields_migrated=0
+while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
+    m_path="$(qmap_field "$manifest" "packages" "$name" "path")"
+    [ -n "$m_url" ] || [ -n "$m_path" ] || continue
+    m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
+    m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
+    if [ -z "$m_ver" ] && [ -z "$m_ref" ]; then
+        locked_ref="$(qmap_field "$IP_ROOT/intelligence.lock" "packages" "$name" "resolved")"
+        qmap_set "$manifest" "packages" "$name" "ref" "${locked_ref:-HEAD}"
+    fi
+    qmap_delete_field "$manifest" "packages" "$name" "url"
+    qmap_delete_field "$manifest" "packages" "$name" "path"
+    source_fields_migrated=1
+done < <(qmap_keys "$manifest" "packages")
+if [ "$source_fields_migrated" -eq 1 ]; then
+    echo "  migrating: package url/path -> intelligence.lock"
+fi
+
+# v2 migration 2: staged engine content -> the @ainova-systems/sync package.
 # Pre-package manifests listed `.intelligence/engine/{rules,agents,skills}`
 # as sources fed by a CLI-staged copy; that copy is now an ordinary package
 # entry seeded from the bundle. Post-condition: no `.intelligence/engine`

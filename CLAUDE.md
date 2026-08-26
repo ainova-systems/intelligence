@@ -110,6 +110,11 @@ The quoted-key `packages:` and `registries:` blocks are CLI-owned. Their parsing
 
 Registries are an ordered trust list and the only resolver for package names. Do not add a built-in catalog or infer a GitHub URL from `@org/name`. Explicit `github:` and `git+` specs remain the registry-free path. Names are global and one version of a package name may exist in a project.
 
+Manifest package entries contain requested intent only: `version` or `ref`.
+Resolved `url`, `path`, tag/ref and SHA belong in `intelligence.lock` for every
+source type, including the built-in sync package. Updates use the locked source;
+changing source is an explicit package re-add.
+
 ## Engine architecture
 
 `engine/sync.sh` sources `engine/lib/common.sh` and `engine/lib/contract.sh`, discovers built-in plus project-owned adapters, and runs enabled targets.

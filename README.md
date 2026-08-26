@@ -129,11 +129,15 @@ intelligence package add github:acme/backend-intelligence
 intelligence package add 'git+https://git.example.com/team/prompts.git@main#package'
 ```
 
+Both forms produce the same compact manifest shape: the package entry keeps
+only the requested `version` or `ref`. The resolved repository URL, optional
+subdirectory, tag/ref and commit SHA belong only to `intelligence.lock`.
+
 Registries are the only resolver for package names. There is no built-in catalog and no `@org/name` to GitHub guessing. The first trusted registry that declares a name wins.
 
-Stable `x.y.z` Git tags, optionally prefixed with `v`, provide package versions. Semver ranges select the highest matching stable tag. A `ref:` pin is the escape hatch for a branch or commit and does not move during `update`.
+Stable `x.y.z` Git tags, optionally prefixed with `v`, provide package versions. Semver ranges select the highest matching stable tag; GitHub Releases are not consulted. A `ref:` pin is the escape hatch for a branch or commit and does not move during `update`.
 
-`intelligence.lock` records the requested version, source URL, source path, resolved tag and commit SHA. `sync` restores missing locked packages without consulting registries or re-resolving ranges.
+`intelligence.lock` records the requested version, source URL, source path, resolved tag/ref and commit SHA. `sync` restores missing locked packages without consulting registries or re-resolving ranges. Re-run `package add` explicitly when you intend to change a package's source.
 
 If a manifest declares packages but its lockfile is missing, lifecycle commands
 fail before changing anything. Restore the committed `intelligence.lock`; the

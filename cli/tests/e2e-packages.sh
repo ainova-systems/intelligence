@@ -54,10 +54,13 @@ echo "== package add =="
 chk test -d "$PROJ/.intelligence/packages/@acme/shared/rules"
 chk grep -q '"@acme/shared"' "$PROJ/intelligence.yaml"
 chk grep -q 'version: "\^1.1.0"' "$PROJ/intelligence.yaml"
+chknot grep -q '^[[:space:]]*url:' "$PROJ/intelligence.yaml"
+chknot grep -q '^[[:space:]]*path:' "$PROJ/intelligence.yaml"
 chk grep -q '\.intelligence/packages/@acme/shared/rules' "$PROJ/intelligence.yaml"
 chk grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
 chk test -f "$PROJ/intelligence.lock"
 chk grep -q 'resolved: "v1.1.0"' "$PROJ/intelligence.lock"
+chk grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.lock"
 chk grep -q 'sha: "' "$PROJ/intelligence.lock"
 chk grep -q 'PACK_RULE_MARKER_11' "$PROJ/AGENTS.md"
 chk grep -q 'pack-do-thing' "$PROJ/AGENTS.md"
@@ -102,6 +105,17 @@ chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence
 out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 echo "$out13" | grep -q '^IS_STATUS=ok' || { echo "FAIL: sync after shape-changing update"; fail=1; }
 
+echo "== update requested range when resolved tag stays unchanged =="
+awk '{ gsub(/version: "\^1\.1\.0"/, "version: \"~1.3.0\""); print }' \
+    "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
+mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview) \
+    | grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' \
+    || { echo "FAIL: preview omitted request-only lock alignment"; fail=1; }
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply >/dev/null)
+chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
+
 echo "== project file overrides a same-named package file =="
 printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync >/dev/null)
@@ -126,6 +140,9 @@ chk grep -q -- "- \"file://$REG\"" "$PROJ/intelligence.yaml"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add @acme/via-registry --no-sync)
 chk test -f "$PROJ/.intelligence/packages/@acme/via-registry/pack-do-thing/SKILL.md"
 chk grep -q '"@acme/via-registry"' "$PROJ/intelligence.lock"
+chk grep -q 'version: "\^2.0.0"' "$PROJ/intelligence.yaml"
+chknot grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.yaml"
+chk grep -q 'path: "skills"' "$PROJ/intelligence.lock"
 
 echo "== package remove =="
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/shared)

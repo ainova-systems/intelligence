@@ -112,6 +112,10 @@ intelligence package search [term]
 - `github:org/repo[#path]` as an explicit GitHub source;
 - `git+<url>[@ref][#path]` as an explicit Git source.
 
+Every form writes the same manifest contract: only requested `version` or
+`ref`. The resolved source URL/path is recorded in the lock, not duplicated in
+the manifest. Re-adding a package is the explicit way to change its source.
+
 `package remove` removes manifest, source, lock and store state. Removing `@ainova-systems/sync` requires `--force` because it removes engine-owned meta-content from generated outputs while rendering itself remains available.
 
 `package list` shows requested and locked state. `package search` combines what trusted registries offer with what the project has.
@@ -182,11 +186,11 @@ Whichever top-level `rules/`, `agents/` and `skills/` directories a package prov
 
 ### Versions
 
-Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ranges (`^1.2.0`, `~1.2.0`, an exact version or `latest`) match stable tags from `git ls-remote`; prerelease tags are invisible to ranges. A branch, commit or other deliberate pin uses `ref:`.
+Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ranges (`^1.2.0`, `~1.2.0`, an exact version or `latest`) match stable tags from `git ls-remote`; prerelease tags are invisible to ranges and GitHub Releases are not consulted. A branch, commit or other deliberate pin uses `ref:`.
 
 ### Lock and restore
 
-Per package, `intelligence.lock` records requested version, source URL/path, resolved tag and commit SHA. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. This is the reproducibility contract used automatically by `sync` after a fresh clone.
+Per package, `intelligence.lock` records requested version, source URL/path, resolved tag/ref and commit SHA. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. Updates keep using that locked source; a deliberate source change is a new `package add`. This is the reproducibility contract used automatically by `sync` after a fresh clone.
 
 ## Manifest ownership
 
@@ -196,12 +200,18 @@ The engine reads `project:`, `schema_version:`, `sources:`, `targets:`, `models:
 packages:
   "@acme/backend":
     version: "^1.2.0"
+  "@acme/experimental":
+    ref: "main"
 
 registries:
   - "https://github.com/acme/intelligence-registry.git"
 ```
 
 `project.intelligence_dir` selects a content directory other than `intelligence/`. `schema_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
+
+Package entries never contain `url` or `path`. Those resolved fields live in
+the committed lock whether the package came from a registry, `github:`,
+`git+`, or the CLI's built-in sync-package descriptor.
 
 ## Engine invocation contract
 

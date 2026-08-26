@@ -194,6 +194,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     if [ -z "$sha" ] || [ "$sha" = "unknown" ]; then
         sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
     fi
+    [ -n "$ref" ] || ref="HEAD"
     printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
         "$name" "" "$url" "" "$ref" "$sha" >> "$lock_rows"
 done < "$pack_rows"
@@ -261,17 +262,14 @@ while IFS= read -r line || [ -n "$line" ]; do
 done < "$config" > "$manifest_stage"
 stamp_schema_version "$manifest_stage" "$eng"
 
-# packages: entries (pin preserved — no invented ranges).
+# packages: requested pins only; resolved source details live in the lock.
 while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     [ -n "$pack" ] || continue
-    qmap_set "$manifest_stage" "packages" "$name" "url" "$url"
-    [ -n "$ref" ] && qmap_set "$manifest_stage" "packages" "$name" "ref" "$ref"
+    qmap_set "$manifest_stage" "packages" "$name" "ref" "${ref:-HEAD}"
 done < "$pack_rows"
 
 # The engine's own content rides along as a package, pinned to the engine.
 qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "version" "$eng"
-qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "url" "$SYNC_PKG_URL"
-qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "path" "$SYNC_PKG_PATH"
 printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
     "$SYNC_PKG_NAME" "$eng" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$eng" "$sync_pkg_sha" >> "$lock_rows"
 

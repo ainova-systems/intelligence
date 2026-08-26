@@ -117,6 +117,7 @@ if [ -z "$ref" ]; then
             die "'$name' has no stable version tags at $url — a registry package must be versioned; use github:/git+ with @<ref> to pin a branch or commit"
         fi
         echo "  NOTE: no version tags at $url — pinning the default branch head" >&2
+        ref="HEAD"
     fi
 fi
 
@@ -125,22 +126,16 @@ sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 
 wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
 
-# Manifest entry: a registry package records its range; a direct one records
-# its source so resolution never has to guess it again. The entry is replaced
-# WHOLE — re-adding under a different spec must not leave the old spec's
-# fields behind (a stale ref: would freeze update, a stale url: would pin the
-# old source).
+# The manifest records requested intent only. The resolved source URL/path,
+# tag/ref and SHA live in the required lock. Re-adding a package is the
+# explicit operation for changing its trusted source.
 qmap_delete_key "$manifest" "packages" "$name"
-if [ "$mode" = "registry" ]; then
+if [ -n "$ref" ]; then
+    qmap_set "$manifest" "packages" "$name" "ref" "$ref"
+elif [ -n "$requested" ]; then
     qmap_set "$manifest" "packages" "$name" "version" "$requested"
 else
-    qmap_set "$manifest" "packages" "$name" "url" "$url"
-    [ -n "$path" ] && qmap_set "$manifest" "packages" "$name" "path" "$path"
-    if [ -n "$ref" ]; then
-        qmap_set "$manifest" "packages" "$name" "ref" "$ref"
-    elif [ -n "$requested" ]; then
-        qmap_set "$manifest" "packages" "$name" "version" "$requested"
-    fi
+    die "internal: package '$name' has neither a requested version nor ref"
 fi
 
 lock_upsert "$lock" "$name" "$requested" "$url" "$path" "${ref:-$resolved_tag}" "$sha"

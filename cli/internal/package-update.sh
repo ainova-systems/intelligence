@@ -1,9 +1,9 @@
 #!/bin/bash
 # Internal package range update operation.
 #
-# Re-resolve version ranges against the remotes and rewrite the lock. Pinned
-# packages (`ref:`) never move here — repin by editing the manifest or
-# re-adding. `update <name>` limits the pass to one package.
+# Resolve requested versions/refs against each package's locked source and
+# rewrite the lock. `update <name>` limits the pass to one package; re-adding
+# is the explicit operation for changing a source URL/path.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -35,30 +35,36 @@ while IFS= read -r name; do
         echo "  $name: engine content follows the installed CLI — skipped"
         continue
     fi
+    current="$(qmap_field "$lock" "packages" "$name" "resolved")"
+    locked_requested="$(qmap_field "$lock" "packages" "$name" "requested")"
+    url="$(qmap_field "$lock" "packages" "$name" "url")"
+    path="$(qmap_field "$lock" "packages" "$name" "path")"
+    [ -n "$url" ] || die "$name has no source in intelligence.lock — restore the committed lock or re-add the package"
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
-    [ -n "$ref" ] && { echo "  $name: pinned to ref '$ref' — skipped"; continue; }
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
-    # An exact version is a pin, same as ref: — update never moves pins.
-    if [ -n "$range" ] && semver_is_stable "$range"; then
-        echo "  $name: pinned to $range — edit the manifest to move it"
+    [ -n "$ref" ] || [ -n "$range" ] || die "$name has neither version nor ref in the manifest"
+
+    if [ -n "$ref" ]; then
+        tag="$ref"
+        requested=""
+    else
+        picked="$(list_remote_versions "$url" | semver_pick_highest "$range")"
+        [ -n "$picked" ] || { echo "  $name: nothing satisfies '$range' at $url" >&2; continue; }
+        read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
+        requested="$range"
+    fi
+    if [ "$tag" = "$current" ] && [ "$requested" != "$locked_requested" ]; then
+        if [ "$preview" -eq 1 ]; then
+            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (keeps $current)"
+        else
+            locked_sha="$(qmap_field "$lock" "packages" "$name" "sha")"
+            lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$current" "$locked_sha"
+            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (kept $current)"
+        fi
+        moved=$((moved + 1))
         continue
     fi
-    url="$(qmap_field "$manifest" "packages" "$name" "url")"
-    path="$(qmap_field "$manifest" "packages" "$name" "path")"
-    if [ -z "$url" ]; then
-        resolve_package_source "$manifest" "$name"
-        url="$RES_URL"; path="$RES_PATH"
-    fi
-    picked="$(list_remote_versions "$url" | semver_pick_highest "$range")"
-    [ -n "$picked" ] || { echo "  $name: nothing satisfies '${range:-*}' at $url" >&2; continue; }
-    read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
-    current="$(qmap_field "$lock" "packages" "$name" "resolved")"
-    cur_url="$(qmap_field "$lock" "packages" "$name" "url")"
-    cur_path="$(qmap_field "$lock" "packages" "$name" "path")"
-    # Same tag is not enough: a registry may re-point a name's source while
-    # keeping the version — the move doctor warns about must be actionable
-    # here, so url/path changes refetch too.
-    if [ "$tag" = "$current" ] && [ "$url" = "$cur_url" ] && [ "$path" = "$cur_path" ]; then
+    if [ "$tag" = "$current" ]; then
         echo "  $name: ${current:-<none>} (up to date)"
         continue
     fi
@@ -80,7 +86,7 @@ while IFS= read -r name; do
     mkdir -p "$(dirname "$IP_ROOT/$rel")"
     mv "$staging" "$IP_ROOT/$rel"
     wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
-    lock_upsert "$lock" "$name" "$range" "$url" "$path" "$tag" "$sha"
+    lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$tag" "$sha"
     echo "  $name: ${current:-<none>} -> $tag"
     moved=$((moved + 1))
 done < <(qmap_keys "$manifest" "packages")

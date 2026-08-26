@@ -92,11 +92,11 @@ intelligence package add github:acme/backend-intelligence
 intelligence package add 'git+https://git.example.com/acme/backend.git@main#package'
 ```
 
-Registries are an ordered trust list and the only resolver for a package name. There is no built-in catalog and no `@org/name` → GitHub guessing. An explicit `github:` or `git+` spec bypasses registry lookup while remaining recorded and pinned in the manifest and lock.
+Registries are an ordered trust list and the only resolver for a package name. There is no built-in catalog and no `@org/name` → GitHub guessing. An explicit `github:` or `git+` spec bypasses registry lookup. In every case the manifest stores only requested `version` or `ref`; resolved URL/path and SHA live in the lock.
 
 Stable Git tags provide package versions. Semver ranges select the highest matching stable tag; a `ref:` pin names a branch or commit and does not move during `intelligence update`. One package name has one version per project.
 
-Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, `intelligence sync` restores a missing store strictly from that lock before rendering; manifest/lock or SHA drift is refused.
+Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, `intelligence sync` restores a missing store strictly from that lock before rendering; manifest/lock or SHA drift is refused. Re-run `package add` when deliberately changing a source.
 
 `@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Lifecycle preflight keeps that pin and `schema_version` aligned with the installed CLI; package-range updates never move it independently.
 

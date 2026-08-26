@@ -51,5 +51,3 @@ ignore:
 packages:
   "@ainova-systems/sync":
     version: "0.11.0"
-    url: "https://github.com/ainova-systems/intelligence.git"
-    path: "packages/sync"

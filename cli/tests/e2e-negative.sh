@@ -175,6 +175,14 @@ xfail "must be versioned" "$PROJ" package add @acme/notags
 chknot test -d "$PROJ/.intelligence/packages/@acme/notags"
 chknot test -f "$PROJ/intelligence.lock"
 
+echo "== 3a. explicit tagless package records a HEAD intent, source only in lock =="
+xok "@acme/tagless-direct@HEAD" "$PROJ" package add "git+$NOTAGS_URL" --name @acme/tagless-direct --no-sync
+chk grep -q 'ref: "HEAD"' "$PROJ/intelligence.yaml"
+chknot grep -q "url: \"$NOTAGS_URL\"" "$PROJ/intelligence.yaml"
+chk grep -q "url: \"$NOTAGS_URL\"" "$PROJ/intelligence.lock"
+chk grep -q 'resolved: "HEAD"' "$PROJ/intelligence.lock"
+xok "" "$PROJ" package remove @acme/tagless-direct --no-sync
+
 echo "== 3b. a name NO trusted registry declares is refused (no guessing) =="
 xfail "no trusted registry declares" "$PROJ" package add @nobody/nothing
 chknot test -d "$PROJ/.intelligence/packages/@nobody"
@@ -373,6 +381,9 @@ printf "# Claude marker
 git -C "$P13" init --quiet
 xok "engine content installed" "$P13" init
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
+chknot grep -q '^[[:space:]]*url:' "$P13/intelligence.yaml"
+chknot grep -q '^[[:space:]]*path:' "$P13/intelligence.yaml"
+chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/intelligence.lock"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
 chk test -d "$P13/.claude/skills/intelligence-update"
 chk test -d "$P13/.claude/skills/intelligence-learn-from-repository"
@@ -402,6 +413,22 @@ chk test -d "$P13/.intelligence/packages/@acme/extra"
 mkdir -p "$P13/.intelligence/engine/rules"
 xok "removed stale .intelligence/engine" "$P13" init --apply
 chknot test -d "$P13/.intelligence/engine"
+# Early RC manifests duplicated resolved source fields. Alignment removes
+# them for every package while preserving lock-only source state.
+awk '
+    { print }
+    /^    version: "0\.11\.0"/ {
+        print "    url: \"https://github.com/ainova-systems/intelligence.git\""
+        print "    path: \"packages/sync\""
+    }
+' "$P13/intelligence.yaml" > "$P13/intelligence.yaml.tmp"
+mv "$P13/intelligence.yaml.tmp" "$P13/intelligence.yaml"
+xok "package url/path -> intelligence.lock" "$P13" init --apply
+if grep -nE '^[[:space:]]*(url|path):' "$P13/intelligence.yaml"; then
+    echo "FAIL: RC package source fields survived lifecycle alignment"
+    fail=1
+fi
+chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/intelligence.lock"
 xok "engine content follows" "$P13" update --preview
 xfail "--force" "$P13" package remove @ainova-systems/sync
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
