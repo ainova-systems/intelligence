@@ -1,13 +1,13 @@
 # Example: a project on the CLI setup (v2). The manifest lives at the REPO
 # ROOT as intelligence.yaml; packages are installed into the gitignored
-# .intelligence/ store and restored by `intelligence install`; the resolved
+# .intelligence/ store and restored automatically by `intelligence sync`; the resolved
 # state is committed in intelligence.lock next to this file.
 #
 # Nothing here is written by hand in practice: `intelligence init` generates
-# it and `intelligence add` maintains packages: and the store's sources
+# it and `intelligence package add` maintains packages: and the store's sources
 # entries. The engine's own content (@ainova-systems/sync) is an ordinary
-# package too — auto-added by init, pinned to the engine version, moved by
-# `intelligence upgrade`.
+# package too — auto-added by init and aligned with the bundled engine by the
+# universal project preflight.
 project:
   name: cli-project
 

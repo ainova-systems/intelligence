@@ -1,6 +1,6 @@
 # Example: pulling shared skills/rules from a remote git repo
 # A remote source is a PACKAGE: declared once under `packages:` with its pin,
-# referenced from `sources.*` by its store path. `intelligence add` writes both
+# referenced from `sources.*` by its store path. `intelligence package add` writes both
 # halves — this file shows what it produces. Pin a `version:` range against the
 # package's git tags, or `ref:` a branch/SHA when you want an exact commit and
 # no range resolution. Paths/URLs here are EXAMPLES — use your own.
@@ -40,7 +40,7 @@ targets:
 
 # CLI-owned blocks — the engine never reads below this line. The store itself
 # is gitignored; `intelligence.lock` records the resolved tag and sha, so a
-# fresh clone restores exactly this state with `intelligence install`.
+# fresh clone restores exactly this state with `intelligence sync`.
 packages:
   "@ainova-systems/sync":
     version: "0.11.0"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence install [--frozen] [--force] [--no-sync]
+# Internal locked-store restore operation.
 #
 # Restore .intelligence/ from intelligence.lock — the fresh-clone command.
 # --frozen additionally refuses any manifest/lock divergence (CI mode) and
@@ -30,7 +30,7 @@ if [ "$frozen" -eq 1 ]; then
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         [ -n "$(qmap_field "$lock" "packages" "$name" "url")" ] \
-            || die "--frozen: $name is in the manifest but not in intelligence.lock"
+            || die "locked restore: $name is in the manifest but not in intelligence.lock"
         m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
         m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
         m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
@@ -40,7 +40,7 @@ if [ "$frozen" -eq 1 ]; then
         l_url="$(qmap_field "$lock" "packages" "$name" "url")"
         l_path="$(qmap_field "$lock" "packages" "$name" "path")"
         [ -z "$m_ver" ] || [ "$m_ver" = "$l_req" ] \
-            || die "--frozen: $name requests '$m_ver' but the lock recorded '$l_req' — run 'intelligence install' without --frozen"
+            || die "locked restore: $name requests '$m_ver' but the lock recorded '$l_req' — reconcile the manifest and lock"
         [ -z "$m_ref" ] || [ "$m_ref" = "$l_res" ] \
             || die "--frozen: $name pins ref '$m_ref' but the lock resolved '$l_res'"
         [ -z "$m_url" ] || [ "$m_url" = "$l_url" ] \

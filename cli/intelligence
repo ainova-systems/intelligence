@@ -43,22 +43,15 @@ intelligence — build, version and distribute AI agent intelligence
 
 Usage: intelligence <command> [args]
 
-  init                    Set up this project (manifest, content skeleton, targets)
-  add <spec>              Add a package: @scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]
-  remove <name>           Remove a package
-  install [--frozen]      Restore .intelligence/ exactly from intelligence.lock
-  update [name]           Re-resolve version ranges and rewrite the lockfile
-  upgrade                 Upgrade the project to this CLI's engine (restage + restamp)
-  list                    Installed packages with requested/locked versions
-  search [term]           What the registries offer, and what this project has
-  sync [target]           Render intelligence to every enabled tool (.claude, AGENTS.md, ...)
-  adapter new <name>      Scaffold a project-owned adapter from the bundled template
-  target enable <name>    Enable an existing adapter target in the manifest
-  target disable <name>   Disable a target in the manifest (keeps generated output)
+  init                    Initialize, migrate, restore or align this project
+  sync [adapter]          Restore locked content if needed, then render enabled adapters
+  update [@scope/name]    Show an update plan; ask before applying it
+    --preview             Show the plan without asking or writing
+    --apply               Apply the plan without asking
+  package <command>       add | remove | list | search
+  adapter <command>       list | create | enable | disable | remove
+  status [--check]        Project state; --check runs deep consistency checks
   registry <list|add|remove>  Manage the trusted registry list (add <repo-url>)
-  migrate [--dry-run]     Convert a vendored (v1) setup to the CLI setup
-  doctor                  Check manifest, lockfile, store and engine consistency
-  status                  Project state at a glance
   version                 Print CLI and engine versions
 EOF
         exit 0

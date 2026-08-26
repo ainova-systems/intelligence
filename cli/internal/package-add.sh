@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence add <spec> [--name @scope/name] [--no-sync]
+# Internal package add operation.
 #
 # Specs:
 #   @scope/name[@range]            resolved ONLY through the manifest's trusted registries
@@ -9,7 +9,7 @@ set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 spec="${1:-}"
-[ -n "$spec" ] || die "usage: intelligence add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]>"
+[ -n "$spec" ] || die "usage: intelligence package add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]>"
 shift || true
 
 no_sync=0
@@ -85,7 +85,7 @@ if [ "$mode" = "registry" ]; then
         echo "  ('intelligence registry list' shows them). Either add its registry:" >&2
         echo "    intelligence registry add <registry-repo-url>" >&2
         echo "  or install from an explicit source you name yourself:" >&2
-        echo "    intelligence add github:org/repo   |   intelligence add git+<url>[@ref][#path]" >&2
+        echo "    intelligence package add github:org/repo   |   intelligence package add git+<url>[@ref][#path]" >&2
         suggest_similar "$manifest" "$name"
         exit 1
     fi

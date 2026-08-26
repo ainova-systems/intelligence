@@ -18,17 +18,16 @@ Contribute broadly useful integrations as built-ins. Keep organization-specific 
 Choose a lowercase shell-safe name matching `[a-z][a-z0-9_]*`, then scaffold from the template bundled with the installed engine:
 
 ```bash
-intelligence adapter new mytool
+intelligence adapter create mytool
 ```
 
 This creates `<content-dir>/adapters/mytool.sh` and refuses to overwrite an existing file. Implement the generated functions, then enable its target:
 
 ```bash
-intelligence target enable mytool
-intelligence sync mytool
+intelligence adapter enable mytool
 ```
 
-`target enable` adds or updates this manifest entry when the adapter exists:
+`adapter enable` adds or updates this manifest entry when the adapter exists, then runs a full sync so shared outputs such as `AGENTS.md` remain current:
 
 ```yaml
 targets:
@@ -40,10 +39,10 @@ Change `output` in `intelligence.yaml` if the tool expects another location. The
 To stop syncing a target:
 
 ```bash
-intelligence target disable mytool
+intelligence adapter disable mytool
 ```
 
-Disabling changes only the manifest. Generated output is deliberately kept because a generic command cannot know which paths a custom adapter owns. Remove only the paths documented by that adapter after reviewing them. Delete the project adapter file separately if it is no longer needed.
+Disabling changes only target state. Generated output is deliberately kept because a generic command cannot know which paths a custom adapter owns. Remove only documented owned paths after reviewing them. A disabled project adapter can be deleted with `intelligence adapter remove mytool`; removal prompts by default, accepts `--apply` for explicit non-interactive use, and also keeps generated output. Built-in adapter source cannot be removed. Use `intelligence adapter list` to inspect source, state and output.
 
 ## Required function
 
@@ -165,7 +164,7 @@ Content shipped in `@ainova-systems/sync` cannot assume the project's content-di
 
 | Token | v2 expansion |
 |---|---|
-| `<umbrella>` | Project content directory, usually `intelligence` |
+| `<content-dir>` | Project content directory, usually `intelligence` |
 | `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
 | `<manifest>` | `intelligence.yaml` |
 | `<sync-cmd>` | `intelligence sync` |

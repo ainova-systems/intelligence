@@ -4,9 +4,9 @@ Thank you for improving the v2 Intelligence CLI, sync engine or package content.
 
 ## Before you change code
 
-Read [decision 0001](decisions/0001-split-v1-archive-from-v2-product.md). The v1 archive and the v2 product are separate lineages: do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or v1 migration code here.
+Read [decision 0001](decisions/0001-split-v1-archive-from-v2-product.md) and [decision 0002](decisions/0002-consolidate-v2-cli-lifecycle.md). Keep the v1/v2 split and the compact public command model intact; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the v1 migration chain.
 
-Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-systems/intelligence/issues). Include the operating system, shell, CLI version (`intelligence version`), failing command and a minimal redacted `intelligence.yaml` when relevant.
+Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-systems/intelligence/issues). Include the operating system, shell, installed npm package version, `intelligence status`, the failing command and a minimal redacted `intelligence.yaml` when relevant.
 
 ## Submitting a change
 
@@ -16,6 +16,18 @@ Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-sy
 4. Run the relevant checks below.
 5. Update user-facing documentation and the compact v2 changelog when behavior changes.
 6. Open a pull request explaining the observable result and validation performed.
+
+## Public CLI contract
+
+Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
+
+- `init` owns new-project setup, archived-project conversion and v2 alignment.
+- Project-aware mutations align v2 automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
+- `sync` restores a missing package store from the committed lock before rendering.
+- Planned writes use `--preview` and `--apply` consistently.
+- Deep consistency validation belongs to `status --check`.
+
+Do not add a top-level command when one of these groups already owns the lifecycle state or resource.
 
 ## Validation
 
@@ -57,7 +69,7 @@ Confirm that it contains `cli/`, `engine/` and `packages/sync/`, and that the bu
 2. Replace every `<name>` placeholder and implement `sync_to_<name>()`.
 3. Use shared functions from `engine/lib/common.sh` for source iteration, frontmatter, model mapping, skill bundles and output finalization.
 4. Clean only adapter-owned paths; never delete an entire tool root that may contain user files.
-5. Add adapter coverage to the smoke or lifecycle suite and document the output in [the adapter guide](packages/sync/docs/ADAPTERS.md).
+5. Add adapter coverage to the smoke or lifecycle suite and document the output in [the adapter guide](packages/sync/references/adapters.md).
 
 The template is invalid shell until its placeholders are replaced because `<` is parsed as redirection.
 
@@ -66,9 +78,9 @@ The template is invalid shell until its placeholders are replaced because `<` is
 In a disposable v2 project:
 
 ```bash
-intelligence adapter new mytool
+intelligence adapter create mytool
 # implement intelligence/adapters/mytool.sh
-intelligence target enable mytool
+intelligence adapter enable mytool
 intelligence sync mytool
 ```
 

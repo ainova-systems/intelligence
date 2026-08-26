@@ -47,11 +47,11 @@ jobs:
         run: bash cli/tests/unit-semver.sh "$GITHUB_WORKSPACE"
       - name: Unit — manifest editors and lockfile round-trip
         run: bash cli/tests/unit-manifest.sh "$GITHUB_WORKSPACE"
-      - name: Package lifecycle (add / install --frozen / update / remove / registry)
+      - name: Package lifecycle (package commands, update plan/apply, registry)
         run: bash cli/tests/e2e-packages.sh "$GITHUB_WORKSPACE"
-      - name: Project lifecycle (init / migrate / doctor / upgrade / fresh-clone install)
+      - name: Project lifecycle (universal init, sync restore/alignment, status checks)
         run: bash cli/tests/e2e-lifecycle.sh "$GITHUB_WORKSPACE"
-      - name: Negative paths (bad specs, frozen drift, migrate rollback, refusals)
+      - name: Negative paths (bad specs, lock drift, init rollback, refusals)
         run: bash cli/tests/e2e-negative.sh "$GITHUB_WORKSPACE"
 
   npm-pack-smoke:
@@ -137,6 +137,14 @@ jobs:
           test -f engine/sync.sh
           test -f engine/VERSION
           test -d packages/sync/skills
+          if rg -n '<umbrella>|IS_UMBRELLA_REL' engine packages/sync cli docs README.md CLAUDE.md; then
+            echo "LEGACY TOKEN: use <content-dir> and IS_CONTENT_REL"; fail=1
+          fi
+          for f in docs/*.md packages/sync/references/*.md; do
+            name="$(basename "$f")"
+            [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] \
+              || { echo "DOC NAME: $f must use lowercase kebab-case"; fail=1; }
+          done
           [ "$fail" -eq 0 ] && echo "OK: single layout, engine and content separated"
           exit $fail
 
@@ -238,7 +246,7 @@ jobs:
           git -C "$PROJ" -c user.email=ci@example.com -c user.name=ci commit -q -m init
           echo "PROJ=$PROJ" >> "$GITHUB_ENV"
 
-      - name: Install the engine-content package from the bundle, then sync
+      - name: Seed engine content from the bundle, then sync
         shell: bash
         run: |
           set -euo pipefail
@@ -246,9 +254,8 @@ jobs:
           # The pin equals this tree's engine VERSION, so the package is seeded
           # from the checkout with no network — the same path a released CLI
           # takes from its npm bundle.
-          bash "$GITHUB_WORKSPACE/cli/intelligence" install
-          test -d .intelligence/packages/@ainova-systems/sync/rules
           out=$(bash "$GITHUB_WORKSPACE/cli/intelligence" sync)
+          test -d .intelligence/packages/@ainova-systems/sync/rules
           echo "$out"
           case "$out" in *"IS_STATUS=ok"*) ;; *) echo "missing IS_STATUS=ok"; exit 1 ;; esac
 
@@ -293,7 +300,7 @@ jobs:
             test -f .claude/agents/intelligence-architect.md
             grep -q '"intelligence/\*\*"' .claude/rules/intelligence-authoring.md
           fi
-          leaked=$(grep -rl -e '<umbrella>' -e '<module>' -e '<manifest>' -e '<sync-cmd>' \
+          leaked=$(grep -rl -e '<content-dir>' -e '<module>' -e '<manifest>' -e '<sync-cmd>' \
             .claude .cursor .github/instructions .github/agents .github/skills \
             .codex .agents .pi .opencode AGENTS.md 2>/dev/null || true)
           if [ -n "$leaked" ]; then

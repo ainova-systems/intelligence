@@ -1,56 +1,66 @@
 # Roadmap
 
-The product concept (final) and the ordered list of changes that implement it. Each entry states the problem it exists to fix, what depends on it, and a size, so any session can estimate whether it can be done now without re-deriving the reasoning. Shipped entries move to the CHANGELOG.
+The product concept and the remaining ordered changes. Completed work belongs in the changelog; architecture rationale belongs in `decisions/`.
 
 ## Concept
 
-**Positioning:** Build, version, govern and distribute AI agent intelligence across your organization. The mental model is *npm for AI agent intelligence*: one CLI, one package ecosystem, a new project configured in under a minute.
-
-**Terminology (final):**
+**Positioning:** Build, version, govern and distribute AI agent intelligence across an organization. The mental model is npm for AI agent intelligence: one CLI, one package ecosystem and a project ready in under a minute.
 
 | Term | Meaning | Concrete artifact |
 |---|---|---|
-| Intelligence Package | The unit of distribution: a versioned set of rules / agents / skills | `packages.<name>` in the manifest; store at `.intelligence/packages/@scope/name/` |
-| Intelligence Manifest | A project's declaration of what it consumes and where it goes | root `intelligence.yaml` (v2); `intelligence/config.yaml` for vendored (v1) |
-| Intelligence Lockfile | The resolved state: per package, url + path + resolved tag + SHA | `intelligence.lock` |
-| Intelligence Registry | A git repo holding an `index.yaml` (name → source); the manifest's trust list | GitHub repo first; a hosted service speaks the same contract later |
-| Intelligence Sync | The engine that renders packages into each tool's native format | `intelligence/sync/` — an internal layer, no longer the product interface |
+| Intelligence Package | Versioned rules, agents and skills | `packages.<name>`; store at `.intelligence/packages/@scope/name/` |
+| Intelligence Manifest | What a project consumes and where it renders | root `intelligence.yaml` |
+| Intelligence Lockfile | Resolved URL, path, tag and SHA per package | `intelligence.lock` |
+| Intelligence Registry | Ordered trusted name → source index | Git repository with `index.yaml` |
+| Intelligence Sync | Deterministic renderer bundled with the CLI | engine invoked by `intelligence sync` |
 
-"Pack" survives only in the `intelligence-dev-packs` repo name and its history; every user-facing surface says *package*.
+“Pack” survives only in the historical `intelligence-dev-packs` repository name. Public product surfaces use “package.”
 
-**Layering:**
+## Public surface
 
+```text
+intelligence CLI
+  init
+  sync [adapter]
+  update [@scope/name] [--preview | --apply]
+  package add | remove | list | search
+  adapter list | create | enable | disable | remove
+  status [--check]
+  registry list | add | remove
+    ↓
+package resolver   trusted name → source · semver range → stable Git tag
+    ↓
+sync engine        local sources → native tool output
+    ↓
+adapters           agents · claude · cursor · copilot · codex · pi · opencode
 ```
-intelligence CLI        init · add · remove · install · update · upgrade · list · search · sync · doctor · status · registry · migrate
-  → package resolver    name → source (trusted registries only) · range → version (git tags)
-  → sync engine         sync.sh — role unchanged, CLI mode gated behind IS_CLI=1
-  → adapters            claude · cursor · copilot · codex · pi · opencode · agents
-```
 
-**Shipped in 0.11.0** (branch `feature/intelligence-cli` — see the CHANGELOG entry for the full record): the `intelligence` CLI with the v2 project layout (root `intelligence.yaml`, gitignored `.intelligence/` store, committed `intelligence.lock`); Intelligence Packages with semver-over-git-tags; **trust-list-only** name resolution (registries the project explicitly added — no built-in catalog, no `@org/name` → github guessing; registry-less installs are explicit `github:`/`git+` sources); the engine's own content as the auto-selected, bundle-seeded `@ainova-systems/sync` package; the transactional `migrate`; npm packaging as `@ainova-systems/intelligence` with the `release-npm` pipeline; the `legacy-golden` + `legacy-golden-code` CI guarantees that vendored outputs stay byte-identical and that engine-script changes are byte-neutral; and adversarial-review security hardening (validated untrusted names, argument-injection-safe git calls, staged/rolled-back migrate). The vendored flow remains fully supported and prints a one-line migrate recommendation.
+`init` is universal: create a new v2 project, convert an eligible archived v1 project, or align an existing v2 project. Project-aware mutations automatically align v2 before continuing; CI refuses an implicit tracked alignment and requires a reviewed `intelligence init --apply` diff. `sync` restores a missing locked package store before rendering.
+
+The v2 line includes the root manifest/lock/store layout, semver-over-Git-tag packages, trust-list-only name resolution, explicit Git sources, bundle-seeded `@ainova-systems/sync`, transactional archived-project conversion, npm distribution and fail-closed security checks. It remains prerelease until the owner approves a stable release.
 
 ## Ordered changes
 
 ### 1. Per-package manifests in intelligence-dev-packs
 
-**Problem.** dev-packs versions the repo, not the packages: a package has no self-describing identity, so registries and lockfiles display only what the index and tags imply.
+**Problem.** The repository versions its contents, but a package has no self-describing identity, so registries and lockfiles can display only what the index and Git tags imply.
 
-**Shape.** `packs/<name>/package.yaml` with name, version, description; repo-level tags keep versioning all packages lockstep (per-package tags only if release cadences ever actually diverge). The CLI surfaces the metadata in `list`/`search`/`doctor` when present — an enhancement, not a dependency: the provides convention already makes dev-packs consumable.
+**Shape.** Add `packages/<name>/package.yaml` with name, version and description. Keep repository-level tags while every package shares one release cadence; introduce per-package tags only if independent cadence becomes real. Surface metadata through `package list`, `package search` and `status --check` when present.
 
-**Size:** S (a day). **Now:** yes.
+**Size:** S. **Now:** yes.
 
-### 2. Independently-pinned engine content — *later*
+### 2. Independently pinned engine content
 
-**Problem.** `@ainova-systems/sync` shipped in 0.11.0 as a package *by UX* but bundle-seeded and exact-pinned to the CLI's engine, so a project cannot yet pin engine content independently of the CLI, and vendored projects still update through the bespoke `update.sh` channel.
+**Problem.** `@ainova-systems/sync` is a package by user experience but remains exact-pinned to the CLI engine and bundle-seeded, so its content cannot yet follow an independent range.
 
-**Shape.** Let the sync package resolve and pin like any other (drop the bundle-seed exact-pin for projects that opt into a range), so `update`/lockfile drive engine content and `update.sh` becomes the internal executor for vendored projects only. Only after the CLI has proven stable across a few releases: this touches the update contract every project depends on, and the bundle-seed offline guarantee must be preserved as the default.
+**Shape.** Allow an opted-in sync-content range to resolve like another package while preserving the bundle-seeded offline default. Only separate repository/version boundaries when independent pinning exists; avoid cross-repository release choreography before then.
 
-**Size:** L. **Now:** no.
+**Size:** L. **Now:** later, after the CLI contract has proven stable.
 
-### 3. Hosted registry and governance — *later*
+### 3. Hosted registry and governance
 
-**Problem.** The positioning's "govern": identity, private scopes, RBAC, audit, signing.
+**Problem.** Organization-scale governance eventually needs identity, private scopes, access control, audit and signing.
 
-**Shape.** A registry service speaking the same `index.yaml` contract the CLI already resolves, so the CLI swaps resolvers without changing. Nothing else is designed now — designing governance before CLI adoption data exists would be speculation.
+**Shape.** Provide a service that speaks the same `index.yaml` resolution contract, allowing the resolver implementation to change without changing project manifests or package identity.
 
-**Now:** no.
+**Now:** later; design from adoption evidence rather than speculation.

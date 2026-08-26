@@ -1,6 +1,6 @@
 ---
 name: intelligence-operator
-description: "Interpret CLI status and operate sync, update, and target flows"
+description: "Interpret CLI plans and operate sync, update, and adapter flows"
 tier: standard
 access: full
 skills:
@@ -12,8 +12,8 @@ skills:
 
 # Intelligence operator
 
-Operates the CLI: projects the source tree to every enabled tool channel, updates packages and the
-project schema, and turns tool channels on and off. What the layer contains - which rules, agents and skills
+Operates the CLI: projects the source tree to every enabled tool channel, interprets and applies update
+plans, and manages adapters. What the layer contains - which rules, agents and skills
 exist and what they say - is `intelligence-architect`'s judgement; this agent runs the machinery
 that ships it.
 

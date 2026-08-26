@@ -8,9 +8,9 @@
 #     read / write / compare helpers, and
 #   * the IS_STATUS / IS_RC_* codes every engine flow reports.
 #
-# Schema migrations themselves are NOT here: the CLI owns them (v2 migrations
-# live in `intelligence upgrade`), and a v1 project is brought forward by the
-# archived v1 engine before `intelligence migrate` converts it.
+# Schema migrations themselves are NOT here: the CLI owns them behind
+# `intelligence init`, and a v1 project is brought forward by the archived v1
+# engine before `intelligence init` converts it.
 
 # The applied-schema version is a managed key in the manifest.
 #
@@ -62,7 +62,7 @@ IS_RC_CONFIG_MISSING=2      # no manifest found
 IS_RC_AMBIGUOUS=3           # conflicting state; agent/human-only — bash never emits this itself
 IS_RC_AHEAD=4               # project stamped newer than this engine understands
 IS_RC_ABORTED_INCOMPLETE=5  # staged state incomplete; the project was left untouched
-IS_RC_NEEDS_UPDATE=6        # pending schema changes (stamp < engine) — run `intelligence upgrade` first
+IS_RC_NEEDS_UPDATE=6        # pending schema changes (stamp < engine) — run `intelligence init --apply`
 
 # is_status <code-name> [detail] — emit one parseable line for the skill.
 is_status() {

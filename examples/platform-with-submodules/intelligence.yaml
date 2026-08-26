@@ -1,6 +1,6 @@
 # Example: Platform with git submodules
 # Submodules are separate repos — excluded from parent sync.
-# They may have their own intelligence-sync setup internally.
+# They may have their own Intelligence project internally.
 # Paths here are EXAMPLES — use whatever your repo actually has.
 
 project:

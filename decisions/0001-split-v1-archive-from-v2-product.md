@@ -38,9 +38,9 @@ the vendored lineage as v1 with v2 scaffolding grown into it — the wrong thing
    `lib/migrations.sh`, the legacy branch in `layout.sh`, the mode branches in `expand_tokens`,
    the `legacy-golden*` jobs and the `[golden-skip]` mechanism, and the vendored `docs/` mirror.
 
-6. **`migrate` requires the final v1 schema.** A project older than that runs its own `update.sh`
-   first — possible forever, because the archive stays at the URL its frozen script hardcodes.
-   This is what lets v2 drop `lib/migrations.sh` outright: no v1 code survives into v2.
+6. **V1 conversion requires the final v1 schema.** A project older than that runs its own
+   `update.sh` first — possible forever, because the archive stays at the URL its frozen script
+   hardcodes. This is what lets v2 drop `lib/migrations.sh`: no v1 chain survives into v2.
 
 7. **`packages/sync` stays in the product repo** while it is exact-pinned to the engine version.
    Repo boundary follows versioning boundary: it moves to `intelligence-dev-packs` only together
@@ -48,9 +48,8 @@ the vendored lineage as v1 with v2 scaffolding grown into it — the wrong thing
 
 8. **Meta-skills become interpreters, not implementations.** In v1 a skill carried the whole
    procedure because there was no program; v2 has one, so a skill carries only what a program
-   cannot — reading a changelog across a version gap, choosing `update` vs `upgrade`, verifying
-   post-conditions. `intelligence-sync` and `intelligence-update` stay and drive CLI commands;
-   adapter mechanics become CLI subcommands; the CLI gains a read-only `outdated`.
+   cannot. The originally proposed command split was superseded by
+   [decision 0002](0002-consolidate-v2-cli-lifecycle.md).
 
 9. **The CHANGELOG carries what changed, one line per change, no rationale.** The why lives here.
    Decisions sit at the repo root rather than under `docs/`, because `docs/` is content of the
@@ -66,7 +65,7 @@ the vendored lineage as v1 with v2 scaffolding grown into it — the wrong thing
   `--provenance`, which verifies that field against the publishing repo), `cli/engine-package.yaml`
   url and `path: packages/sync`, the `@ainova-systems/sync` entry in the public registry index,
   documentation links, and the `NPM_TOKEN` secret.
-- `0.11.0-rc.*` lockfiles pin the old package url; `doctor` reports exactly that drift by design.
+- Early `0.11.0-rc.*` lockfiles pin the old package URL; `status --check` reports that drift.
 
 ## Rejected
 

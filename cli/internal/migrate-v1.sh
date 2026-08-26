@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence migrate [--dry-run] [--force] — convert a vendored (v1) setup
+# Internal v1-to-v2 migration operation.
 # to the CLI setup: root intelligence.yaml, .intelligence/ store,
 # intelligence.lock, no vendored engine.
 #
@@ -24,7 +24,7 @@ done
 detect_project
 case "$IP_MODE" in
     legacy) ;;
-    v2) die "already on the CLI setup ($IP_ROOT/intelligence.yaml)" ;;
+    v2) die "already on the v2 setup ($IP_ROOT/intelligence.yaml)" ;;
     *) die "no vendored setup found here — 'intelligence init' starts a fresh project" ;;
 esac
 root="$IP_ROOT"
@@ -32,6 +32,7 @@ umbrella="$IP_UMBRELLA"
 module_dir="$IP_MODULE_DIR"
 config="$umbrella/config.yaml"
 module_rel="${module_dir#"$root"/}"
+umbrella_rel="${umbrella#"$root"/}"
 
 [ -f "$root/intelligence.yaml" ] && die "intelligence.yaml already exists at the root — half-migrated state; resolve it manually"
 if [ "$dry_run" -eq 0 ] && [ "$force" -eq 0 ]; then
@@ -48,6 +49,54 @@ eng="$(bundled_engine_version)"
 # engine no longer knows it — the reader lives here, with its only consumer.
 get_pack_field() {
     get_nested_yaml_value "$1" "packs" "$2" "$3"
+}
+
+paths_overlap() {
+    case "$1" in "$2"|"$2"/*) return 0 ;; esac
+    case "$2" in "$1"|"$1"/*) return 0 ;; esac
+    return 1
+}
+
+validate_mirror_path() {
+    local pack="$1" mirror="$2" canon rel src src_canon src_rel target output protected mirror_phys
+    [ -n "$mirror" ] || return 0
+    case "$mirror" in
+        .|/*|*..*|*\\*|[A-Za-z]:*) die "pack '$pack' has unsafe mirror path '$mirror'" ;;
+    esac
+    canon="$(normalize_path "$root/$mirror")"
+    case "$canon" in "$root"/*) ;; *) die "pack '$pack' mirror escapes the repository: '$mirror'" ;; esac
+    rel="${canon#"$root"/}"
+
+    # A v1 mirror may live below the content directory (the normal location is
+    # intelligence/external/<pack>), but it must never own the directory itself,
+    # the vendored module, CLI state, authored sources, or generated outputs.
+    case "$umbrella_rel" in "$rel"|"$rel"/*) die "pack '$pack' mirror '$mirror' contains the v1 content directory" ;; esac
+    for protected in .git .intelligence "$module_rel"; do
+        paths_overlap "$rel" "$protected" && die "pack '$pack' mirror '$mirror' overlaps protected path '$protected'"
+    done
+    for section in rules agents skills; do
+        while IFS= read -r src; do
+            case "$src" in ""|git+*|@*) continue ;; esac
+            src_canon="$(normalize_path "$root/$src")"
+            case "$src_canon" in "$root"/*) src_rel="${src_canon#"$root"/}" ;; *) continue ;; esac
+            paths_overlap "$rel" "$src_rel" \
+                && die "pack '$pack' mirror '$mirror' overlaps configured source '$src'"
+        done < <(read_yaml_list "$config" "$section")
+    done
+    while IFS= read -r target; do
+        [ -n "$target" ] || continue
+        output="$(get_target_output "$config" "$target")"
+        [ -n "$output" ] || continue
+        case "$output" in /*|*..*) continue ;; esac
+        paths_overlap "$rel" "${output%/}" \
+            && die "pack '$pack' mirror '$mirror' overlaps target '$target' output '$output'"
+    done < <(read_yaml_keys "$config" "targets")
+
+    if [ -d "$canon" ]; then
+        mirror_phys="$(cd "$canon" && pwd -P)"
+        case "$mirror_phys" in "$root"|"$root"/*) ;; *) die "pack '$pack' mirror resolves outside the repository: '$mirror'" ;; esac
+        [ -f "$canon/.pack" ] || die "pack '$pack' mirror '$mirror' has no .pack ownership stamp — refusing to copy or delete project-owned content"
+    fi
 }
 
 # ---- Stage ----------------------------------------------------------------
@@ -67,7 +116,7 @@ if [ -z "$stamp" ] || _ver_gt "$V1_FINAL_SCHEMA" "$stamp"; then
     echo "ERROR: project schema is ${stamp:-absent (pre-0.3.1)}, older than the final v1 schema $V1_FINAL_SCHEMA." >&2
     echo "       Bring it forward with its own engine first — that still works:" >&2
     echo "         bash $module_rel/scripts/update.sh --yes" >&2
-    echo "       then re-run: intelligence migrate" >&2
+    echo "       then re-run: intelligence init" >&2
     exit 1
 fi
 
@@ -81,12 +130,21 @@ sync_pkg_sha="$(fetch_package "$SYNC_PKG_URL" "v$eng" "$SYNC_PKG_PATH" "$stage/$
 pack_rows="$stage/packs.rows"
 : > "$pack_rows"
 seen_names=" "
+seen_mirrors=" "
 while IFS= read -r pack; do
     [ -n "$pack" ] || continue
     url="$(get_pack_field "$config" "$pack" "url")"
     ref="$(get_pack_field "$config" "$pack" "ref")"
     mirror="$(get_pack_field "$config" "$pack" "mirror")"
     [ -n "$url" ] || die "pack '$pack' has no url in config.yaml"
+    assert_safe_source_url "$url"
+    assert_safe_ref "$ref"
+    validate_mirror_path "$pack" "$mirror"
+    if [ -n "$mirror" ]; then
+        mirror_key="$(normalize_path "$root/$mirror")"
+        case "$seen_mirrors" in *" $mirror_key "*) die "pack '$pack' shares mirror '$mirror' with another pack" ;; esac
+        seen_mirrors="$seen_mirrors$mirror_key "
+    fi
     base="${url%.git}"; base="${base%/}"
     repo="$(basename "$base")"
     org="$(basename "$(dirname "$base")")"
@@ -125,7 +183,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
         echo "  pack '$pack' -> $name (fetched)"
     fi
     if [ -z "$sha" ] || [ "$sha" = "unknown" ]; then
-        sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
+        sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
     fi
     printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
         "$name" "" "$url" "" "$ref" "$sha" >> "$lock_rows"
@@ -253,7 +311,7 @@ fi
 if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
     {
         [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
-        echo "# intelligence CLI package store (restored by 'intelligence install')"
+        echo "# intelligence CLI package store (restored automatically by 'intelligence sync')"
         echo ".intelligence/"
     } >> "$root/.gitignore"
 fi
@@ -298,7 +356,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     esac
     if [ -d "$root/$mirror" ]; then
         rm -rf "${root:?}/$mirror"
-        # An emptied mirror parent (e.g. <umbrella>/external/) goes with it.
+        # An emptied v1 mirror parent (for example intelligence/external/) goes with it.
         rmdir "$(dirname "$root/$mirror")" 2>/dev/null || true
     fi
 done < "$pack_rows"
@@ -310,4 +368,4 @@ rmdir "$umbrella" 2>/dev/null || true
 
 echo ""
 echo "migrated. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
-echo "From now on: intelligence sync | add | install | doctor."
+echo "From now on: intelligence sync | package | update | status."

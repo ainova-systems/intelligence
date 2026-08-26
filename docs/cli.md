@@ -1,0 +1,219 @@
+# The Intelligence CLI
+
+The CLI owns a project's complete Intelligence lifecycle: initialization, v1 conversion, v2 alignment, package resolution, lock restoration, adapter management, consistency checks and rendering.
+
+v2 is currently a release candidate:
+
+```bash
+npm install -g @ainova-systems/intelligence@next
+```
+
+## Project layout
+
+```text
+project/
+├── intelligence.yaml      # manifest; commit it
+├── intelligence.lock      # resolved package state; commit it
+├── intelligence/          # project-owned rules, agents, skills, adapters
+├── .intelligence/         # restorable package store; gitignored
+├── AGENTS.md              # generated canonical context
+└── .claude/ .cursor/ …    # generated native output
+```
+
+No engine code lives in a v2 project. Engine scripts ship with the npm CLI. Engine-owned content—the authoring rule, agents, meta-skills and package docs—is `@ainova-systems/sync`, exact-pinned to the bundled engine version and seeded from the npm bundle when versions match.
+
+## Public commands
+
+### `intelligence init`
+
+Universal project entry point:
+
+```text
+intelligence init [--targets a,b] [--dir name] [--bare] [--no-sync]
+                  [--preview | --apply] [--force]
+```
+
+Behavior depends on discovered project state:
+
+| State | Default behavior | `--preview` | `--apply` |
+|---|---|---|---|
+| No setup | Create a v2 manifest, lock/store, requested adapters and first sync | Show what would be created | Create without an interactive decision |
+| Archived v1 | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
+| Existing v2 | Align schema/content if needed, restore missing store, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
+
+`--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
+
+New-project adapter selection always enables `agents`. Other adapters come only from repository markers or explicit `--targets`; the CLI never invents a tool directory.
+
+Archived-project conversion requires final v1 schema `0.10.0`. Older v1 projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
+
+### `intelligence sync`
+
+```text
+intelligence sync [adapter]
+```
+
+For v2, sync performs lifecycle preflight before rendering:
+
+1. Align tracked project schema/content with the installed CLI when safe.
+2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
+3. Run every enabled adapter, or only the named adapter.
+
+A missing store with no lock fails and directs the user to `intelligence init`. In an archived v1 project, sync delegates to that project's own vendored engine until conversion.
+
+### `intelligence update`
+
+```text
+intelligence update [@scope/name] [--preview | --apply]
+```
+
+One plan covers:
+
+- the globally installed CLI against its npm channel (`next` for a prerelease, otherwise `latest`);
+- project schema and engine-content alignment against the installed CLI;
+- package ranges that can move to a newer stable tag.
+
+Modes:
+
+| Mode | Behavior |
+|---|---|
+| no flag | Print the plan and ask before writes; a non-interactive shell refuses |
+| `--preview` | Print the plan and write nothing |
+| `--apply` | Apply project/package changes without asking, then sync |
+
+The plan reports the npm command required to replace the global executable; it never mutates the global npm prefix itself. `ref:`-pinned packages and the exact engine-content pin do not move as ordinary ranges.
+
+### `intelligence package`
+
+```text
+intelligence package add <spec> [--name @scope/name] [--no-sync]
+intelligence package remove <name> [--force] [--no-sync]
+intelligence package list
+intelligence package search [term]
+```
+
+`package add` resolves, fetches, wires sources, writes the manifest/lock and syncs. Accepted specs:
+
+- `@scope/name[@range]` through trusted registries only;
+- `github:org/repo[#path]` as an explicit GitHub source;
+- `git+<url>[@ref][#path]` as an explicit Git source.
+
+`package remove` removes manifest, source, lock and store state. Removing `@ainova-systems/sync` requires `--force` because it removes engine-owned meta-content from generated outputs while rendering itself remains available.
+
+`package list` shows requested and locked state. `package search` combines what trusted registries offer with what the project has.
+
+### `intelligence adapter`
+
+```text
+intelligence adapter list
+intelligence adapter create <name>
+intelligence adapter enable <name>
+intelligence adapter disable <name>
+intelligence adapter remove <name> [--apply]
+```
+
+- `list` shows built-in and project adapters, source, state and output; project adapters override built-ins by name.
+- `create` scaffolds `<content-dir>/adapters/<name>.sh` from the bundled template and refuses to overwrite.
+- `enable` updates manifest state and immediately runs a full sync so shared `AGENTS.md` context stays current.
+- `disable` updates manifest state but keeps generated output for adapter-aware cleanup.
+- `remove` accepts only a disabled project adapter, asks before deleting its source unless `--apply` is used, and keeps generated output.
+
+Names match `[a-z][a-z0-9_]*`. Enabling an adapter that relies on `AGENTS.md` also requires the `agents` adapter.
+
+### `intelligence status`
+
+```text
+intelligence status [--check]
+```
+
+Without a flag, report detected project mode, manifest/schema, lockfile, engine-content package and bundled engine. For archived v1, report the vendored location and point to `intelligence init`.
+
+`--check` performs deep consistency validation and exits nonzero for manifest/lock divergence, missing package content, SHA drift, stale schema/content or invalid sources.
+
+### `intelligence registry`
+
+```text
+intelligence registry list
+intelligence registry add <repository-url> [--force]
+intelligence registry remove <repository-url>
+```
+
+Registries are an ordered project trust list. `add` verifies that the Git repository exposes `index.yaml`; `--force` records an unavailable or not-yet-published registry deliberately. The first trusted registry declaring a package name wins.
+
+## Automatic project alignment
+
+A newer globally installed CLI cannot update projects at npm installation time because it does not know which repositories the user owns. Instead, every project-aware mutating command passes through one shared preflight. On the first such call in a v2 project, the CLI applies any required idempotent schema/content alignment before continuing.
+
+This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
+
+CI is intentionally different. When `CI` is true and tracked alignment is pending, implicit preflight refuses and prints:
+
+```text
+run 'intelligence init --apply' locally, review and commit the diff
+```
+
+CI therefore never hides a schema/content change inside generated output. The committed alignment must arrive as a reviewed repository diff.
+
+## Packages
+
+A package name is its global identity in the manifest, lock and store (`.intelligence/packages/@scope/name/`). One version of a name may exist in a project because generated tool namespaces are flat and duplicate versions would collide artifact-by-artifact.
+
+Whichever top-level `rules/`, `agents/` and `skills/` directories a package provides are wired into the corresponding manifest sources. Package sources precede project sources, so a same-named project artifact may override package content deliberately.
+
+### Resolution and trust
+
+`registries:` is the only resolver for package names. There is no built-in catalog and no `@org/name` → GitHub guessing. A name no trusted registry declares is refused with suggestions. Registry-free acquisition always uses an explicit `github:` or `git+` source.
+
+### Versions
+
+Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ranges (`^1.2.0`, `~1.2.0`, an exact version or `latest`) match stable tags from `git ls-remote`; prerelease tags are invisible to ranges. A branch, commit or other deliberate pin uses `ref:`.
+
+### Lock and restore
+
+Per package, `intelligence.lock` records requested version, source URL/path, resolved tag and commit SHA. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. This is the reproducibility contract used automatically by `sync` after a fresh clone.
+
+## Manifest ownership
+
+The engine reads `project:`, `sync_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:`. The CLI owns the quoted-key `packages:` and ordered `registries:` blocks:
+
+```yaml
+packages:
+  "@acme/backend":
+    version: "^1.2.0"
+
+registries:
+  - "https://github.com/acme/intelligence-registry.git"
+```
+
+`project.intelligence_dir` selects a content directory other than `intelligence/`. `sync_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
+
+## Engine invocation contract
+
+The v2 engine runs outside the project. The CLI supplies:
+
+| Variable | Value |
+|---|---|
+| `IS_CLI` | `1` |
+| `CONFIG_FILE` | `<root>/intelligence.yaml` |
+| `REPO_ROOT` | project root |
+| `IS_CONTENT_REL` | configured content directory |
+| `IS_MODULE_REL` | `.intelligence/packages/@ainova-systems/sync` |
+| `IS_MANIFEST_NAME` | `intelligence.yaml` |
+| `IS_SYNC_CMD` | `intelligence sync` |
+| `IS_PROTECTED_DIRS` | `<content-dir>:.intelligence` |
+
+The engine reads local sources only. Package/network mechanics and project schema alignment remain CLI responsibilities.
+
+## Developing the CLI
+
+Run the five hermetic suites:
+
+```bash
+bash cli/tests/unit-semver.sh .
+bash cli/tests/unit-manifest.sh .
+bash cli/tests/e2e-packages.sh .
+bash cli/tests/e2e-lifecycle.sh .
+bash cli/tests/e2e-negative.sh .
+```
+
+Build the npm payload with `bash npm/build.sh 0.0.0-dev`. The manual release workflow publishes release candidates to npm dist-tag `next`; stable publication remains owner-approved and tag-gated.

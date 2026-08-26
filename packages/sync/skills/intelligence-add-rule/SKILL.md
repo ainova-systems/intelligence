@@ -9,7 +9,7 @@ argument-hint: <name> [paths-glob]
 ## Steps
 
 1. **Determine rule name from domain** (the scope is required):
-   - **Reuse the existing domain when one fits**: list `<umbrella>/rules/`. If a rule file covers the target area (e.g., `backend.md`, `frontend.md`), extend it. Introduce a new domain only when the scope is materially different from all existing rules.
+   - **Reuse the existing domain when one fits**: list `<content-dir>/rules/`. If a rule file covers the target area (e.g., `backend.md`, `frontend.md`), extend it. Introduce a new domain only when the scope is materially different from all existing rules.
    - **When no existing rule fits**, derive the filename from repo structure:
      - Single / root project → use the project codename from `<manifest>` → `project.name` (e.g., `<codename>.md`)
      - Backend service / API component → `backend.md`
@@ -21,7 +21,7 @@ argument-hint: <name> [paths-glob]
    - If the repo is a monorepo with named components (e.g., `apps/billing`, `services/auth`), prefer the component name as the rule name (`billing.md`, `auth.md`).
    - **Rule filenames match the domain used by skills/agents.** If the scope is unclear, ask the user before proceeding.
 
-2. **Check existing rules**: Read `<umbrella>/rules/` to detect overlapping scope — favor extending an existing rule over creating a new one.
+2. **Check existing rules**: Read `<content-dir>/rules/` to detect overlapping scope — favor extending an existing rule over creating a new one.
 
 3. **Determine scope**:
    - If paths glob provided — scoped rule with `paths:` frontmatter
@@ -34,7 +34,7 @@ argument-hint: <name> [paths-glob]
    - Build and test commands specific to this scope
    - Anti-patterns observed in code, each paired with the positive replacement that should adopt instead
 
-5. **Create rule**: Write `<umbrella>/rules/<name>.md` (create the directory if it does not exist — the sources list already covers it):
+5. **Create rule**: Write `<content-dir>/rules/<name>.md` (create the directory if it does not exist — the sources list already covers it):
    ```yaml
    ---
    paths:

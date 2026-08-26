@@ -1,5 +1,6 @@
 #!/bin/bash
-# intelligence init [--targets a,b,c] [--no-sync]
+# intelligence init [--targets a,b,c] [--dir name] [--bare] [--no-sync]
+#                   [--preview | --apply] [--force]
 #
 # Set up a project: root manifest, content skeleton, .gitignore, staged
 # engine content, first sync. Targets are detected from IDE markers unless
@@ -10,16 +11,22 @@ set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 targets_arg="" no_sync=0 content_dir="intelligence" bare=0
+targets_set=0 dir_set=0 bare_set=0 preview=0 apply=0 force=0
 while [ $# -gt 0 ]; do
     case "$1" in
-        --targets) shift; targets_arg="${1:-}" ;;
-        --dir) shift; content_dir="${1:-}" ;;
+        --targets) shift; targets_arg="${1:-}"; targets_set=1 ;;
+        --dir) shift; content_dir="${1:-}"; dir_set=1 ;;
         --no-sync) no_sync=1 ;;
-        --bare) bare=1 ;;
+        --bare) bare=1; bare_set=1 ;;
+        --preview) preview=1 ;;
+        --apply) apply=1 ;;
+        --force) force=1 ;;
         *) die "unknown option '$1'" ;;
     esac
     shift || true
 done
+[ "$preview" -eq 0 ] || [ "$apply" -eq 0 ] || die "choose either --preview or --apply"
+[ "$targets_set" -eq 0 ] || [ -n "$targets_arg" ] || die "--targets needs a comma-separated adapter list"
 [ -n "$content_dir" ] || die "--dir needs a directory name"
 case "$content_dir" in
     /*|*..*|.intelligence|.intelligence/*) die "--dir must be a plain directory inside the repo, and not the package store" ;;
@@ -27,10 +34,58 @@ esac
 
 detect_project
 case "$IP_MODE" in
-    v2) die "already set up — manifest at $IP_ROOT/intelligence.yaml (use 'intelligence status')" ;;
-    legacy) die "this is a vendored (v1) setup at $IP_UMBRELLA — run 'intelligence migrate' instead" ;;
+    v2)
+        [ "$targets_set" -eq 0 ] || die "--targets applies only when creating a new project"
+        [ "$dir_set" -eq 0 ] || die "--dir applies only when creating a new project"
+        [ "$bare_set" -eq 0 ] || die "--bare applies only when creating a new project"
+        [ "$force" -eq 0 ] || die "--force applies only when converting an archived v1 project"
+        if [ "$preview" -eq 1 ]; then
+            check_version_compat "$IP_ROOT/intelligence.yaml"
+            echo "project: v2 at $IP_ROOT"
+            if project_needs_upgrade "$IP_ROOT"; then
+                echo "  would upgrade project schema/content to engine $(bundled_engine_version)"
+            else
+                echo "  schema/content already match engine $(bundled_engine_version)"
+            fi
+            if project_store_missing "$IP_ROOT"; then
+                echo "  would restore .intelligence/ from intelligence.lock"
+            else
+                echo "  package store already present"
+            fi
+            echo "  would run intelligence sync"
+            exit 0
+        fi
+        ensure_project_current "$IP_ROOT"
+        restore_project_store_if_missing "$IP_ROOT"
+        [ "$no_sync" -eq 1 ] && exit 0
+        cd "$IP_ROOT"
+        exec bash "$CLI_DIR/commands/sync.sh"
+        ;;
+    legacy)
+        [ "$targets_set" -eq 0 ] || die "--targets applies only when creating a new project"
+        [ "$dir_set" -eq 0 ] || die "--dir applies only when creating a new project"
+        [ "$bare_set" -eq 0 ] || die "--bare applies only when creating a new project"
+        [ "$no_sync" -eq 0 ] || die "--no-sync cannot skip transactional conversion verification"
+        migrate_args=()
+        [ "$force" -eq 1 ] && migrate_args+=(--force)
+        if [ "$preview" -eq 1 ]; then
+            exec bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run "${migrate_args[@]}"
+        fi
+        if [ "$apply" -eq 1 ]; then
+            exec bash "$CLI_DIR/internal/migrate-v1.sh" "${migrate_args[@]}"
+        fi
+        bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run "${migrate_args[@]}"
+        [ -t 0 ] || die "v1 migration requires confirmation — rerun 'intelligence init --apply'"
+        printf 'Apply this migration? [Y/n] '
+        read -r answer
+        case "$answer" in
+            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/migrate-v1.sh" "${migrate_args[@]}" ;;
+            *) echo "migration cancelled"; exit 0 ;;
+        esac
+        ;;
 esac
 
+[ "$force" -eq 0 ] || die "--force applies only when converting an archived v1 project"
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 root="$(cd "$root" && pwd)"
 
@@ -40,7 +95,14 @@ root="$(cd "$root" && pwd)"
 # the invariant-required carrier once any of them is on) is unconditional.
 targets="agents"
 if [ -n "$targets_arg" ]; then
-    targets="agents $(printf '%s' "$targets_arg" | tr ',' ' ')"
+    for target in $(printf '%s' "$targets_arg" | tr ',' ' '); do
+        assert_valid_target_name "$target"
+        if [ ! -f "$IS_ENGINE_DIR/adapters/$target.sh" ] \
+            && [ ! -f "$root/$content_dir/adapters/$target.sh" ]; then
+            die "adapter '$target' not found — create it after init with: intelligence adapter create $target"
+        fi
+        case " $targets " in *" $target "*) ;; *) targets="$targets $target" ;; esac
+    done
 else
     if [ -d "$root/.claude" ] || [ -f "$root/CLAUDE.md" ]; then targets="$targets claude"; fi
     [ -d "$root/.cursor" ] && targets="$targets cursor"
@@ -54,10 +116,18 @@ else
     fi
 fi
 
+if [ "$preview" -eq 1 ]; then
+    echo "project: no Intelligence setup found"
+    echo "  would create intelligence.yaml and intelligence.lock"
+    echo "  would install the bundled sync-content package"
+    echo "  would enable adapters:$targets, then sync"
+    exit 0
+fi
+
 manifest="$root/intelligence.yaml"
 {
     echo "# Intelligence manifest — what this project's AI tooling knows and where it goes."
-    echo "# Managed by the intelligence CLI. Reference: https://github.com/ainova-systems/intelligence-sync"
+    echo "# Managed by the intelligence CLI. Reference: https://github.com/ainova-systems/intelligence"
     echo "project:"
     echo "  name: \"$(basename "$root")\""
     [ "$content_dir" = "intelligence" ] || echo "  intelligence_dir: \"$content_dir\""
@@ -85,15 +155,12 @@ manifest="$root/intelligence.yaml"
     echo "# Generated output, one entry per tool. Add or drop tools freely."
     echo "targets:"
     for t in $targets; do
-        case "$t" in
-            agents) echo "  agents: { enabled: true, output: \"AGENTS.md\" }" ;;
-            *) echo "  $t: { enabled: true, output: \".$t\" }" ;;
-        esac
+        echo "  $t: { enabled: true, output: \"$(default_target_output "$t")\" }"
     done
     echo ""
-    echo "# Packages are managed with 'intelligence add' / 'search' / 'list':"
-    echo "#   intelligence add @ainova-systems/core       from the registry"
-    echo "#   intelligence add github:org/repo            any repo with rules|agents|skills"
+    echo "# Packages are managed with 'intelligence package add|search|list':"
+    echo "#   intelligence package add @ainova-systems/core       from the registry"
+    echo "#   intelligence package add github:org/repo            any repo with rules|agents|skills"
     echo "# packages:"
     echo "#   \"@ainova-systems/core\":"
     echo "#     version: \"^0.3.0\""
@@ -118,14 +185,14 @@ manifest="$root/intelligence.yaml"
 if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
     {
         [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
-        echo "# intelligence CLI package store (restored by 'intelligence install')"
+        echo "# intelligence CLI package store (restored automatically by 'intelligence sync')"
         echo ".intelligence/"
     } >> "$root/.gitignore"
 fi
 
 # The engine's own content (meta-skills, authoring rule, engine agents) is an
 # ordinary package: auto-selected, opted out with --bare, removable later with
-# 'intelligence remove @ainova-systems/sync --force'.
+# 'intelligence package remove @ainova-systems/sync --force'.
 if [ "$bare" -eq 0 ]; then
     sync_pkg_entry "$manifest"
     sync_pkg_install "$root"
@@ -133,7 +200,7 @@ fi
 
 echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
-echo "  add packages:  intelligence add @ainova-systems/core   (browse: intelligence search)"
+echo "  add packages:  intelligence package add @ainova-systems/core   (browse: intelligence package search)"
 echo "  write your own: create $content_dir/rules/context.md, then intelligence sync"
 echo "  docs: https://github.com/ainova-systems/intelligence#readme"
 

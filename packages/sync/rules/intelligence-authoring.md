@@ -2,12 +2,12 @@
 name: intelligence-authoring
 description: "Authoring discipline for the intelligence layer - subtraction first, rule vs skill vs agent, scoping, size"
 paths:
-  - "<umbrella>/**"
+  - "<content-dir>/**"
 ---
 
 # Authoring the intelligence layer
 
-Applies when writing or changing anything under `<umbrella>/`. The mechanics — frontmatter fields, tier and access vocabulary, how each tool is fed — live in `<module>/docs/CONVENTIONS.md`. This rule is the judgement that sits on top of them.
+Applies when writing or changing anything under `<content-dir>/`. The mechanics — frontmatter fields, tier and access vocabulary, how each tool is fed — live in `<module>/references/conventions.md`. This rule is the judgement that sits on top of them.
 
 ## Subtraction is the job
 
@@ -25,7 +25,7 @@ Three ways to shorten, in order of what they are worth:
 
 ## Source of truth
 
-Edit the project-owned sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. An installed package source is replaced by install/update/upgrade; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
+Edit the project-owned sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. An installed package source is replaced by CLI lifecycle/package operations; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
 
 `<module>/` is the installed sync package's content. Package operations replace it, so a local edit there is lost. Fix it upstream instead.
 

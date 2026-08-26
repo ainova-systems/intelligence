@@ -1,7 +1,13 @@
 #!/bin/bash
-# intelligence status — project state at a glance.
+# intelligence status [--check] — project state or deep consistency checks.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+
+case "${1:-}" in
+    "") ;;
+    --check) [ $# -eq 1 ] || die "usage: intelligence status [--check]"; exec bash "$CLI_DIR/internal/check.sh" ;;
+    *) die "usage: intelligence status [--check]" ;;
+esac
 
 detect_project
 case "$IP_MODE" in
@@ -27,7 +33,7 @@ case "$IP_MODE" in
         echo "Engine:   $(tr -d ' \t\r\n' < "$IP_MODULE_DIR/scripts/VERSION") (vendored at $IP_MODULE_DIR)"
         echo "Stamp:    $(read_engine_stamp "$IP_UMBRELLA/config.yaml")"
         echo ""
-        echo "Convert to the CLI setup: intelligence migrate"
+        echo "Convert to the CLI setup: intelligence init"
         ;;
     *)
         echo "No intelligence project here. Start one: intelligence init"

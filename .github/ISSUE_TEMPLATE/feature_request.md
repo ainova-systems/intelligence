@@ -1,24 +1,30 @@
 ---
 name: Feature request
-about: Suggest a new adapter, helper, or workflow improvement
+about: Suggest a package, adapter, lifecycle, or authoring improvement
 title: "[feature] "
 labels: enhancement
 ---
 
 ## Problem
 
-<!-- What gap or friction motivates this? Concrete scenarios beat abstract wishes. -->
+<!-- What concrete workflow or project state is difficult today? -->
 
-## Proposed change
+## Proposed outcome
 
-<!-- What should intelligence-sync do? Adapter? Helper? Skill? Config field? -->
+<!-- Describe what the user should be able to do and the observable result. -->
+
+## Public surface
+
+<!-- Which existing group owns this: init, sync, update, package, adapter, status, or registry? Avoid proposing a new top-level command when an existing group fits. -->
 
 ## Alternatives considered
 
-<!-- Other approaches you weighed and why you rejected them. -->
+<!-- What else did you try or consider, and why was it insufficient? -->
 
 ## Scope check
 
-- [ ] Stays within bash + awk (no new external dependencies)
-- [ ] Tool-agnostic where possible — IDE-specific behavior lives in adapters, not core
-- [ ] Backward-compatible for existing `config.yaml` files (or includes a migration note)
+- [ ] Keeps project lifecycle behind universal `init` and automatic v2 preflight
+- [ ] Keeps package operations under `intelligence package`
+- [ ] Keeps adapter operations under `intelligence adapter`
+- [ ] Keeps tool-specific behavior in adapters and common behavior in the CLI/engine
+- [ ] Preserves `intelligence.yaml` and `intelligence.lock` reproducibility contracts

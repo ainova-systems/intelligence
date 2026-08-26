@@ -1,7 +1,7 @@
 #!/bin/bash
 # Negative-path and small-command e2e for the intelligence CLI: bad specs,
-# unsatisfiable ranges, tagless registry packages, frozen-install refusals,
-# doctor failures, migrate rollback / dirty-tree refusal, init/status modes,
+# unsatisfiable ranges, tagless registry packages, frozen-restore refusals,
+# status failures, migration rollback / dirty-tree refusal, init modes,
 # and registry bindings. Hermetic: file:// fixture repos only, no network.
 set -euo pipefail
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
@@ -136,7 +136,7 @@ git -C "$PROJ" init --quiet
 
 echo "== 1. garbage spec =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.s1"
-xfail "expected @scope/name" "$PROJ" add not-a-spec
+xfail "expected @scope/name" "$PROJ" package add not-a-spec
 chk cmp -s "$OUT/manifest.s1" "$PROJ/intelligence.yaml"
 
 echo "== 12a. registry add + list (trust list, no scope labels) =="
@@ -162,28 +162,29 @@ xfail "added by URL" "$PROJ" registry add @acme
 
 echo "== 2. no tag satisfies the range =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.s2"
-xfail "satisfies" "$PROJ" add @acme/pkg@^9.0.0
+xfail "satisfies" "$PROJ" package add @acme/pkg@^9.0.0
 chk cmp -s "$OUT/manifest.s2" "$PROJ/intelligence.yaml"
 chknot test -d "$PROJ/.intelligence/packages/@acme/pkg"
 chknot test -f "$PROJ/intelligence.lock"
 
 echo "== 3. registry package without version tags =="
-xfail "must be versioned" "$PROJ" add @acme/notags
+xfail "must be versioned" "$PROJ" package add @acme/notags
 chknot test -d "$PROJ/.intelligence/packages/@acme/notags"
 chknot test -f "$PROJ/intelligence.lock"
 
 echo "== 3b. a name NO trusted registry declares is refused (no guessing) =="
-xfail "no trusted registry declares" "$PROJ" add @nobody/nothing
+xfail "no trusted registry declares" "$PROJ" package add @nobody/nothing
 chknot test -d "$PROJ/.intelligence/packages/@nobody"
 
 echo "== 4. remove a never-added package =="
-xfail "not in the manifest" "$PROJ" remove @acme/never-added
+xfail "not in the manifest" "$PROJ" package remove @acme/never-added
 
 echo "== 5. update a never-added package =="
-xfail "not in the manifest" "$PROJ" update @acme/never-added
+xfail "not in the manifest" "$PROJ" update @acme/never-added --preview
+xfail "choose either" "$PROJ" update --preview --apply
 
-echo "== 6. install --frozen after the tag moved =="
-xok "" "$PROJ" add "git+$MOVE_URL" --name @acme/mover --no-sync
+echo "== 6. sync frozen-restore after the tag moved =="
+xok "" "$PROJ" package add "git+$MOVE_URL" --name @acme/mover --no-sync
 chk test -d "$PROJ/.intelligence/packages/@acme/mover/rules"
 chk grep -q 'resolved: "v1.0.0"' "$PROJ/intelligence.lock"
 sha_before="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
@@ -192,37 +193,43 @@ printf '# Mover rule\n\nMOVER_MARKER_V2\n' > "$MOVE/rules/mover-rule.md"
 git -C "$MOVE" -c user.email=t@t -c user.name=t commit --quiet -am moved
 git -C "$MOVE" tag -f v1.0.0 >/dev/null
 rm -rf "$PROJ/.intelligence/packages"
-xfail "refusing under --frozen" "$PROJ" install --frozen
+xfail "refusing under --frozen" "$PROJ" sync
 sha_frozen="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
 [ "$sha_before" = "$sha_frozen" ] || { echo "FAIL: --frozen modified the lock sha"; fail=1; }
 # The refused content must NOT be committed to the store: a second --frozen
 # would otherwise see the directory, skip verification, and sync it.
 chknot test -d "$PROJ/.intelligence/packages/@acme/mover"
-xfail "refusing under --frozen" "$PROJ" install --frozen
+xfail "refusing under --frozen" "$PROJ" sync
 
 echo "== 6b. --frozen refuses manifest/lock drift =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.6b"
 # portable in-place edit (BSD sed -i differs) — awk to temp, then move
 awk '{ gsub(/version: "\^1\.0\.0"/, "version: \"^2.0.0\""); print }' \
     "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp" && mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
-xfail "requests" "$PROJ" install --frozen
+xfail "requests" "$PROJ" sync
 cp "$OUT/manifest.6b" "$PROJ/intelligence.yaml"
 
-xok "" "$PROJ" install
-sha_after="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
-chk test -n "$sha_after"
-[ "$sha_before" != "$sha_after" ] || { echo "FAIL: plain install did not update the moved sha"; fail=1; }
-chk grep -q 'MOVER_MARKER_V2' "$PROJ/AGENTS.md"
+# Frozen restore deliberately has no public bypass. Remove the compromised
+# dependency from the manifest before continuing with unrelated scenarios.
+xok "" "$PROJ" package remove @acme/mover --no-sync
+# Keep one immutable package so the fresh-clone scenario has a lock/store to
+# restore, without accepting the force-moved tag above.
+xok "" "$PROJ" package add @acme/pkg@^1.0.0 --no-sync
 
-echo "== 7. doctor on a fresh clone =="
+echo "== 7. status --check and sync restore on a fresh clone =="
 CLONE="$OUT/clone"
 mkdir -p "$CLONE"
 cp -r "$PROJ/intelligence" "$CLONE/intelligence"
 cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$CLONE/"
 git -C "$CLONE" init --quiet
-xfail "not installed" "$CLONE" doctor
-xok "" "$CLONE" install
-xok "all good." "$CLONE" doctor
+xfail "not installed" "$CLONE" status --check
+xok "" "$CLONE" sync
+xok "all good." "$CLONE" status --check
+cp "$CLONE/intelligence.yaml" "$OUT/manifest.7"
+awk '{ gsub(/version: "\^1\.0\.0"/, "version: \"^9.0.0\""); print }' \
+    "$CLONE/intelligence.yaml" > "$CLONE/intelligence.yaml.tmp" && mv "$CLONE/intelligence.yaml.tmp" "$CLONE/intelligence.yaml"
+xfail "requests '^9.0.0'" "$CLONE" status --check
+cp "$OUT/manifest.7" "$CLONE/intelligence.yaml"
 
 echo "== 8. migrate rollback on a CLI-refused target output =="
 LEG1="$OUT/leg1"
@@ -252,7 +259,7 @@ EOF
 git -C "$LEG1" init --quiet
 git -C "$LEG1" -c core.autocrlf=false -c user.email=t@t -c user.name=t add -A
 git -C "$LEG1" -c core.autocrlf=false -c user.email=t@t -c user.name=t commit --quiet -m base
-xfail "rolled back" "$LEG1" migrate
+xfail "rolled back" "$LEG1" init --apply
 if ! printf '%s\n' "$OUTPUT" | grep -qF -- "protected"; then
     echo "FAIL: rollback output does not name the protected directory"
     fail=1
@@ -294,10 +301,23 @@ EOF
 git -C "$LEG2" init --quiet
 git -C "$LEG2" -c core.autocrlf=false -c user.email=t@t -c user.name=t add -A
 git -C "$LEG2" -c core.autocrlf=false -c user.email=t@t -c user.name=t commit --quiet -m base
+cp "$LEG2/intelligence/config.yaml" "$OUT/leg2-config.safe"
+cat >> "$LEG2/intelligence/config.yaml" <<EOF
+
+packs:
+  destructive:
+    url: "$PACK_URL"
+    ref: "v1.0.0"
+    mirror: "intelligence"
+EOF
+xfail "contains the v1 content directory" "$LEG2" init --apply --force
+chk test -f "$LEG2/intelligence/config.yaml"
+chk test -d "$LEG2/intelligence/sync"
+cp "$OUT/leg2-config.safe" "$LEG2/intelligence/config.yaml"
 touch "$LEG2/wip.txt"
-xfail "commit or stash" "$LEG2" migrate
+xfail "commit or stash" "$LEG2" init --apply
 chknot test -f "$LEG2/intelligence.yaml"
-xok "" "$LEG2" migrate --force
+xok "" "$LEG2" init --apply --force
 chk test -f "$LEG2/intelligence.yaml"
 chk test -f "$LEG2/intelligence.lock"
 chknot test -f "$LEG2/intelligence/config.yaml"
@@ -306,9 +326,12 @@ chk test -d "$LEG2/.intelligence/packages/@ainova-systems/sync"
 chk test -f "$LEG2/.intelligence/backup/config.yaml"
 chk test -f "$LEG2/AGENTS.md"
 
-echo "== 10. init refusals =="
-xfail "already set up" "$PROJ" init
-xfail "migrate" "$LEG1" init
+echo "== 10. init is idempotent; failed legacy migration remains previewable =="
+xok "" "$PROJ" init
+xok "dry run" "$LEG1" init --preview
+xfail "invalid target name" "$EMPTY" init --targets ../escape
+xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
+chknot test -f "$EMPTY/intelligence.yaml"
 
 echo "== 11. status in all three modes =="
 xok "CLI setup" "$PROJ" status
@@ -334,10 +357,17 @@ xok "engine content installed" "$P13" init
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
 chk test -d "$P13/.claude/skills/intelligence-update"
-xok "owns it" "$P13" update
-xfail "--force" "$P13" remove @ainova-systems/sync
+# A hand-authored/current manifest with the bundled sync package but no
+# store/lock is repairable by the same automatic project alignment gate.
+rm -rf "$P13/.intelligence/packages"
+rm -f "$P13/intelligence.lock"
+xok "project upgrade" "$P13" sync
+chk test -f "$P13/intelligence.lock"
+chk test -d "$P13/.intelligence/packages/@ainova-systems/sync"
+xok "engine content follows" "$P13" update --preview
+xfail "--force" "$P13" package remove @ainova-systems/sync
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
-xok "" "$P13" remove @ainova-systems/sync --force
+xok "" "$P13" package remove @ainova-systems/sync --force
 chknot grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 chknot test -d "$P13/.intelligence/packages/@ainova-systems/sync"
 
@@ -347,8 +377,8 @@ git -C "$B13" init --quiet
 xok "bare setup" "$B13" init --bare
 chknot grep -q '"@ainova-systems/sync"' "$B13/intelligence.yaml"
 
-# A pre-package manifest (staged .intelligence/engine sources): sync fails
-# closed with the upgrade hint; upgrade migrates it onto the package.
+# A pre-package manifest is upgraded automatically before sync. CI refuses
+# that tracked schema/content mutation and points to an explicit local init.
 U13="$OUT/u13"
 mkdir -p "$U13/intelligence/rules" "$U13/.intelligence/engine/rules"
 printf '# Ctx\n\nu13 context\n' > "$U13/intelligence/rules/context.md"
@@ -372,8 +402,9 @@ targets:
   claude: { enabled: true, output: ".claude" }
 EOF
 git -C "$U13" init --quiet
-xfail "intelligence upgrade" "$U13" sync
-xok "" "$U13" upgrade
+CI=true xfail "intelligence init --apply" "$U13" sync
+CI=true xfail "intelligence init --apply" "$U13" update --apply
+xok "project upgrade" "$U13" sync
 chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
 chknot test -d "$U13/.intelligence/engine"
 chk grep -q '"@ainova-systems/sync"' "$U13/intelligence.yaml"
@@ -406,8 +437,8 @@ packages:
 EOF
 git -C "$H14" init --quiet
 # a traversal key in the manifest must be refused before any filesystem work
-xfail "invalid package name" "$H14" install
-xfail "invalid package name" "$H14" update
+xfail "invalid package name" "$H14" sync
+xfail "invalid package name" "$H14" update --preview
 # option-shaped url must never reach git argv
 cat > "$H14/intelligence.yaml" <<EOF
 project:
@@ -429,7 +460,17 @@ packages:
     version: "1.0.0"
     url: "--upload-pack=touch $OUT/pwned;git-upload-pack"
 EOF
-xfail "unsafe source url" "$H14" install
+cat > "$H14/intelligence.lock" <<EOF
+lockfile_version: 1
+engine_version: "$ENGINE_VER"
+packages:
+  "@acme/evil":
+    requested: "1.0.0"
+    url: "--upload-pack=touch $OUT/pwned;git-upload-pack"
+    resolved: "v1.0.0"
+    sha: "0000000000000000000000000000000000000000"
+EOF
+xfail "unsafe source url" "$H14" sync
 chknot test -e "$OUT/pwned"                       # the RCE payload never ran
 chknot test -d "$H14/.intelligence/packages/@acme"
 
@@ -438,44 +479,52 @@ run_in "$H14" ../../../etc/x
 [ "$RC" -ne 0 ] || { echo "FAIL: dispatcher accepted a path-shaped command"; fail=1; }
 printf '%s\n' "$OUTPUT" | grep -qF "unknown command" || { echo "FAIL: dispatcher did not reject path-shaped command"; fail=1; }
 
-echo "== 15. adapter scaffolding and target manifest commands =="
+echo "== 15. unified adapter commands =="
 # Missing project, invalid shell/path names, missing adapters and targets all
 # fail before a write.
-xfail "no intelligence project" "$EMPTY" adapter new myide
-xfail "no intelligence project" "$EMPTY" target enable claude
-xfail "invalid target name" "$PROJ" adapter new ../escape
-xfail "invalid target name" "$PROJ" target enable my-ide
-xfail "adapter 'missing' not found" "$PROJ" target enable missing
-xfail "target 'missing' is not in the manifest" "$PROJ" target disable missing
+xfail "no intelligence project" "$EMPTY" adapter create myide
+xfail "no intelligence project" "$EMPTY" adapter enable claude
+xfail "invalid target name" "$PROJ" adapter create ../escape
+xfail "invalid target name" "$PROJ" adapter enable my-ide
+xfail "adapter 'missing' not found" "$PROJ" adapter enable missing
+xfail "target 'missing' is not in the manifest" "$PROJ" adapter disable missing
 
-xok "created: intelligence/adapters/myide.sh" "$PROJ" adapter new myide
+xok "created: intelligence/adapters/myide.sh" "$PROJ" adapter create myide
 chk test -f "$PROJ/intelligence/adapters/myide.sh"
 chk grep -q '^sync_to_myide()' "$PROJ/intelligence/adapters/myide.sh"
 chknot grep -q '<name>' "$PROJ/intelligence/adapters/myide.sh"
 chknot grep -q 'dirname.*BASH_SOURCE' "$PROJ/intelligence/adapters/myide.sh"
-xfail "already exists" "$PROJ" adapter new myide
+xfail "already exists" "$PROJ" adapter create myide
 
-xok "enabled: myide" "$PROJ" target enable myide
+xok "enabled: myide" "$PROJ" adapter enable myide
 chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
-xok "disabled: myide" "$PROJ" target disable myide
+xok "disabled: myide" "$PROJ" adapter disable myide
 chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
 
 # Existing output is preserved byte-for-byte when a target is toggled.
-xok "disabled: claude" "$PROJ" target disable claude
+xok "disabled: claude" "$PROJ" adapter disable claude
 chk grep -q 'claude: { enabled: false, output: ".claude" }' "$PROJ/intelligence.yaml"
-xok "enabled: claude" "$PROJ" target enable claude
+xok "enabled: claude" "$PROJ" adapter enable claude
 chk grep -q 'claude: { enabled: true, output: ".claude" }' "$PROJ/intelligence.yaml"
 
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.
-xok "disabled: claude" "$PROJ" target disable claude
-xok "disabled: agents" "$PROJ" target disable agents
-xfail "requires target 'agents'" "$PROJ" target enable cursor
-xok "enabled: agents" "$PROJ" target enable agents
-xok "enabled: cursor" "$PROJ" target enable cursor
-xfail "required by enabled target 'cursor'" "$PROJ" target disable agents
-xok "disabled: cursor" "$PROJ" target disable cursor
-xok "disabled: agents" "$PROJ" target disable agents
+xok "disabled: claude" "$PROJ" adapter disable claude
+xok "disabled: agents" "$PROJ" adapter disable agents
+xfail "requires target 'agents'" "$PROJ" adapter enable cursor
+xok "enabled: agents" "$PROJ" adapter enable agents
+xok "enabled: cursor" "$PROJ" adapter enable cursor
+xfail "required by enabled target 'cursor'" "$PROJ" adapter disable agents
+xok "disabled: cursor" "$PROJ" adapter disable cursor
+xok "disabled: agents" "$PROJ" adapter disable agents
+xok "myide" "$PROJ" adapter list
+xok "removed: intelligence/adapters/myide.sh" "$PROJ" adapter remove myide --apply
+chknot test -f "$PROJ/intelligence/adapters/myide.sh"
+
+echo "== 16. removed public commands stay removed =="
+for old in install upgrade migrate outdated target doctor add remove list search; do
+    xfail "unknown command" "$PROJ" "$old"
+done
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

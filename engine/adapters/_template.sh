@@ -1,6 +1,6 @@
 #!/bin/bash
 # intelligence-sync: Adapter template
-# Scaffold this file with: intelligence adapter new <name>
+# Scaffold this file with: intelligence adapter create <name>
 #
 # This file is NOT executable as-is — `<name>` placeholders below would be
 # parsed by bash as input redirection (`<` operator). Replace every
@@ -8,7 +8,7 @@
 #
 # Required:
 #   1. Implement sync_to_<name>() and its three content transforms
-#   2. Enable it after implementation: intelligence target enable <name>
+#   2. Enable it after implementation: intelligence adapter enable <name>
 #      This adds the target to intelligence.yaml when it is absent:
 #      targets:
 #        <name>: { enabled: true, output: ".<name>" }

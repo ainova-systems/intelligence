@@ -1,19 +1,24 @@
 ---
 name: intelligence-uninstall-adapter
-description: "Disable a tool target and assess its generated output"
-argument-hint: <target-name>
+description: "Disable an adapter and assess its generated output"
+argument-hint: <adapter-name>
 agent: intelligence-operator
 ---
 
-# Disable an adapter target
+# Uninstall an adapter
 
-1. Run `intelligence target disable $ARGUMENTS`. The CLI changes only the
-   manifest and deliberately keeps generated output.
-2. If the user also wants generated files removed, inspect the adapter's
-   cleanup block to identify exactly what it owns. Show that list and obtain
-   approval before deleting it; never delete a shared output root.
-3. Remove obsolete `.gitignore` entries only when no remaining target needs
-   them, then run `intelligence sync` for the targets still enabled.
-4. Verify `IS_STATUS=ok`, the target is disabled, retained files are intact,
-   and only explicitly approved adapter-owned output was removed. Report both
-   removed and deliberately retained paths.
+1. Run `intelligence adapter list`, then
+   `intelligence adapter disable $ARGUMENTS`. Disabling changes target state
+   and deliberately keeps generated output.
+2. If generated files should also be removed, inspect the adapter's cleanup
+   block to identify exactly what it owns. Show that list and obtain approval
+   before deleting it; never delete a shared output root.
+3. For a project adapter that should be deleted, run
+   `intelligence adapter remove $ARGUMENTS` after it is disabled. This prompts
+   by default (`--apply` is the explicit non-interactive form) and also keeps
+   generated output. Built-in adapter source cannot be removed.
+4. Remove obsolete `.gitignore` entries only when no remaining adapter needs
+   them. Sync the remaining enabled adapters when any exist.
+5. Verify with `intelligence adapter list` and `intelligence status --check`:
+   the adapter is disabled or removed as requested, retained files are intact,
+   and only approved adapter-owned output was deleted.

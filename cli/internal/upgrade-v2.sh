@@ -1,9 +1,18 @@
 #!/bin/bash
-# intelligence upgrade — bring the project to this CLI's engine: apply v2
+# Internal: bring the project to this CLI's engine: apply v2
 # schema migrations, align the engine-content package to the bundled version,
 # restamp sync_version, sync.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+
+no_sync=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-sync) no_sync=1 ;;
+        *) die "internal upgrade: unknown option '$1'" ;;
+    esac
+    shift
+done
 
 require_v2
 manifest="$IP_ROOT/intelligence.yaml"
@@ -11,7 +20,7 @@ manifest="$IP_ROOT/intelligence.yaml"
 stamp="$(read_engine_stamp "$manifest")"
 eng="$(bundled_engine_version)"
 if [ -n "$stamp" ] && _ver_gt "$stamp" "$eng"; then
-    die "manifest schema $stamp is newer than this CLI's engine $eng — update the CLI first: npm i -g @ainova-systems/intelligence@latest"
+    die "manifest schema $stamp is newer than this CLI's engine $eng — update the global CLI first"
 fi
 
 # --- v2 schema migrations -------------------------------------------------
@@ -59,10 +68,12 @@ if [ "$have_pkg" -eq 1 ] && [ "$migrated" -eq 0 ]; then
     sync_pkg_install "$IP_ROOT"
 fi
 if [ "$have_pkg" -eq 0 ] && [ "$migrated" -eq 0 ]; then
-    echo "  NOTE: $SYNC_PKG_NAME is not in this manifest (bare setup) — engine meta-skills stay uninstalled; 'intelligence add $SYNC_PKG_NAME' opts back in." >&2
+    echo "  NOTE: $SYNC_PKG_NAME is not in this manifest (bare setup) — engine meta-skills stay uninstalled; 'intelligence package add $SYNC_PKG_NAME' opts back in." >&2
 fi
 
 stamp_version "$manifest" "$eng"
 echo "  sync_version -> $eng"
 
-exec bash "$CLI_DIR/commands/sync.sh"
+if [ "$no_sync" -eq 0 ]; then
+    exec bash "$CLI_DIR/commands/sync.sh"
+fi

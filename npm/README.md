@@ -7,7 +7,7 @@ npm install -g @ainova-systems/intelligence
 
 cd your-project
 intelligence init
-intelligence add @ainova-systems/core
+intelligence package add @ainova-systems/core
 intelligence sync
 ```
 
@@ -22,25 +22,24 @@ intelligence/          # your own rules / agents / skills
 AGENTS.md
 ```
 
-Teammates need one command after cloning:
+Teammates need one command after cloning; it restores the locked package store before rendering:
 
 ```bash
-intelligence install
+intelligence sync
 ```
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `intelligence init` | Detect your tools, write the manifest, first sync |
-| `intelligence add <pkg>` | `@scope/name[@range]`, `github:org/repo[#path]`, or `git+<url>[@ref][#path]` |
-| `intelligence install [--frozen]` | Restore `.intelligence/` exactly from the lockfile |
-| `intelligence update [pkg]` | Re-resolve version ranges, rewrite the lock |
-| `intelligence sync [target]` | Render intelligence to every enabled tool |
-| `intelligence list` / `doctor` / `status` | Inspect and verify |
-| `intelligence registry add <repo-url>` | Trust a registry (a git repo with an `index.yaml`) |
-| `intelligence migrate` | Convert a vendored intelligence-sync setup to the CLI |
+| `intelligence init [--preview\|--apply]` | Create, convert, restore or align a project |
+| `intelligence sync [adapter]` | Restore locked content if needed, then render enabled adapters |
+| `intelligence update [@scope/name] [--preview\|--apply]` | Plan or apply project and ranged-package updates |
+| `intelligence package add\|remove\|list\|search` | Manage versioned Intelligence Packages |
+| `intelligence adapter list\|create\|enable\|disable\|remove` | Manage render adapters |
+| `intelligence status [--check]` | Inspect project state and consistency |
+| `intelligence registry list\|add\|remove` | Manage trusted registry repositories |
 
-Any git repo with `rules/`, `agents/` or `skills/` at its root is already an Intelligence Package: install it from an explicit source — `intelligence add github:your-org/your-repo` — with versions from its `x.y.z` git tags. Names (`@scope/name`) resolve only through registries this project explicitly trusts; a monorepo of packages needs one line in such an index.
+Any git repo with `rules/`, `agents/` or `skills/` at its root is already an Intelligence Package: install it from an explicit source — `intelligence package add github:your-org/your-repo` — with versions from its `x.y.z` git tags. Names (`@scope/name`) resolve only through registries this project explicitly trusts; a monorepo of packages needs one line in such an index.
 
-Requires `git` (and on Windows the bash it ships with — Git for Windows). Engine and docs: [ainova-systems/intelligence-sync](https://github.com/ainova-systems/intelligence-sync).
+Requires `git` (and on Windows the bash it ships with — Git for Windows). Engine and docs: [ainova-systems/intelligence](https://github.com/ainova-systems/intelligence).

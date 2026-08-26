@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence doctor — consistency checks, no writes. Exit 1 on problems.
+# Internal deep consistency check. No writes; exits 1 on problems.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -22,7 +22,7 @@ case "$IP_MODE" in
     legacy)
         echo "project: vendored (v1) at $IP_ROOT"
         ok "vendored engine $(tr -d ' \t\r\n' < "$IP_MODULE_DIR/scripts/VERSION")"
-        echo "  → 'intelligence migrate' converts it to the CLI setup"
+        echo "  → 'intelligence init' converts it to the CLI setup"
         exit 0
         ;;
 esac
@@ -34,11 +34,11 @@ lock="$IP_ROOT/intelligence.lock"
 stamp="$(read_engine_stamp "$manifest")"
 eng="$(bundled_engine_version)"
 if [ -z "$stamp" ]; then
-    warn "manifest has no sync_version — run 'intelligence upgrade'"
+    warn "manifest has no sync_version — run 'intelligence init'"
 elif _ver_gt "$stamp" "$eng"; then
     warn "manifest schema $stamp is newer than this CLI's engine $eng — update the CLI: npm i -g @ainova-systems/intelligence@latest"
 elif _ver_gt "$eng" "$stamp"; then
-    warn "manifest schema $stamp behind engine $eng — run 'intelligence upgrade'"
+    warn "manifest schema $stamp behind engine $eng — run 'intelligence init'"
 else
     ok "sync_version $stamp matches the engine"
 fi
@@ -50,11 +50,11 @@ if [ -n "$sync_locked" ]; then
     if [ "${sync_locked#v}" = "$eng" ]; then
         ok "$SYNC_PKG_NAME at $sync_locked (matches the engine)"
     else
-        warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence upgrade'"
+        warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence init'"
     fi
 fi
 if [ -d "$IP_ROOT/.intelligence/engine" ]; then
-    warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence upgrade'"
+    warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence init'"
 fi
 
 # Manifest packages: names valid, locked, installed — and the lock's source
@@ -64,16 +64,34 @@ while IFS= read -r name; do
     [ -n "$name" ] || continue
     assert_valid_pkg_name "$name"
     if [ -z "$(qmap_field "$lock" "packages" "$name" "url")" ]; then
-        warn "$name is in the manifest but not in intelligence.lock — run 'intelligence install'"
-    elif [ ! -d "$IP_ROOT/.intelligence/packages/$name" ]; then
-        warn "$name is locked but not installed — run 'intelligence install'"
+        warn "$name is in the manifest but not in intelligence.lock — run 'intelligence init'"
     else
+        m_ver="$(qmap_field "$manifest" "packages" "$name" "version")"
+        m_ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
+        m_url="$(qmap_field "$manifest" "packages" "$name" "url")"
+        m_path="$(qmap_field "$manifest" "packages" "$name" "path")"
+        l_req="$(qmap_field "$lock" "packages" "$name" "requested")"
+        l_res="$(qmap_field "$lock" "packages" "$name" "resolved")"
+        l_url="$(qmap_field "$lock" "packages" "$name" "url")"
+        l_path="$(qmap_field "$lock" "packages" "$name" "path")"
+        [ -z "$m_ver" ] || [ "$m_ver" = "$l_req" ] \
+            || warn "$name requests '$m_ver' but the lock recorded '$l_req' — run 'intelligence update --preview'"
+        [ -z "$m_ref" ] || [ "$m_ref" = "$l_res" ] \
+            || warn "$name pins ref '$m_ref' but the lock resolved '$l_res'"
+        [ -z "$m_url" ] || [ "$m_url" = "$l_url" ] \
+            || warn "$name declares url '$m_url' but the lock recorded '$l_url'"
+        [ -z "$m_path" ] || [ "$m_path" = "$l_path" ] \
+            || warn "$name declares path '$m_path' but the lock recorded '$l_path'"
+        if [ ! -d "$IP_ROOT/.intelligence/packages/$name" ]; then
+            warn "$name is locked but not installed — run 'intelligence sync'"
+            continue
+        fi
         ok "$name @ $(qmap_field "$lock" "packages" "$name" "resolved")"
         if [ -z "$(qmap_field "$manifest" "packages" "$name" "url")" ]; then
             locked_url="$(qmap_field "$lock" "packages" "$name" "url")"
             resolve_package_source "$manifest" "$name" 2>/dev/null || true
             if [ -n "${RES_URL:-}" ] && [ -n "$locked_url" ] && [ "$RES_URL" != "$locked_url" ]; then
-                warn "$name now resolves to $RES_URL but the lock pins $locked_url — a registry re-pointed the name; verify before 'intelligence update'"
+                warn "$name now resolves to $RES_URL but the lock pins $locked_url — a registry re-pointed the name; verify with 'intelligence update --preview'"
             fi
         fi
     fi
@@ -87,7 +105,7 @@ if [ -f "$lock" ]; then
         while IFS= read -r m; do
             [ "$m" = "$name" ] && found=1
         done < <(qmap_keys "$manifest" "packages")
-        [ "$found" -eq 1 ] || warn "$name is locked but absent from the manifest — 'intelligence remove $name' cleans it up"
+        [ "$found" -eq 1 ] || warn "$name is locked but absent from the manifest — 'intelligence package remove $name' cleans it up"
     done < <(qmap_keys "$lock" "packages")
 fi
 
@@ -102,7 +120,7 @@ for section in rules agents skills; do
         if [ ! -d "$IP_ROOT/$src" ]; then
             case "$src" in
                 # Store content is restorable state: absent means un-installed.
-                .intelligence/*) warn "sources.$section '$src' missing — run 'intelligence install'" ;;
+                .intelligence/*) warn "sources.$section '$src' missing — run 'intelligence sync'" ;;
                 # A project-owned dir that does not exist yet is a legitimate
                 # state — a project consuming only packages authors nothing of
                 # its own — and the engine simply skips it. Declared up front so

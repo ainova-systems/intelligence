@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence target enable|disable <name>
+# Internal adapter target-state operation.
 #
 # Change only the manifest. Syncing and deleting generated output are separate
 # explicit actions: a generic target command cannot infer a custom adapter's
@@ -9,9 +9,9 @@ source "$CLI_DIR/lib/cli-common.sh"
 
 action="${1:-}"
 name="${2:-}"
-[ $# -le 2 ] || die "usage: intelligence target <enable|disable> <name>"
-case "$action" in enable|disable) ;; *) die "usage: intelligence target <enable|disable> <name>" ;; esac
-[ -n "$name" ] || die "usage: intelligence target <enable|disable> <name>"
+[ $# -le 2 ] || die "internal target state: expected <enable|disable> <name>"
+case "$action" in enable|disable) ;; *) die "internal target state: expected <enable|disable> <name>" ;; esac
+[ -n "$name" ] || die "internal target state: missing adapter name"
 assert_valid_target_name "$name"
 
 require_v2
@@ -22,7 +22,7 @@ if [ "$action" = "enable" ]; then
     project_adapter="$IP_ROOT/$content_dir/adapters/$name.sh"
     bundled_adapter="$IS_ENGINE_DIR/adapters/$name.sh"
     if [ ! -f "$project_adapter" ] && [ ! -f "$bundled_adapter" ]; then
-        die "adapter '$name' not found — create it first: intelligence adapter new $name"
+        die "adapter '$name' not found — create it first: intelligence adapter create $name"
     fi
 
     # These adapters intentionally omit always-on rules because their tools
@@ -36,12 +36,9 @@ if [ "$action" = "enable" ]; then
     esac
 
     output="$(get_target_output "$manifest" "$name")"
-    if [ -z "$output" ]; then
-        if [ "$name" = "agents" ]; then output="AGENTS.md"; else output=".$name"; fi
-    fi
+    [ -n "$output" ] || output="$(default_target_output "$name")"
     target_set_enabled "$manifest" "$name" true "$output"
     echo "enabled: $name (output: $output)"
-    echo "  run: intelligence sync $name"
     exit 0
 fi
 
@@ -54,7 +51,7 @@ if [ "$name" = "agents" ]; then
     done
 fi
 output="$(get_target_output "$manifest" "$name")"
-[ -n "$output" ] || { if [ "$name" = "agents" ]; then output="AGENTS.md"; else output=".$name"; fi; }
+[ -n "$output" ] || output="$(default_target_output "$name")"
 target_set_enabled "$manifest" "$name" false "$output"
 echo "disabled: $name"
 echo "  generated output was kept; remove only paths owned by this adapter"

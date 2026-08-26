@@ -1,39 +1,46 @@
 ---
 name: Bug report
-about: Sync produced wrong output, errored, or behaved unexpectedly
+about: A CLI command failed or produced incorrect project state/output
 title: "[bug] "
 labels: bug
 ---
 
 ## What happened
 
-<!-- Describe the unexpected behavior. -->
+<!-- Describe the unexpected behavior and which public command you ran. -->
 
 ## What you expected
 
-<!-- Describe what you thought should happen. -->
+<!-- Describe the expected project state or generated output. -->
 
 ## Reproduction
 
-1. <!-- Step 1 -->
-2. <!-- Step 2 -->
-3. <!-- ... -->
+1. <!-- Minimal setup -->
+2. <!-- Exact command and arguments -->
+3. <!-- Observable failure -->
 
 ## Environment
 
-- OS: <!-- e.g. macOS 15.0, Ubuntu 24.04, Windows 11 + Git Bash -->
+- OS: <!-- e.g. macOS 15, Ubuntu 24.04, Windows 11 + Git Bash -->
+- Node version: <!-- `node --version` -->
 - Bash version: <!-- `bash --version` -->
-- IDE adapter(s) involved: <!-- claude / cursor / copilot / codex / agents -->
-- intelligence-sync commit: <!-- output of `git -C intelligence rev-parse HEAD` if cloned, or version pulled by update.sh -->
+- Intelligence npm version: <!-- from your package manager/global package list -->
+- Adapter(s): <!-- agents / claude / cursor / copilot / codex / pi / opencode / custom -->
 
-## Relevant config
+## Project status
+
+```text
+# Paste `intelligence status` and, when it completes, `intelligence status --check`.
+```
+
+## Relevant manifest
 
 ```yaml
-# Paste the relevant slice of intelligence/config.yaml
+# Paste the smallest relevant slice of intelligence.yaml. Remove secrets/private URLs.
 ```
 
-## Sync output
+## Command output
 
-```
-# Paste the output of `bash intelligence/sync/scripts/sync.sh` (or the failing target only)
+```text
+# Paste the complete output of the failing public command.
 ```
