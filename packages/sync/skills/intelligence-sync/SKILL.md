@@ -8,7 +8,7 @@ context: fork
 # Sync intelligence
 
 1. Run `intelligence sync` (or `intelligence sync <adapter>` when one adapter
-   was requested). For v2, this command first aligns project schema/content
+   was requested). For Intelligence projects, this command first aligns project schema/content
    with the installed CLI and restores a missing package store strictly from
    `intelligence.lock`.
 2. Require final `IS_STATUS=ok`; relay per-adapter counts and any model-drift

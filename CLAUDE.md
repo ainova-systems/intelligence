@@ -1,18 +1,18 @@
 # CLAUDE.md
 
-This file describes how to work safely and accurately in the v2 Intelligence product repository.
+This file describes how to work safely and accurately in the Intelligence product repository.
 
 ## Start here
 
-Read `decisions/0001-split-v1-archive-from-v2-product.md` before changing architecture, layout, conversion behavior or release plumbing. Read `decisions/0002-consolidate-v2-cli-lifecycle.md` before changing the public command model. Do not reconstruct either model from historical code.
+Read `decisions/0001-separate-legacy-intelligence-sync-from-intelligence.md` before changing architecture, layout, conversion behavior or release plumbing. Read `decisions/0002-consolidate-intelligence-cli-lifecycle.md` before changing the public command model. Do not reconstruct either model from historical code.
 
-This repository is `ainova-systems/intelligence`, the v2 product. The archived v1 product remains in `ainova-systems/intelligence-sync`. Do not edit the v1 repository from this workspace. Do not add compatibility machinery back into v2.
+This repository is `ainova-systems/intelligence`, the current Intelligence product. Legacy Intelligence Sync remains archived in `ainova-systems/intelligence-sync`. Do not edit that repository from this workspace or add its compatibility machinery to Intelligence.
 
-v2 is not approved as a stable release. Do not publish a stable package or create a stable release unless the owner explicitly says the CLI is ready. If publishing is requested before then, use an `X.Y.Z-rc.N` prerelease and npm dist-tag `next`.
+Intelligence is not approved as a stable release. Do not publish a stable package or create a stable release unless the owner explicitly says the CLI is ready. If publishing is requested before then, use an `X.Y.Z-rc.N` prerelease and npm dist-tag `next`.
 
 ## Product model
 
-The CLI owns a project's full lifecycle: initialization, package resolution, locked-store restoration, updates, schema alignment, v1 conversion and sync. `intelligence init` is the single entry point for setup, conversion and alignment. A v2 project contains:
+The CLI owns a project's full lifecycle: initialization, package resolution, locked-store restoration, updates, schema alignment, legacy Intelligence Sync conversion and sync. `intelligence init` is the single entry point for setup, conversion and alignment. An Intelligence project contains:
 
 ```text
 intelligence.yaml       root manifest
@@ -32,7 +32,7 @@ engine/              executable sync engine bundled in the npm package
 packages/sync/       rules, agents, meta-skills and references installed as @ainova-systems/sync
 npm/                 Node launcher and distribution build
 docs/                product/CLI documentation
-examples/            v2 manifest fixtures
+examples/            Intelligence manifest fixtures
 decisions/           internal architecture decisions; never package content
 ```
 
@@ -45,7 +45,7 @@ Keep `engine/` and `packages/sync/` separate. The bundle seed must copy package 
 The public lifecycle surface is intentionally small:
 
 ```text
-intelligence init [--preview|--apply]        initialize, convert v1, restore or align v2
+intelligence init [--preview|--apply]        initialize, convert legacy Intelligence Sync, restore or align
 intelligence sync [adapter]                 restore the locked store if missing, then render enabled targets
 intelligence update [@scope/name] [--preview|--apply]  plan, confirm or apply project/package updates
 intelligence package <add|remove|list|search>   manage packages
@@ -54,9 +54,9 @@ intelligence status [--check]               summarize state or run deep consiste
 intelligence registry <list|add|remove>      manage the ordered registry trust list
 ```
 
-Do not add top-level aliases for package or adapter subcommands. Conversion, v2 alignment, locked restore, deep checks and target-state edits are internal operations reached through the public commands above.
+Do not add top-level aliases for package or adapter subcommands. Legacy conversion, project alignment, locked restore, deep checks and target-state edits are internal operations reached through the public commands above.
 
-Mutating project-aware commands bring an older v2 manifest and exact sync-content pin to the bundled engine before continuing. CI refuses that tracked mutation and tells the user to run `intelligence init --apply` locally, review the diff and commit it.
+Mutating project-aware commands bring an older Intelligence manifest and exact sync-content pin to the bundled engine before continuing. CI refuses that tracked mutation and tells the user to run `intelligence init --apply` locally, review the diff and commit it.
 
 Run the five CLI suites from the repository root:
 
@@ -86,20 +86,20 @@ find engine -name '*.sh' -not -path '*/adapters/_template.sh' \
 
 The adapter template is intentionally excluded because its `<name>` placeholders are not valid shell until scaffolded.
 
-CI also verifies npm installation on Linux, macOS and Windows; v2 layout purity; engine/package stamp lockstep; sync behavior against examples; idempotence; and destructive-path guardrails. Keep local tests hermetic: package test fixtures use `file://` Git repositories and must not depend on a public registry.
+CI also verifies npm installation on Linux, macOS and Windows; product layout purity; engine/package stamp lockstep; sync behavior against examples; idempotence; and destructive-path guardrails. Keep local tests hermetic: package test fixtures use `file://` Git repositories and must not depend on a public registry.
 
 ## CLI architecture
 
 `cli/intelligence` is a small dispatcher. The lifecycle commands are implemented in `cli/commands/{init,sync,update,package,adapter,status,registry}.sh`; shared CLI plumbing lives in `cli/lib/`.
 
-Non-public mechanics live in `cli/internal/`: package operations, locked restore, deep checking, v1 conversion, v2 alignment and target-state editing. Keep them behind the lifecycle commands instead of expanding the dispatcher surface.
+Non-public mechanics live in `cli/internal/`: package operations, locked restore, deep checking, legacy conversion, project alignment and target-state editing. Keep them behind the lifecycle commands instead of expanding the dispatcher surface.
 
 The repository and npm bundle both have one discovery layout: `<root>/{cli,engine,packages/sync}`. Do not add distribution-specific engine candidates.
 
 `cli/lib/cli-common.sh` is the integration boundary:
 
 - sources engine readers and the status contract;
-- detects v2 versus archived vendored projects;
+- detects Intelligence versus legacy Intelligence Sync projects;
 - derives the project content directory from `project.intelligence_dir`;
 - describes `@ainova-systems/sync` from `cli/engine-package.yaml` rather than hardcoding its identity in commands;
 - exports the environment used to invoke the engine.
@@ -130,7 +130,7 @@ The CLI must export:
 - `IS_SYNC_CMD` — `intelligence sync`;
 - `IS_PROTECTED_DIRS` — project content and package-store directories.
 
-`sync.sh` is a pure synchronizer. It never changes schemas or fetches packages. The CLI preflight aligns older v2 schema/content before mutating commands; `init --apply` is the explicit reviewed path and `update` includes alignment in its plan.
+`sync.sh` is a pure synchronizer. It never changes schemas or fetches packages. The CLI preflight aligns older project schema/content before mutating commands; `init --apply` is the explicit reviewed path and `update` includes alignment in its plan.
 
 `intelligence sync` is the normal fresh-clone path: it restores a missing `.intelligence/` store strictly from `intelligence.lock`, exports the engine contract and then renders. It never re-resolves package versions during restore.
 
@@ -178,17 +178,17 @@ Meta-skills are interpreters of deterministic CLI behavior, not alternate implem
 
 ## Initialization boundary
 
-`intelligence init` detects absent, v2 and vendored v1 states. On v2 it restores or aligns idempotently; on v1 it previews a conversion and requires confirmation or `--apply`. An older v1 project must first reach schema `0.10.0` with its archived engine.
+`intelligence init` detects absent, Intelligence and legacy Intelligence Sync states. On Intelligence it restores or aligns idempotently; on legacy Intelligence Sync it previews conversion and requires confirmation or `--apply`. An older legacy project must first reach schema `0.10.0` with its archived engine.
 
-V1 conversion must remain transactional: stage, verify target/source equivalence, run a real staged sync, then commit and remove the vendored engine. `init --preview` writes nothing to the project.
+Legacy Intelligence Sync conversion must remain transactional: stage, verify target/source equivalence, run a real staged sync, then commit and remove the vendored engine. `init --preview` writes nothing to the project.
 
 ## Documentation and changelog
 
-Documentation must use v2 paths and CLI commands. References to `INIT.md`, a vendored `scripts/update.sh`, `packs:`, engine scripts inside a project, or `intelligence/sync/...` are v1 concepts and belong only in narrowly scoped migration/archive explanations.
+Documentation must use Intelligence paths and CLI commands. References to `INIT.md`, a vendored `scripts/update.sh`, `packs:`, engine scripts inside a project, or `intelligence/sync/...` are legacy Intelligence Sync concepts and belong only in narrowly scoped conversion/archive explanations.
 
 Files inside any `docs/` directory use lowercase kebab-case (`cli.md`, `adapter-contract.md`). Standard root documents such as `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `CLAUDE.md` and `ROADMAP.md` keep their conventional names.
 
-The v2 `CHANGELOG.md` is compact: one line per change, minimal context, no rationale. Put rationale in `decisions/`. A `### Breaking` subsection is a checklist of verifiable post-conditions consumed by the update skill.
+`CHANGELOG.md` is compact: one line per change, minimal context, no rationale. Put rationale in `decisions/`. A `### Breaking` subsection is a checklist of verifiable post-conditions consumed by the update skill.
 
 ## Versioning and releases
 
@@ -200,7 +200,7 @@ The `release-npm` workflow is manual:
 
 - `X.Y.Z-rc.N` may publish from any ref to npm dist-tag `next`;
 - stable `X.Y.Z` may publish to `latest` only from the matching `vX.Y.Z` tag;
-- the v2 tag line starts at `v0.11.0`; never recreate v1 tags here.
+- the Intelligence tag line starts at `v0.11.0`; never recreate legacy Intelligence Sync tags here.
 
 Do not release, push to the public registry repository, or change the repository workflow from direct-main to branches/PRs without explicit owner direction.
 

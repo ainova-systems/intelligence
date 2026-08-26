@@ -5,7 +5,7 @@ Status: accepted
 
 ## Context
 
-Early v2 RC manifests used two package shapes. Registry packages stored only a
+Early Intelligence RC manifests used two package shapes. Registry packages stored only a
 version range, while direct and built-in packages also stored repository URL
 and path. This exposed resolver mechanics to users and duplicated fields that
 were already required in `intelligence.lock`.
@@ -17,7 +17,7 @@ were already required in `intelligence.lock`.
 3. `@ainova-systems/sync` resolves from the CLI's built-in descriptor during init/alignment.
 4. Named packages resolve through trusted registries only when added.
 5. Updates use the source already committed in the lock. Re-adding is the explicit source-change operation.
-6. v2 lifecycle alignment removes RC-era manifest URL/path fields automatically.
+6. Project lifecycle alignment removes RC-era manifest URL/path fields automatically.
 
 ## Consequences
 

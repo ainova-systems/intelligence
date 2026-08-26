@@ -12,13 +12,13 @@ fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
-# stage_vendored <umbrella-dir> - build a v1 project fixture. v2 ships no v1
+# stage_vendored <umbrella-dir> - build a legacy Intelligence Sync fixture.
 # engine (it is archived) and migrate no longer runs one, so the module is a
 # STUB: detect_project only needs scripts/sync.sh + scripts/VERSION to classify
-# the project as legacy. The content beside it is what the v1 sources point at.
+# the project as legacy. The content beside it is what its sources point at.
 stage_vendored() {
     mkdir -p "$1/sync/scripts"
-    printf '#!/bin/bash\necho "archived v1 engine"\n' > "$1/sync/scripts/sync.sh"
+    printf '#!/bin/bash\necho "legacy Intelligence Sync engine"\n' > "$1/sync/scripts/sync.sh"
     tr -d ' \t\r\n' < "$REPO/engine/VERSION" > "$1/sync/scripts/VERSION"
     cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents" \
         "$REPO/packages/sync/skills" "$1/sync/"
@@ -89,9 +89,9 @@ EOF
 mkdir -p "$LEG/intelligence/rules"
 printf '# Ctx\n\nlegacy project context\n' > "$LEG/intelligence/rules/context.md"
 git -C "$LEG" init --quiet
-# The mirror is what a v1 sync would have materialized: committed pack content
+# The mirror is what legacy Intelligence Sync would have materialized: committed pack content
 # plus its stamp. migrate must COPY it rather than refetch, so the fixture
-# writes it directly - the v1 engine that used to produce it is archived.
+# writes it directly - the engine that used to produce it is archived.
 mkdir -p "$LEG/intelligence/external/shared-intel"
 cp -r "$PACK/rules" "$LEG/intelligence/external/shared-intel/"
 printf 'url=file://%s\nref=v1.1.0\nsha=%s\n' "$PACK" "$(git -C "$PACK" rev-parse HEAD)" \
@@ -100,13 +100,13 @@ chk test -f "$LEG/intelligence/external/shared-intel/.pack"
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A
 git -C "$LEG" -c user.email=t@t -c user.name=t commit --quiet -m base
 
-echo "== init --preview (v1 migration) =="
+echo "== init --preview (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --preview > "$OUT/dry.txt")
 chknot test -f "$LEG/intelligence.yaml"
 chk test -f "$LEG/intelligence/config.yaml"
 chk grep -q 'packages/@' "$OUT/dry.txt"
 
-echo "== init --apply (v1 migration) =="
+echo "== init --apply (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply > "$OUT/migrate.txt")
 chk test -f "$LEG/intelligence.yaml"
 chk grep -q '/intelligence-learn-from-repository' "$OUT/migrate.txt"

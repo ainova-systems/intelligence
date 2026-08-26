@@ -12,7 +12,7 @@ sub="${1:-list}"
 case "$sub" in
     list)
         detect_project
-        if [ "$IP_MODE" = "v2" ] && [ -f "$IP_ROOT/intelligence.yaml" ]; then
+        if [ "$IP_MODE" = "cli" ] && [ -f "$IP_ROOT/intelligence.yaml" ]; then
             echo "Project registries (intelligence.yaml, trust order):"
             found=0
             while IFS= read -r url; do
@@ -39,7 +39,7 @@ case "$sub" in
             @*) die "registries are added by URL — names carry their own scope. To install a package: intelligence package add $url/<name>" ;;
         esac
         assert_safe_source_url "${url#git+}"
-        require_v2
+        require_cli_project
         ensure_project_current "$IP_ROOT"
         # Fail closed: a URL that cannot produce an index is not a registry,
         # and recording it would turn a typo here into a confusing failure at
@@ -70,7 +70,7 @@ case "$sub" in
     remove)
         url="${2:-}"
         [ -n "$url" ] || die "usage: intelligence registry remove <url>"
-        require_v2
+        require_cli_project
         ensure_project_current "$IP_ROOT"
         registries_remove "$IP_ROOT/intelligence.yaml" "$url"
         # The retired flat-map form also stored scope keys — drop one if the

@@ -1,10 +1,10 @@
 # Contributing to Intelligence
 
-Thank you for improving the v2 Intelligence CLI, sync engine or package content.
+Thank you for improving the Intelligence CLI, sync engine or package content.
 
 ## Before you change code
 
-Read [decision 0001](decisions/0001-split-v1-archive-from-v2-product.md) and [decision 0002](decisions/0002-consolidate-v2-cli-lifecycle.md). Keep the v1/v2 split and the compact public command model intact; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the v1 migration chain.
+Read [decision 0001](decisions/0001-separate-legacy-intelligence-sync-from-intelligence.md) and [decision 0002](decisions/0002-consolidate-intelligence-cli-lifecycle.md). Keep Intelligence separate from legacy Intelligence Sync and preserve the compact public command model; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the legacy migration chain.
 
 Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-systems/intelligence/issues). Include the operating system, shell, installed npm package version, `intelligence status`, the failing command and a minimal redacted `intelligence.yaml` when relevant.
 
@@ -14,15 +14,15 @@ Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-sy
 2. Keep the change within the relevant boundary: package and lifecycle mechanics in `cli/`, deterministic rendering in `engine/`, installed content in `packages/sync/`.
 3. Add or update the narrowest automated test that proves the behavior.
 4. Run the relevant checks below.
-5. Update user-facing documentation and the compact v2 changelog when behavior changes.
+5. Update user-facing documentation and the compact changelog when behavior changes.
 6. Open a pull request explaining the observable result and validation performed.
 
 ## Public CLI contract
 
 Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
 
-- `init` owns new-project setup, archived-project conversion and v2 alignment.
-- Project-aware mutations align v2 automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
+- `init` owns new-project setup, legacy-project conversion and project alignment.
+- Project-aware mutations align Intelligence projects automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
 - `sync` restores a missing package store from the committed lock before rendering.
 - Planned writes use `--preview` and `--apply` consistently.
 - Deep consistency validation belongs to `status --check`.
@@ -75,7 +75,7 @@ The template is invalid shell until its placeholders are replaced because `<` is
 
 ## Testing a project-owned adapter
 
-In a disposable v2 project:
+In a disposable Intelligence project:
 
 ```bash
 intelligence adapter create mytool
@@ -104,7 +104,7 @@ When a change includes an engine version bump, keep these exact values aligned:
 - `schema_version` in every `examples/*/intelligence.yaml`;
 - the `@ainova-systems/sync` exact pin in every example.
 
-Do not create releases as part of an ordinary contribution. v2 remains prerelease until the owner approves a stable release.
+Do not create releases as part of an ordinary contribution. Intelligence remains prerelease until the owner approves a stable release.
 
 ## Commit messages
 

@@ -23,7 +23,7 @@ while [ $# -gt 0 ]; do
     shift || true
 done
 
-require_v2
+require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 

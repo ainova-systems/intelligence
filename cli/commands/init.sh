@@ -34,14 +34,14 @@ esac
 
 detect_project
 case "$IP_MODE" in
-    v2)
+    cli)
         [ "$targets_set" -eq 0 ] || die "--targets applies only when creating a new project"
         [ "$dir_set" -eq 0 ] || die "--dir applies only when creating a new project"
         [ "$bare_set" -eq 0 ] || die "--bare applies only when creating a new project"
-        [ "$force" -eq 0 ] || die "--force applies only when converting an archived v1 project"
+        [ "$force" -eq 0 ] || die "--force applies only when converting a legacy Intelligence Sync project"
         if [ "$preview" -eq 1 ]; then
             check_version_compat "$IP_ROOT/intelligence.yaml"
-            echo "project: v2 at $IP_ROOT"
+            echo "project: Intelligence CLI at $IP_ROOT"
             if project_needs_upgrade "$IP_ROOT"; then
                 echo "  would align project lifecycle with engine $(bundled_engine_version)"
             else
@@ -77,26 +77,26 @@ case "$IP_MODE" in
         [ "$dir_set" -eq 0 ] || die "--dir applies only when creating a new project"
         [ "$bare_set" -eq 0 ] || die "--bare applies only when creating a new project"
         [ "$no_sync" -eq 0 ] || die "--no-sync cannot skip transactional conversion verification"
-        migrate_args=()
-        [ "$force" -eq 1 ] && migrate_args+=(--force)
+        conversion_args=()
+        [ "$force" -eq 1 ] && conversion_args+=(--force)
         if [ "$preview" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
+            exec bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${conversion_args[@]+"${conversion_args[@]}"}
         fi
         if [ "$apply" -eq 1 ]; then
-            exec bash "$CLI_DIR/internal/migrate-v1.sh" ${migrate_args[@]+"${migrate_args[@]}"}
+            exec bash "$CLI_DIR/internal/convert-legacy.sh" ${conversion_args[@]+"${conversion_args[@]}"}
         fi
-        bash "$CLI_DIR/internal/migrate-v1.sh" --dry-run ${migrate_args[@]+"${migrate_args[@]}"}
-        [ -t 0 ] || die "v1 migration requires confirmation — rerun 'intelligence init --apply'"
-        printf 'Apply this migration? [Y/n] '
+        bash "$CLI_DIR/internal/convert-legacy.sh" --dry-run ${conversion_args[@]+"${conversion_args[@]}"}
+        [ -t 0 ] || die "legacy project conversion requires confirmation — rerun 'intelligence init --apply'"
+        printf 'Apply this conversion? [Y/n] '
         read -r answer
         case "$answer" in
-            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/migrate-v1.sh" ${migrate_args[@]+"${migrate_args[@]}"} ;;
-            *) echo "migration cancelled"; exit 0 ;;
+            ""|y|Y|yes|YES) exec bash "$CLI_DIR/internal/convert-legacy.sh" ${conversion_args[@]+"${conversion_args[@]}"} ;;
+            *) echo "conversion cancelled"; exit 0 ;;
         esac
         ;;
 esac
 
-[ "$force" -eq 0 ] || die "--force applies only when converting an archived v1 project"
+[ "$force" -eq 0 ] || die "--force applies only when converting a legacy Intelligence Sync project"
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 root="$(cd "$root" && pwd)"
 assert_safe_content_dir "$root" "$content_dir"

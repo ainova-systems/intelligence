@@ -26,7 +26,7 @@ git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -am v11
 git -C "$PACK" tag v1.1.0
 PACK_URL="file://$PACK"
 
-# --- v2 project ---
+# --- Intelligence project ---
 PROJ="$OUT/proj"
 mkdir -p "$PROJ/intelligence/rules"
 ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/engine/VERSION")"

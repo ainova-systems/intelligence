@@ -17,13 +17,13 @@ fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
 
-# stage_vendored <umbrella-dir> - build a v1 project fixture. v2 ships no v1
+# stage_vendored <umbrella-dir> - build a legacy Intelligence Sync fixture.
 # engine (it is archived) and migrate no longer runs one, so the module is a
 # STUB: detect_project only needs scripts/sync.sh + scripts/VERSION to classify
-# the project as legacy. The content beside it is what the v1 sources point at.
+# the project as legacy. The content beside it is what its sources point at.
 stage_vendored() {
     mkdir -p "$1/sync/scripts"
-    printf '#!/bin/bash\necho "archived v1 engine"\n' > "$1/sync/scripts/sync.sh"
+    printf '#!/bin/bash\necho "legacy Intelligence Sync engine"\n' > "$1/sync/scripts/sync.sh"
     tr -d ' \t\r\n' < "$REPO/engine/VERSION" > "$1/sync/scripts/VERSION"
     cp -r "$REPO/packages/sync/rules" "$REPO/packages/sync/agents" \
         "$REPO/packages/sync/skills" "$1/sync/"
@@ -115,7 +115,7 @@ git -C "$REG" init --quiet
 git -C "$REG" -c user.email=t@t -c user.name=t add -A
 git -C "$REG" -c user.email=t@t -c user.name=t commit --quiet -m idx
 
-# v2 project.
+# Intelligence project.
 PROJ="$OUT/proj"
 mkdir -p "$PROJ/intelligence/rules"
 cat > "$PROJ/intelligence.yaml" <<EOF
@@ -284,7 +284,7 @@ chknot test -d "$LEG1/.intelligence"
 # not leave one behind.
 chknot test -f "$LEG1/.gitignore"
 
-# Pre-existing v2 state is never consumed, nested, overwritten or removed by
+# Pre-existing Intelligence state is never consumed, nested, overwritten or removed by
 # migration. In particular, a leftover ignored store must fail closed.
 mkdir -p "$LEG1/.intelligence"
 printf 'keep\n' > "$LEG1/.intelligence/pre-existing"
@@ -330,7 +330,7 @@ packs:
     ref: "v1.0.0"
     mirror: "intelligence"
 EOF
-xfail "contains the v1 content directory" "$LEG2" init --apply --force
+xfail "contains the legacy content directory" "$LEG2" init --apply --force
 chk test -f "$LEG2/intelligence/config.yaml"
 chk test -d "$LEG2/intelligence/sync"
 cp "$OUT/leg2-config.safe" "$LEG2/intelligence/config.yaml"
@@ -360,7 +360,7 @@ xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
 chknot test -f "$EMPTY/intelligence.yaml"
 
 echo "== 11. status in all three modes =="
-xok "CLI setup" "$PROJ" status
+xok "Intelligence project" "$PROJ" status
 xok "vendored" "$LEG1" status
 xok "No intelligence project" "$EMPTY" status
 

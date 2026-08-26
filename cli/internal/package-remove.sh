@@ -15,7 +15,7 @@ for a in "$@"; do
     esac
 done
 
-require_v2
+require_cli_project
 
 # Removing the engine-content package guts the outputs (meta-skills, the
 # authoring rule, both engine agents disappear) while everything still

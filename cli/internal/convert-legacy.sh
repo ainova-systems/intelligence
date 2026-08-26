@@ -1,6 +1,6 @@
 #!/bin/bash
-# Internal v1-to-v2 migration operation.
-# to the CLI setup: root intelligence.yaml, .intelligence/ store,
+# Internal conversion from legacy Intelligence Sync to Intelligence CLI.
+# to an Intelligence project: root intelligence.yaml, .intelligence/ store,
 # intelligence.lock, no vendored engine.
 #
 # Transactional: STAGE everything next to the
@@ -24,8 +24,8 @@ done
 detect_project
 case "$IP_MODE" in
     legacy) ;;
-    v2) die "already on the v2 setup ($IP_ROOT/intelligence.yaml)" ;;
-    *) die "no vendored setup found here — 'intelligence init' starts a fresh project" ;;
+    cli) die "already an Intelligence project ($IP_ROOT/intelligence.yaml)" ;;
+    *) die "no legacy Intelligence Sync project found here — 'intelligence init' starts a fresh project" ;;
 esac
 root="$IP_ROOT"
 umbrella="$IP_UMBRELLA"
@@ -36,22 +36,22 @@ umbrella_rel="${umbrella#"$root"/}"
 
 for existing in intelligence.yaml intelligence.lock .intelligence; do
     if [ -e "$root/$existing" ] || [ -L "$root/$existing" ]; then
-        die "$existing already exists at the root — conflicting v2 state; move it aside or restore the project before migrating"
+        die "$existing already exists at the root — conflicting Intelligence CLI state; move it aside or restore the project before converting"
     fi
 done
 if [ "$dry_run" -eq 0 ] && [ "$force" -eq 0 ]; then
     if [ -n "$(git -C "$root" status --porcelain 2>/dev/null)" ]; then
-        die "working tree is not clean — commit or stash first (or --force); migrate wants a one-commit diff you can review and revert"
+        die "working tree is not clean — commit or stash first (or --force); conversion produces a one-commit diff you can review and revert"
     fi
 fi
 
-# `sync_version` belongs to the archived v1 format. The v2 contract uses
+# `sync_version` belongs to the legacy Intelligence Sync format. Intelligence uses
 # `schema_version`, so conversion reads the legacy scalar explicitly.
 stamp="$(top_scalar "$config" "sync_version")"
 eng="$(bundled_engine_version)"
 [ -n "$stamp" ] && _ver_gt "$stamp" "$eng" && die "project schema $stamp is newer than this CLI's engine $eng — update the CLI first"
 
-# The v1 `packs:` block is the one v1 shape migrate still has to read, and the
+# The legacy `packs:` block is the one Intelligence Sync shape conversion still reads, and the
 # engine no longer knows it — the reader lives here, with its only consumer.
 get_pack_field() {
     get_nested_yaml_value "$1" "packs" "$2" "$3"
@@ -73,10 +73,10 @@ validate_mirror_path() {
     case "$canon" in "$root"/*) ;; *) die "pack '$pack' mirror escapes the repository: '$mirror'" ;; esac
     rel="${canon#"$root"/}"
 
-    # A v1 mirror may live below the content directory (the normal location is
+    # A legacy mirror may live below the content directory (the normal location is
     # intelligence/external/<pack>), but it must never own the directory itself,
     # the vendored module, CLI state, authored sources, or generated outputs.
-    case "$umbrella_rel" in "$rel"|"$rel"/*) die "pack '$pack' mirror '$mirror' contains the v1 content directory" ;; esac
+    case "$umbrella_rel" in "$rel"|"$rel"/*) die "pack '$pack' mirror '$mirror' contains the legacy content directory" ;; esac
     for protected in .git .intelligence "$module_rel"; do
         paths_overlap "$rel" "$protected" && die "pack '$pack' mirror '$mirror' overlaps protected path '$protected'"
     done
@@ -115,14 +115,14 @@ cleanup_stage() { rm -rf "$stage"; }
 trap cleanup_stage EXIT INT TERM
 mkdir -p "$stage/.intelligence/packages"
 
-# v2 carries no v1 migration chain: v1 is archived, and the archived engine is
-# what knows how to walk an old project forward. So migrate accepts only a
-# project already at the final v1 schema and names the exact remedy otherwise —
+# Intelligence carries no legacy migration chain: the archived Intelligence Sync
+# engine knows how to walk an old project forward. Conversion accepts only a
+# project already at the final legacy schema and names the exact remedy otherwise —
 # a remedy that keeps working indefinitely, because the archive stays at the
 # URL the project's own update.sh already clones.
-V1_FINAL_SCHEMA="0.10.0"
-if [ -z "$stamp" ] || _ver_gt "$V1_FINAL_SCHEMA" "$stamp"; then
-    echo "ERROR: project schema is ${stamp:-absent (pre-0.3.1)}, older than the final v1 schema $V1_FINAL_SCHEMA." >&2
+LEGACY_FINAL_SCHEMA="0.10.0"
+if [ -z "$stamp" ] || _ver_gt "$LEGACY_FINAL_SCHEMA" "$stamp"; then
+    echo "ERROR: project schema is ${stamp:-absent (pre-0.3.1)}, older than the final legacy Intelligence Sync schema $LEGACY_FINAL_SCHEMA." >&2
     echo "       Bring it forward with its own engine first — that still works:" >&2
     echo "         bash $module_rel/scripts/update.sh --yes" >&2
     echo "       then re-run: intelligence init" >&2
@@ -134,7 +134,7 @@ echo "== staging =="
 # bundle (fetch_package's guard — no network).
 sync_pkg_sha="$(fetch_package "$SYNC_PKG_URL" "v$eng" "$SYNC_PKG_PATH" "$stage/$SYNC_PKG_STORE")"
 
-# Legacy pack name -> v2 package name (@org/repo derived from the url), plus
+# Legacy pack name -> Intelligence package name (@org/repo derived from the url), plus
 # per-pack source facts. Recorded as rows for the config rewrite and the lock.
 pack_rows="$stage/packs.rows"
 : > "$pack_rows"
@@ -361,11 +361,11 @@ lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
-    die "sync of the migrated state failed"
+    die "sync of the converted state failed"
 }
 echo "$sync_out" | grep -q '^IS_STATUS=ok' || {
     echo "$sync_out"
-    die "sync of the migrated state did not report ok"
+    die "sync of the converted state did not report ok"
 }
 # Point of no return: the new state is verified. From here an interrupt must
 # NOT roll back (the old setup is being removed) — only clean the stage.
@@ -384,7 +384,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     esac
     if [ -d "$root/$mirror" ]; then
         rm -rf "${root:?}/$mirror"
-        # An emptied v1 mirror parent (for example intelligence/external/) goes with it.
+        # An emptied legacy mirror parent (for example intelligence/external/) goes with it.
         rmdir "$(dirname "$root/$mirror")" 2>/dev/null || true
     fi
 done < "$pack_rows"
@@ -395,6 +395,6 @@ rm -f "$config"
 rmdir "$umbrella" 2>/dev/null || true
 
 echo ""
-echo "migrated. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
+echo "converted. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
 echo "From now on: intelligence sync | package | update | status."
-echo "Next: ask your agent to run /intelligence-learn-from-repository to review the migrated project context."
+echo "Next: ask your agent to run /intelligence-learn-from-repository to review the converted project context."

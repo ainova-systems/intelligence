@@ -12,7 +12,7 @@ term="${1:-}"
 
 detect_project
 manifest=""
-[ "$IP_MODE" = "v2" ] && manifest="$IP_ROOT/intelligence.yaml"
+[ "$IP_MODE" = "cli" ] && manifest="$IP_ROOT/intelligence.yaml"
 
 # State of one package name in this project: installed / declared / available.
 pkg_state() {

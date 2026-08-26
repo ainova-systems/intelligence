@@ -9,7 +9,7 @@ name="${2:-}"
 adapter_list() {
     detect_project
     local manifest="" content_dir="" seen=" " file item enabled output configured
-    if [ "$IP_MODE" = "v2" ]; then
+    if [ "$IP_MODE" = "cli" ]; then
         manifest="$IP_ROOT/intelligence.yaml"
         content_dir="$(manifest_intelligence_dir "$manifest")"
     fi
@@ -46,7 +46,7 @@ adapter_list() {
 adapter_create() {
     [ -n "$name" ] && [ $# -eq 0 ] || die "usage: intelligence adapter create <name>"
     assert_valid_target_name "$name"
-    require_v2
+    require_cli_project
     ensure_project_current "$IP_ROOT"
     local manifest="$IP_ROOT/intelligence.yaml" content_dir repo_phys probe old_ifs part probe_phys
     local template adapter_dir adapter_phys dest tmp
@@ -94,7 +94,7 @@ adapter_remove() {
     done
     [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
     assert_valid_target_name "$name"
-    require_v2
+    require_cli_project
     ensure_project_current "$IP_ROOT"
     manifest="$IP_ROOT/intelligence.yaml"
     content_dir="$(manifest_intelligence_dir "$manifest")"
@@ -135,7 +135,7 @@ case "$action" in
     enable|disable)
         [ -n "$name" ] && [ $# -eq 2 ] || die "usage: intelligence adapter <enable|disable> <name>"
         assert_valid_target_name "$name"
-        require_v2
+        require_cli_project
         ensure_project_current "$IP_ROOT"
         bash "$CLI_DIR/internal/target-state.sh" "$action" "$name"
         if [ "$action" = "enable" ]; then

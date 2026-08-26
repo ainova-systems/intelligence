@@ -14,7 +14,7 @@ case "$action" in enable|disable) ;; *) die "internal target state: expected <en
 [ -n "$name" ] || die "internal target state: missing adapter name"
 assert_valid_target_name "$name"
 
-require_v2
+require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 content_dir="$(manifest_intelligence_dir "$manifest")"
 

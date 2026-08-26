@@ -14,7 +14,7 @@
 
 - [ ] Uses only the established groups: `init`, `sync`, `update`, `package`, `adapter`, `status`, `registry`
 - [ ] Keeps preview/apply behavior explicit for planned writes
-- [ ] Covers automatic v2 alignment and CI refusal when project schema/content can change
+- [ ] Covers automatic project alignment and CI refusal when project schema/content can change
 - [ ] Keeps fresh-clone package restoration behind `intelligence sync`
 
 ## Verification

@@ -9,8 +9,8 @@
 #   * the IS_STATUS / IS_RC_* codes every engine flow reports.
 #
 # Schema migrations themselves are NOT here: the CLI owns them behind
-# `intelligence init`, and a v1 project is brought forward by the archived v1
-# engine before `intelligence init` converts it.
+# `intelligence init`, and a legacy Intelligence Sync project is brought forward
+# by its archived engine before `intelligence init` converts it.
 
 # The applied-schema version is a managed key in the manifest.
 #

@@ -20,9 +20,9 @@ case "$IP_MODE" in
         exit 0
         ;;
     legacy)
-        echo "project: vendored (v1) at $IP_ROOT"
+        echo "project: legacy Intelligence Sync at $IP_ROOT"
         ok "vendored engine $(tr -d ' \t\r\n' < "$IP_MODULE_DIR/scripts/VERSION")"
-        echo "  → 'intelligence init' converts it to the CLI setup"
+        echo "  → 'intelligence init' converts it into an Intelligence project"
         exit 0
         ;;
 esac
