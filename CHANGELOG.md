@@ -61,3 +61,4 @@ The v1 history remains in the [intelligence-sync archive](https://github.com/ain
 - Fixed v1 conversion to reject conflicting v2 state and roll back every failure before verified sync.
 - Fixed lifecycle alignment to refuse a missing package lock instead of creating a partial replacement.
 - Fixed explicit `init --apply` alignment under CI and filtered sync of disabled adapters.
+- Added committed locks to runnable examples so smoke tests exercise frozen store restoration directly.

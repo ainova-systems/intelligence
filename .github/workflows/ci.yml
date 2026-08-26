@@ -168,6 +168,10 @@ jobs:
               echo "PIN DRIFT: $cf pins the sync package at \"$pin\", expected \"$V\""; fail=1
             fi
           done
+          for example in go-api dotnet-api-with-react-frontend platform-with-submodules; do
+            test -f "examples/$example/intelligence.lock" \
+              || { echo "LOCK MISSING: runnable example $example"; fail=1; }
+          done
           [ "$fail" -eq 0 ] && echo "OK: all examples stamped and pinned at $V"
           exit $fail
 
@@ -188,6 +192,7 @@ jobs:
           PROJ=$RUNNER_TEMP/proj
           mkdir -p "$PROJ"
           cp examples/${{ matrix.example }}/intelligence.yaml "$PROJ/intelligence.yaml"
+          cp examples/${{ matrix.example }}/intelligence.lock "$PROJ/intelligence.lock"
 
           mkdir -p "$PROJ/intelligence/rules" "$PROJ/intelligence/agents" "$PROJ/intelligence/skills"
 
@@ -240,12 +245,6 @@ jobs:
 
           REFERENCE_MARKER scaffold for handler + route + tests.
           EOF
-
-          # Examples omit generated lockfiles. Align once as a local developer
-          # would, commit the resulting lock, then remove the ignored store so
-          # the next step proves CI can restore strictly from that lock.
-          (cd "$PROJ" && env -u CI bash "$GITHUB_WORKSPACE/cli/intelligence" init --apply --no-sync)
-          rm -rf "$PROJ/.intelligence"
 
           git -C "$PROJ" init -q
           git -C "$PROJ" add -A
