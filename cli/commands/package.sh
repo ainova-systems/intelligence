@@ -9,12 +9,12 @@ shift
 
 case "$action" in
     add)
-        require_v2
+        require_cli_project
         ensure_project_current "$IP_ROOT"
         exec bash "$CLI_DIR/internal/package-add.sh" "$@"
         ;;
     remove)
-        require_v2
+        require_cli_project
         ensure_project_current "$IP_ROOT"
         exec bash "$CLI_DIR/internal/package-remove.sh" "$@"
         ;;

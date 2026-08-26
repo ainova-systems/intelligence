@@ -19,7 +19,7 @@ while [ $# -gt 0 ]; do
 done
 [ "$preview_seen" -eq 0 ] || [ "$apply_seen" -eq 0 ] || die "choose either --preview or --apply"
 
-require_v2
+require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 check_version_compat "$manifest"
 eng="$(bundled_engine_version)"

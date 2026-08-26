@@ -1,6 +1,6 @@
 #!/bin/bash
-# Internal: bring the project to this CLI's engine: apply v2
-# schema migrations, align the engine-content package to the bundled version,
+# Internal: bring an Intelligence project to this CLI's engine: apply schema
+# migrations, align the engine-content package to the bundled version,
 # restamp schema_version, sync.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
@@ -14,7 +14,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-require_v2
+require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 
 stamp="$(read_schema_version "$manifest")"
@@ -31,14 +31,15 @@ if [ -n "$legacy_stamp" ] && _ver_gt "$legacy_stamp" "$eng"; then
     die "manifest schema $legacy_stamp is newer than this CLI's engine $eng — update the global CLI first"
 fi
 
-# --- v2 schema migrations -------------------------------------------------
+# --- project schema migrations --------------------------------------------
 # The engine's own chain owns vendored layouts; this one owns the manifest.
 # Same discipline: ascending, append-only, each migration self-detects and
 # no-ops when already applied.
 
-# v2 migration 0: the original RC manifest called the permanent schema key
+# migration 0: the original RC manifest called the permanent schema key
 # `sync_version`. Rename it without changing its value; the final stamp below
-# then aligns it with this engine. The archived v1 reader remains separate.
+# then aligns it with this engine. The legacy Intelligence Sync reader remains
+# separate.
 if [ -n "$legacy_stamp" ]; then
     if [ -n "$stamp" ]; then
         [ "$stamp" = "$legacy_stamp" ] || die "manifest has conflicting schema_version '$stamp' and sync_version '$legacy_stamp'"
@@ -49,7 +50,7 @@ if [ -n "$legacy_stamp" ]; then
     echo "  migrating: sync_version -> schema_version"
 fi
 
-# v2 migration 1: package entries contain requested intent only. Early RCs
+# migration 1: package entries contain requested intent only. Early RCs
 # also copied resolved url/path into the manifest. Preserve the existing lock
 # as the trusted source and remove that duplicate representation. A direct
 # unversioned package becomes an explicit HEAD pin so its manifest entry stays
@@ -74,7 +75,7 @@ if [ "$source_fields_migrated" -eq 1 ]; then
     echo "  migrating: package url/path -> intelligence.lock"
 fi
 
-# v2 migration 2: staged engine content -> the @ainova-systems/sync package.
+# migration 2: staged engine content -> the @ainova-systems/sync package.
 # Pre-package manifests listed `.intelligence/engine/{rules,agents,skills}`
 # as sources fed by a CLI-staged copy; that copy is now an ordinary package
 # entry seeded from the bundle. Post-condition: no `.intelligence/engine`

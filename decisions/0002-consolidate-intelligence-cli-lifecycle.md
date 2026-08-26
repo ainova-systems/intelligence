@@ -1,25 +1,25 @@
-# 0002 — Consolidate the v2 CLI around lifecycle and resource groups
+# 0002 — Consolidate the Intelligence CLI around lifecycle and resource groups
 
 Date: 2026-08-26
 Status: accepted
 
 ## Context
 
-The first v2 CLI exposed implementation steps as separate commands: package restore, project
-upgrade, v1 migration, deep diagnosis, update preview, and target-state editing. The operations
+The first Intelligence CLI exposed implementation steps as separate commands: package restore,
+project upgrade, legacy conversion, deep diagnosis, update preview, and target-state editing. The operations
 were valid, but users had to remember which near-duplicate command matched the project's current
-state. That preserved the shape of the v1 procedures instead of presenting one v2 product model.
+state. That preserved the shape of the legacy Intelligence Sync procedures instead of presenting one Intelligence product model.
 
 ## Decision
 
 1. The public lifecycle is `init`, `sync`, `update`, `package`, `adapter`, `status`, and `registry`.
    `help` and `version` remain ordinary informational entry points.
 
-2. `init` is idempotent and state-aware: it creates a new v2 project, transactionally converts an
-   eligible archived v1 project, or aligns/restores an existing v2 project. `--preview` is
+2. `init` is idempotent and state-aware: it creates a new Intelligence project, transactionally converts an
+   eligible legacy Intelligence Sync project, or aligns/restores an existing Intelligence project. `--preview` is
    read-only and `--apply` is the explicit non-interactive path.
 
-3. A project-aware mutation runs one shared preflight. If an installed CLI is newer than the v2
+3. A project-aware mutation runs one shared preflight. If an installed CLI is newer than the Intelligence
    project, the preflight applies internal idempotent alignment before the requested operation.
    CI refuses implicit tracked alignment and requires a reviewed local `init --apply` diff.
 

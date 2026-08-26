@@ -4,7 +4,7 @@
 
 Intelligence keeps rules, agents and skills in tool-neutral Markdown, installs shared content as versioned packages, and renders each enabled AI tool's native files. One CLI owns the manifest, lockfile, package store and sync engine.
 
-> v2 is currently a release candidate. Use the `next` npm tag until a stable release is announced.
+> Intelligence is currently a release candidate. Use the `next` npm tag until a stable release is announced.
 
 ## Quick start
 
@@ -20,8 +20,8 @@ intelligence init --targets claude,codex
 `init` is the universal project entry point:
 
 - with no Intelligence setup, it creates `intelligence.yaml`, the lockfile and the initial package store;
-- in an archived v1 project, it previews the migration and asks before applying it;
-- in a v2 project, it aligns the schema and engine-content package with the installed CLI.
+- in a legacy Intelligence Sync project, it previews conversion and asks before applying it;
+- in an Intelligence project, it aligns the schema and engine-content package with the installed CLI.
 
 Use `intelligence init --preview` to inspect without writing and `intelligence init --apply` for explicit non-interactive application.
 
@@ -71,7 +71,7 @@ your-project/
 └── .claude/ .cursor/ ...   # generated tool-native output
 ```
 
-The project owns `intelligence/`. The CLI owns `.intelligence/`. The engine ships with the CLI and is never copied into a v2 project.
+The project owns `intelligence/`. The CLI owns `.intelligence/`. The engine ships with the CLI and is never copied into an Intelligence project.
 
 The authoring rule, engine agents, meta-skills and their shared references are installed as `@ainova-systems/sync`. `init` exact-pins this package to the bundled engine version and can seed it from the npm bundle without network access. Use `init --bare` to opt out.
 
@@ -80,7 +80,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | Command | Purpose |
 |---|---|
 | `init [--preview\|--apply]` | Create, convert, restore or align the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
-| `sync [adapter]` | Restore missing locked content, align v2 when safe, then render all enabled adapters or one named enabled adapter. |
+| `sync [adapter]` | Restore missing locked content, align the project when safe, then render all enabled adapters or one named enabled adapter. |
 | `update [@scope/name] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |
 | `adapter list\|create\|enable\|disable\|remove` | Discover built-ins and manage project-owned adapters and their manifest state. |
@@ -89,9 +89,9 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 
 Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
 
-### Automatic v2 alignment
+### Automatic project alignment
 
-The first project-aware mutating command run with a newer CLI automatically aligns an existing v2 manifest and its engine-content package before doing its own work. This keeps normal local workflows on one current schema without a separate maintenance command.
+The first project-aware mutating command run with a newer CLI automatically aligns an existing Intelligence manifest and its engine-content package before doing its own work. This keeps normal local workflows on one current schema without a separate maintenance command.
 
 CI never performs an implicit tracked alignment. If committed project state is behind the installed CLI, the command fails and asks you to run `intelligence init --apply` locally, review the diff and commit it.
 
@@ -173,16 +173,16 @@ intelligence sync mytool
 
 `adapter disable` keeps generated output for explicit cleanup. `adapter remove` removes only a disabled project adapter source and also keeps generated output. See [Writing an Adapter](packages/sync/references/adapters.md) for the implementation contract.
 
-## Moving an archived v1 project to v2
+## Moving from legacy Intelligence Sync to Intelligence
 
-The archived v1 product remains at [`ainova-systems/intelligence-sync`](https://github.com/ainova-systems/intelligence-sync). Existing v1 projects keep using their vendored engine until conversion.
+The legacy Intelligence Sync product remains archived at [`ainova-systems/intelligence-sync`](https://github.com/ainova-systems/intelligence-sync). Its projects keep using their vendored engine until conversion.
 
 ```bash
 intelligence init --preview
 intelligence init --apply
 ```
 
-Conversion requires the final v1 schema (`0.10.0`). An older project must first bring itself to that schema with its archived engine. `init --preview` writes nothing; application stages and verifies the v2 project before removing old state.
+Conversion requires the final legacy Intelligence Sync schema (`0.10.0`). An older project must first bring itself to that schema with its archived engine. `init --preview` writes nothing; application stages and verifies the Intelligence project before removing old state.
 
 The conversion preserves project-owned sources and replaces the old shared
 module content with the sync package bundled in the installed CLI. When it
@@ -197,11 +197,11 @@ engine/              # executable sync engine bundled with npm
 packages/sync/       # engine-owned content installed into projects
 npm/                 # Node launcher and distribution build
 docs/                # product and CLI documentation
-examples/            # v2 manifests used by smoke tests
+examples/            # Intelligence manifests used by smoke tests
 decisions/           # architecture decisions for this repository
 ```
 
-The executable engine and its content package are separate trees on purpose. See [decision 0001](decisions/0001-split-v1-archive-from-v2-product.md).
+The executable engine and its content package are separate trees on purpose. See [decision 0001](decisions/0001-separate-legacy-intelligence-sync-from-intelligence.md).
 
 ## Development
 

@@ -123,14 +123,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: The v1 vendored layout must not come back
+      - name: The legacy Intelligence Sync layout must not come back
         shell: bash
         run: |
           set -euo pipefail
           fail=0
           # The engine is an executable at engine/, its content is a package at
           # packages/sync/. A reappearing intelligence/sync/ would mean the two
-          # roles merged again — the exact coupling the v2 split removed.
+          # roles merged again — the exact coupling the product split removed.
           for p in intelligence/sync intelligence/scripts engine/scripts packages/sync/scripts; do
             if [ -e "$p" ]; then echo "LAYOUT: $p must not exist"; fail=1; fi
           done
@@ -193,7 +193,7 @@ jobs:
         example: [go-api, dotnet-api-with-react-frontend, platform-with-submodules]
     steps:
       - uses: actions/checkout@v6
-      - name: Stage and align the example as a v2 project
+      - name: Stage and align the example as an Intelligence project
         shell: bash
         run: |
           set -euo pipefail

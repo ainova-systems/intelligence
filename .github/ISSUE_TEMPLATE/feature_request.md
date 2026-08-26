@@ -23,7 +23,7 @@ labels: enhancement
 
 ## Scope check
 
-- [ ] Keeps project lifecycle behind universal `init` and automatic v2 preflight
+- [ ] Keeps project lifecycle behind universal `init` and automatic project preflight
 - [ ] Keeps package operations under `intelligence package`
 - [ ] Keeps adapter operations under `intelligence adapter`
 - [ ] Keeps tool-specific behavior in adapters and common behavior in the CLI/engine

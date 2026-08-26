@@ -1,4 +1,4 @@
-# Example: a project on the CLI setup (v2). The manifest lives at the REPO
+# Example: an Intelligence project. The manifest lives at the REPO
 # ROOT as intelligence.yaml; packages are installed into the gitignored
 # .intelligence/ store and restored automatically by `intelligence sync`; the resolved
 # state is committed in intelligence.lock next to this file.

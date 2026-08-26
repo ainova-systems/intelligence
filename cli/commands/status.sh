@@ -11,7 +11,7 @@ esac
 
 detect_project
 case "$IP_MODE" in
-    v2)
+    cli)
         echo "Project:  $IP_ROOT (CLI setup)"
         echo "Manifest: intelligence.yaml (schema_version $(read_schema_version "$IP_ROOT/intelligence.yaml"))"
         if [ -f "$IP_ROOT/intelligence.lock" ]; then
@@ -30,7 +30,7 @@ case "$IP_MODE" in
         echo "Engine:   $(bundled_engine_version) (bundled with the CLI)"
         ;;
     legacy)
-        echo "Project:  $IP_ROOT (vendored v1 setup)"
+        echo "Project:  $IP_ROOT (legacy Intelligence Sync)"
         echo "Umbrella: $IP_UMBRELLA"
         echo "Engine:   $(tr -d ' \t\r\n' < "$IP_MODULE_DIR/scripts/VERSION") (vendored at $IP_MODULE_DIR)"
         echo "Stamp:    $(top_scalar "$IP_UMBRELLA/config.yaml" "sync_version")"

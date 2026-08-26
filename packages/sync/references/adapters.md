@@ -162,7 +162,7 @@ Built-ins currently emit Claude and Cursor Markdown, Copilot `.agent.md`, Codex 
 
 Content shipped in `@ainova-systems/sync` cannot assume the project's content-directory name or package-store location. It uses these tokens:
 
-| Token | v2 expansion |
+| Token | Expansion |
 |---|---|
 | `<content-dir>` | Project content directory, usually `intelligence` |
 | `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
@@ -221,7 +221,7 @@ sync_to_mytool() {
 
 ## Testing
 
-Use a disposable Git repository with a v2 manifest and representative always-on/scoped rules, agents, skills and bundled skill resources.
+Use a disposable Git repository with an Intelligence manifest and representative always-on/scoped rules, agents, skills and bundled skill resources.
 
 ```bash
 intelligence sync mytool

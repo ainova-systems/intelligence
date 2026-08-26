@@ -1,8 +1,8 @@
 # The Intelligence CLI
 
-The CLI owns a project's complete Intelligence lifecycle: initialization, v1 conversion, v2 alignment, package resolution, lock restoration, adapter management, consistency checks and rendering.
+The CLI owns a project's complete Intelligence lifecycle: initialization, legacy Intelligence Sync conversion, project alignment, package resolution, lock restoration, adapter management, consistency checks and rendering.
 
-v2 is currently a release candidate:
+Intelligence is currently a release candidate:
 
 ```bash
 npm install -g @ainova-systems/intelligence@next
@@ -20,7 +20,7 @@ project/
 └── .claude/ .cursor/ …    # generated native output
 ```
 
-No engine code lives in a v2 project. Engine scripts ship with the npm CLI. Engine-owned content—the authoring rule, agents, meta-skills and package docs—is `@ainova-systems/sync`, exact-pinned to the bundled engine version and seeded from the npm bundle when versions match.
+No engine code lives in an Intelligence project. Engine scripts ship with the npm CLI. Engine-owned content—the authoring rule, agents, meta-skills and package docs—is `@ainova-systems/sync`, exact-pinned to the bundled engine version and seeded from the npm bundle when versions match.
 
 ## Public commands
 
@@ -37,15 +37,15 @@ Behavior depends on discovered project state:
 
 | State | Default behavior | `--preview` | `--apply` |
 |---|---|---|---|
-| No setup | Create a v2 manifest, lock/store, requested adapters and first sync | Show what would be created | Create without an interactive decision |
-| Archived v1 | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
-| Existing v2 | Align schema/content if needed, restore missing store, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
+| No setup | Create an Intelligence manifest, lock/store, requested adapters and first sync | Show what would be created | Create without an interactive decision |
+| Legacy Intelligence Sync | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
+| Existing Intelligence project | Align schema/content if needed, restore missing store, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
 
 `--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
 
 New-project adapter selection always enables `agents`. Other adapters come only from repository markers or explicit `--targets`; the CLI never invents a tool directory.
 
-Archived-project conversion requires final v1 schema `0.10.0`. Older v1 projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
+Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
 After a new setup or conversion completes, the CLI suggests
 `/intelligence-learn-from-repository`. This bundled meta-skill analyzes the
@@ -59,7 +59,7 @@ only owner of initialization and migration mechanics.
 intelligence sync [adapter]
 ```
 
-For v2, sync performs lifecycle preflight before rendering:
+For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 1. Align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
@@ -67,7 +67,7 @@ For v2, sync performs lifecycle preflight before rendering:
    adapter must be enabled explicitly; naming it does not bypass target state.
 
 A missing store with no lock fails and directs the user to restore the committed
-lock. In an archived v1 project, sync delegates to that project's own vendored
+lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
 engine until conversion.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
@@ -144,7 +144,7 @@ Names match `[a-z][a-z0-9_]*`. Enabling an adapter that relies on `AGENTS.md` al
 intelligence status [--check]
 ```
 
-Without a flag, report detected project mode, manifest/schema, lockfile, engine-content package and bundled engine. For archived v1, report the vendored location and point to `intelligence init`.
+Without a flag, report detected project mode, manifest/schema, lockfile, engine-content package and bundled engine. For legacy Intelligence Sync, report the vendored location and point to `intelligence init`.
 
 `--check` performs deep consistency validation and exits nonzero for
 manifest/lock divergence, missing package content, stale schema/content or
@@ -162,7 +162,7 @@ Registries are an ordered project trust list. `add` verifies that the Git reposi
 
 ## Automatic project alignment
 
-A newer globally installed CLI cannot update projects at npm installation time because it does not know which repositories the user owns. Instead, every project-aware mutating command passes through one shared preflight. On the first such call in a v2 project, the CLI applies any required idempotent schema/content alignment before continuing.
+A newer globally installed CLI cannot update projects at npm installation time because it does not know which repositories the user owns. Instead, every project-aware mutating command passes through one shared preflight. On the first such call in an Intelligence project, the CLI applies any required idempotent schema/content alignment before continuing.
 
 This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
 
@@ -215,7 +215,7 @@ the committed lock whether the package came from a registry, `github:`,
 
 ## Engine invocation contract
 
-The v2 engine runs outside the project. The CLI supplies:
+The Intelligence engine runs outside the project. The CLI supplies:
 
 | Variable | Value |
 |---|---|

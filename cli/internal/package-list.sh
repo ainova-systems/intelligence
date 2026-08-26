@@ -3,7 +3,7 @@
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
-require_v2
+require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 

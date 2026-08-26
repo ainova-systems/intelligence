@@ -35,9 +35,9 @@ sync engine        local sources → native tool output
 adapters           agents · claude · cursor · copilot · codex · pi · opencode
 ```
 
-`init` is universal: create a new v2 project, convert an eligible archived v1 project, or align an existing v2 project. Project-aware mutations automatically align v2 before continuing; CI refuses an implicit tracked alignment and requires a reviewed `intelligence init --apply` diff. `sync` restores a missing locked package store before rendering.
+`init` is universal: create a new Intelligence project, convert an eligible legacy Intelligence Sync project, or align an existing Intelligence project. Project-aware mutations align the project automatically before continuing; CI refuses an implicit tracked alignment and requires a reviewed `intelligence init --apply` diff. `sync` restores a missing locked package store before rendering.
 
-The v2 line includes the root manifest/lock/store layout, semver-over-Git-tag packages, trust-list-only name resolution, explicit Git sources, bundle-seeded `@ainova-systems/sync`, transactional archived-project conversion, npm distribution and fail-closed security checks. It remains prerelease until the owner approves a stable release.
+Intelligence includes the root manifest/lock/store layout, semver-over-Git-tag packages, trust-list-only name resolution, explicit Git sources, bundle-seeded `@ainova-systems/sync`, transactional legacy-project conversion, npm distribution and fail-closed security checks. It remains prerelease until the owner approves a stable release.
 
 ## Ordered changes
 

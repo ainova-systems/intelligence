@@ -18,7 +18,7 @@ Use these tests:
 
 Do not bury conventions in agents, workflows in rules or reusable expertise in skills. Each misplaced concern either fails to load when needed or consumes context when it is not needed.
 
-## v2 project structure
+## Intelligence project structure
 
 ```text
 project/
@@ -104,7 +104,7 @@ Commit `intelligence.lock`. It records requested versions, source URLs and paths
 
 Package-owned artifacts cannot assume the project's content-directory name or their installed package path. They use tokens expanded by every adapter through `finalize_output_file`:
 
-| Token | v2 expansion |
+| Token | Expansion |
 |---|---|
 | `<content-dir>` | Repo-relative content directory, usually `intelligence` |
 | `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
@@ -345,14 +345,14 @@ The permanent applied-schema key is the top-level scalar `schema_version` in `in
 
 The public lifecycle is deliberately compact:
 
-- `intelligence init [--preview|--apply]` is universal: it creates a new setup, aligns an existing v2 project, or plans/applies conversion of an eligible v1 project.
-- `intelligence sync [adapter]` first aligns an existing v2 project with the installed CLI, restores a missing store strictly from `intelligence.lock`, then renders. In CI it refuses an upgrade that would change tracked files and points to a local `intelligence init --apply` plus review/commit.
+- `intelligence init [--preview|--apply]` is universal: it creates a new setup, aligns an existing Intelligence project, or plans/applies conversion of an eligible legacy Intelligence Sync project.
+- `intelligence sync [adapter]` first aligns an existing Intelligence project with the installed CLI, restores a missing store strictly from `intelligence.lock`, then renders. In CI it refuses an alignment that would change tracked files and points to a local `intelligence init --apply` plus review/commit.
 - `intelligence update [@scope/name] [--preview|--apply]` is the only update surface. It prints the CLI/project/package plan; default mode prompts, `--preview` never writes, and `--apply` does not prompt. It never moves `ref:` pins.
 - `intelligence package add|remove|list|search` owns package inventory.
 - `intelligence adapter list|create|enable|disable|remove` owns adapter inventory and target state.
 - `intelligence status [--check]` reports state; `--check` runs deep consistency checks.
 
-Implement v2 schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is newer; normal v2 entry points close a behind-project gap through lifecycle preflight.
+Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is newer; normal project entry points close a behind-project gap through lifecycle preflight.
 
 Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The update skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
 

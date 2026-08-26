@@ -70,11 +70,11 @@ DEFAULT_REGISTRY_URL="$(top_scalar "$_EPKG" "default_registry")"
 SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
 
 # --- Project detection ---------------------------------------------------
-# Sets: IP_MODE (v2|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.
+# Sets: IP_MODE (cli|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.
 # These ARE this lib's public API — every command reads them after calling
 # detect_project, which per-file shellcheck cannot see.
 # shellcheck disable=SC2034
-# v2 wins: the nearest ancestor holding intelligence.yaml. Legacy is a git
+# The CLI product wins: the nearest ancestor holding intelligence.yaml. Legacy is a git
 # repo holding an umbrella (a dir with config.yaml) whose module is identified
 # by role — scripts/sync.sh + scripts/VERSION — never by name.
 detect_project() {
@@ -82,7 +82,7 @@ detect_project() {
     local dir="$PWD"
     while :; do
         if [ -f "$dir/intelligence.yaml" ]; then
-            IP_MODE="v2"
+            IP_MODE="cli"
             IP_ROOT="$(cd "$dir" && pwd)"
             return 0
         fi
@@ -109,11 +109,11 @@ detect_project() {
     return 0
 }
 
-require_v2() {
+require_cli_project() {
     detect_project
     case "$IP_MODE" in
-        v2) ;;
-        legacy) die "this is a vendored (v1) setup — run 'intelligence init' to migrate it, or keep using its own flow" ;;
+        cli) ;;
+        legacy) die "this is a legacy Intelligence Sync project — run 'intelligence init' to convert it, or keep using its own flow" ;;
         *) die "no intelligence project found here — run 'intelligence init'" ;;
     esac
 }
@@ -176,7 +176,7 @@ export_engine_env() {
 
 # --- Project lifecycle preflight -----------------------------------------
 # Public commands are intentionally few. They share this state gate so a CLI
-# installed at a newer engine version brings the current v2 project forward
+# installed at a newer engine version brings the current Intelligence project forward
 # before a mutating operation. The npm install itself cannot do that: it runs
 # outside any project and does not know which repositories the user owns.
 
@@ -268,7 +268,7 @@ ensure_project_current() {
         die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
     fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
-    bash "$CLI_DIR/internal/upgrade-v2.sh" --no-sync
+    bash "$CLI_DIR/internal/align-project.sh" --no-sync
 }
 
 project_store_missing() {
