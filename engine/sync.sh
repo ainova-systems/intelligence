@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/contract.sh"
+source "$SCRIPT_DIR/lib/adapter-contract.sh"
 
 if [ -z "${CONFIG_FILE:-}" ] || [ ! -f "${CONFIG_FILE:-}" ]; then
     is_status config-missing "CONFIG_FILE=${CONFIG_FILE:-}"
@@ -85,31 +86,6 @@ echo "  Config: $CONFIG_FILE"
 echo "  Root:   $REPO_ROOT"
 echo ""
 
-# Invariant: AGENTS.md is the canonical carrier of always-on rules for
-# Cursor / Copilot / Codex / Pi / opencode (their adapters skip always-on
-# rules to avoid duplication, since each tool reads AGENTS.md natively for
-# baseline project context). If those targets are enabled, `agents` must
-# also be enabled — otherwise always-on rules go nowhere for those tools.
-# Skip the check when the user requested a single target via $TARGET_FILTER:
-# they may be syncing only one IDE intentionally.
-if [ -z "$TARGET_FILTER" ]; then
-    agents_enabled=$(is_target_enabled "$CONFIG_FILE" "agents")
-    if [ "$agents_enabled" != "1" ]; then
-        # AGENTS.md-dependent adapters: any tool whose adapter skips always-on
-        # rule emission (because the tool reads AGENTS.md natively) must be
-        # listed here. Add new adapters to this list when they ship.
-        for tool in cursor copilot codex pi opencode; do
-            if [ "$(is_target_enabled "$CONFIG_FILE" "$tool")" = "1" ]; then
-                echo "ERROR: targets.$tool is enabled but targets.agents is not." >&2
-                echo "  $tool relies on AGENTS.md to deliver always-on rules — without it," >&2
-                echo "  always-on rules would be invisible to $tool." >&2
-                echo "  Either enable targets.agents in $CONFIG_FILE, or disable targets.$tool." >&2
-                exit 1
-            fi
-        done
-    fi
-fi
-
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
 for section in rules agents skills; do
@@ -167,6 +143,88 @@ for adapters_dir in "$SCRIPT_DIR/adapters" "$INTELLIGENCE_DIR/adapters"; do
     done
 done
 
+# Validate every selected adapter contract before any output is touched, then
+# snapshot the declared write-set. If a later adapter fails, the EXIT handler
+# restores all earlier adapter outputs so sync is atomic from the repository's
+# point of view.
+SYNC_TX_DIR="$(mktemp -d)"
+SYNC_TX_INDEX="$SYNC_TX_DIR/paths.tsv"
+SYNC_TX_SEEN="$SYNC_TX_DIR/seen"
+mkdir -p "$SYNC_TX_DIR/data"
+: > "$SYNC_TX_INDEX"
+: > "$SYNC_TX_SEEN"
+SYNC_TX_ACTIVE=0
+
+snapshot_sync_path() {
+    local adapter_name="$1" rel="$2" src index present=0
+    grep -Fqx -- "$rel" "$SYNC_TX_SEEN" && return 0
+    printf '%s\n' "$rel" >> "$SYNC_TX_SEEN"
+    validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter_name" "$REPO_ROOT/$rel"
+    index="$(wc -l < "$SYNC_TX_INDEX" | tr -d ' ')"
+    src="$REPO_ROOT/$rel"
+    if [ -e "$src" ] || [ -L "$src" ]; then
+        cp -a "$src" "$SYNC_TX_DIR/data/$index"
+        present=1
+    fi
+    printf '%s\t%s\t%s\n' "$index" "$rel" "$present" >> "$SYNC_TX_INDEX"
+}
+
+restore_sync_snapshot() {
+    local index rel present dst
+    while IFS=$'\t' read -r index rel present; do
+        [ -n "$rel" ] || continue
+        dst="$REPO_ROOT/$rel"
+        rm -rf "$dst"
+        if [ "$present" = "1" ]; then
+            mkdir -p "$(dirname "$dst")"
+            cp -a "$SYNC_TX_DIR/data/$index" "$dst"
+        fi
+    done < "$SYNC_TX_INDEX"
+}
+
+finish_sync_transaction() {
+    local rc=$?
+    trap - EXIT INT TERM
+    set +e
+    if [ "${SYNC_TX_ACTIVE:-0}" = "1" ] && [ "$rc" -ne 0 ]; then
+        restore_sync_snapshot
+        echo "ERROR: sync failed; all adapter-owned paths were restored to their pre-sync state." >&2
+    fi
+    rm -rf "$SYNC_TX_DIR"
+    exit "$rc"
+}
+trap finish_sync_transaction EXIT
+trap 'exit 130' INT TERM
+
+preflight_idx=0
+while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
+    adapter="${ADAPTERS[$preflight_idx]}"
+    adapter_file="${ADAPTER_FILES[$preflight_idx]}"
+    preflight_idx=$((preflight_idx + 1))
+    if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
+        continue
+    fi
+    [ "$(is_target_enabled "$CONFIG_FILE" "$adapter")" = "1" ] || continue
+    output="$(get_target_output "$CONFIG_FILE" "$adapter")"
+    [ -n "$output" ] || output=".$adapter"
+    validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$REPO_ROOT/$output"
+    records="$(adapter_contract_records "$adapter" "$adapter_file" "$output")" || exit 1
+    while IFS=$'\t' read -r kind value; do
+        [ "$kind" = "requires" ] || continue
+        if [ "$(is_target_enabled "$CONFIG_FILE" "$value")" != "1" ]; then
+            echo "ERROR: targets.$adapter requires enabled target '$value'." >&2
+            echo "       Enable it first: intelligence adapter enable $value" >&2
+            exit 1
+        fi
+    done <<< "$records"
+    while IFS=$'\t' read -r kind value; do
+        case "$kind" in
+            owned|managed) snapshot_sync_path "$adapter" "$value" ;;
+        esac
+    done <<< "$records"
+done
+SYNC_TX_ACTIVE=1
+
 synced=0
 adapter_count=${#ADAPTERS[@]}
 adapter_idx=0
@@ -223,6 +281,10 @@ if [ $synced -eq 0 ]; then
     fi
     exit 1
 fi
+
+SYNC_TX_ACTIVE=0
+rm -rf "$SYNC_TX_DIR"
+trap - EXIT INT TERM
 
 # Warn about unsynced directories
 warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"

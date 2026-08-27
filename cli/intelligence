@@ -46,7 +46,8 @@ Usage: intelligence <command> [args]
   init [--preview|--apply]  Initialize, convert, restore or align this project
     --targets a,b --dir name --bare --no-sync   New-project options
     --force               Accept a dirty worktree during legacy project conversion
-  sync [adapter]          Restore locked content if needed, then render enabled adapters
+  sync [adapter] [--compact]  Restore locked content, then render enabled adapters
+    --compact            On success show only final status; on failure show diagnostics
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking
@@ -76,6 +77,20 @@ case "$cmd" in
 esac
 cmd_file="$CLI_DIR/commands/$cmd.sh"
 if [ ! -f "$cmd_file" ]; then
+    case "$cmd" in
+        adapters)
+            echo "ERROR: unknown command 'adapters'. Use the singular command: intelligence adapter list" >&2
+            exit 1
+            ;;
+        packages)
+            echo "ERROR: unknown command 'packages'. Use the singular command: intelligence package list" >&2
+            exit 1
+            ;;
+        registries)
+            echo "ERROR: unknown command 'registries'. Use the singular command: intelligence registry list" >&2
+            exit 1
+            ;;
+    esac
     echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2
     exit 1
 fi

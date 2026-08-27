@@ -13,6 +13,16 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+adapter_contract_codex() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_requires agents
+    adapter_contract_managed ".agents/skills"
+    adapter_contract_owned "$output/agents"
+    adapter_contract_ignore ".agents/skills/"
+    adapter_contract_ignore "$output/agents/"
+}
+
 # Sync skills to Codex format (.agents/skills/{name}/SKILL.md)
 sync_codex_skills() {
     local repo_root="$1"
@@ -111,7 +121,7 @@ sync_to_codex() {
     sync_codex_skills "$repo_root" "$config_file" "$skills_dir"
 
     # Agents -> .codex/agents/
-    local agents_dir="$repo_root/.codex/agents"
+    local agents_dir="$output_dir/agents"
     rm -rf "$agents_dir"
     mkdir -p "$agents_dir"
     sync_codex_agents "$repo_root" "$config_file" "$agents_dir"

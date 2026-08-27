@@ -45,30 +45,56 @@ Behavior depends on discovered project state:
 
 New-project adapter selection always enables `agents`. Other adapters come only from repository markers or explicit `--targets`; the CLI never invents a tool directory.
 
+Before first sync, init preserves existing root and tool-specific AI
+instructions and preserved tool settings under the content directory's
+gitignored `_backup/`. Its `manifest.tsv` declares `initial-onboarding` and
+lists exact source paths. Settings also remain in place. Repository learning
+migrates the preserved instructions and removes the backup only after separate
+approval and verified output.
+
 Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
 After a new setup or conversion completes, the CLI suggests
-`/intelligence-learn-from-repository`. This bundled meta-skill analyzes the
-repository and proposes project-owned rules, agents and skills; it does not
-change files until the user approves individual proposals. The CLI remains the
-only owner of initialization and legacy conversion mechanics.
+`/intelligence-learn-from-context`. It repairs or verifies mechanical setup,
+recognizes initial backup state, then delegates repository analysis and
+migration to `intelligence-learn-from-repository`; no semantic proposal is
+applied before individual approval. The CLI remains the only owner of
+initialization and legacy conversion mechanics.
+
+After the first successful sync, setup also prints exact commands for reviewing
+and toggling adapters, recommends `intelligence package add
+@ainova-systems/core`, and explains the generated-output version-control
+choices. The CLI ignores restorable adapter-owned output while keeping
+`AGENTS.md`, `.github/`, and shared tool settings trackable. The exact patterns
+are listed in the [artifact conventions](../packages/sync/references/conventions.md#generated-output-and-version-control).
 
 ### `intelligence sync`
 
 ```text
-intelligence sync [adapter]
+intelligence sync [adapter] [--compact]
 ```
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 1. Align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
-3. Run every enabled adapter, or only the named enabled adapter. A filtered
-   adapter must be enabled explicitly; naming it does not bypass target state.
+3. Validate each selected adapter's versioned ownership contract and required
+   targets before writing.
+4. Snapshot every declared owned or shared managed path, then run every enabled
+   adapter or only the named enabled adapter.
+5. Commit the generated state only when all selected adapters succeed. Any
+   failure restores every path to its exact pre-sync state.
+
+A filtered adapter must be enabled explicitly; naming it does not bypass target
+state. Project adapters without a valid contract are refused before sync.
 
 A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
 engine until conversion.
+
+`--compact` prints only the final machine-readable status and completion line
+when sync succeeds. If lifecycle preflight, restore or rendering fails, it
+prints the complete captured diagnostics and preserves the original exit code.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before alignment or restoration. Restore the

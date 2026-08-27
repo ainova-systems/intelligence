@@ -60,6 +60,23 @@ target_exists() {
     ' "$file"
 }
 
+# target_names <manifest> — declared target keys in manifest order.
+target_names() {
+    local file="$1"
+    [ -f "$file" ] || return 0
+    awk '
+        { sub(/\r$/, "") }
+        /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        in_targets && /^[A-Za-z]/ { in_targets = 0 }
+        in_targets && /^  [a-z][a-z0-9_]*:/ {
+            line = $0
+            sub(/^  /, "", line)
+            sub(/:.*/, "", line)
+            print line
+        }
+    ' "$file"
+}
+
 # target_set_enabled <manifest> <name> <true|false> <default-output>
 # Transactionally update only `enabled`, preserving every other target field
 # and comment. A missing target is added in the compact form used by init.

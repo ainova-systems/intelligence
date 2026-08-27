@@ -84,7 +84,9 @@ jobs:
           PROJ="$RUNNER_TEMP/shim-proj"
           mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
           intelligence init --targets claude
-          grep -q '^IS_STATUS=ok' < <(intelligence sync) || { echo "sync via shim failed"; exit 1; }
+          compact="$(intelligence sync --compact)"
+          grep -q '^IS_STATUS=ok' <<< "$compact" || { echo "compact sync via shim failed"; exit 1; }
+          test "$(awk 'NF{n++} END{print n+0}' <<< "$compact")" -eq 2
           grep -q 'intelligence sync' AGENTS.md
           test -f intelligence.yaml && test -d .claude
           # The bundle seeds the engine-content package offline — and seeds
@@ -112,9 +114,10 @@ jobs:
           git init -q .
           & "$prefix\intelligence.cmd" init --targets claude
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          $sync = & "$prefix\intelligence.cmd" sync
+          $sync = @(& "$prefix\intelligence.cmd" sync --compact)
           if ($LASTEXITCODE -ne 0) { exit 1 }
           if (-not ($sync -match 'IS_STATUS=ok')) { Write-Error "sync via shim did not report ok" }
+          if ($sync.Count -ne 2) { Write-Error "compact sync via shim did not emit exactly two lines" }
           if (-not (Select-String -Path AGENTS.md -Pattern 'intelligence sync' -Quiet)) { Write-Error "AGENTS.md lacks the CLI sync command" }
           if (-not (Test-Path "intelligence.yaml") -or -not (Test-Path ".claude")) { Write-Error "outputs missing" }
 
@@ -176,7 +179,8 @@ jobs:
               echo "SOURCE LEAK: $cf stores package url/path outside intelligence.lock"; fail=1
             fi
           done
-          for example in go-api dotnet-api-with-react-frontend platform-with-submodules; do
+          for example in go-api dotnet-api-with-react-frontend platform-with-submodules \
+            go-api-with-opencode go-api-with-pi-and-codex; do
             test -f "examples/$example/intelligence.lock" \
               || { echo "LOCK MISSING: runnable example $example"; fail=1; }
           done
@@ -190,7 +194,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        example: [go-api, dotnet-api-with-react-frontend, platform-with-submodules]
+        example:
+          - go-api
+          - dotnet-api-with-react-frontend
+          - platform-with-submodules
+          - go-api-with-opencode
+          - go-api-with-pi-and-codex
     steps:
       - uses: actions/checkout@v6
       - name: Stage and align the example as an Intelligence project
@@ -321,7 +330,7 @@ jobs:
           fi
           echo "OK: package rule/agent present, no unexpanded tokens"
 
-      - name: Verify Claude / Cursor / Copilot / Codex outputs (if enabled)
+      - name: Verify adapter outputs (if enabled)
         shell: bash
         run: |
           set -euo pipefail
@@ -360,6 +369,17 @@ jobs:
             test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
             grep -q "REFERENCE_MARKER" \
               "$PROJ/.agents/skills/backend-add-endpoint/references/endpoint-template.md"
+          fi
+          if [ -d "$PROJ/.pi" ]; then
+            test -f "$PROJ/.pi/intelligence-sync/rules/backend.md"
+            test -f "$PROJ/.pi/extensions/intelligence-sync-rules.ts"
+            test -f "$PROJ/.pi/prompts/intelligence-agent-backend-developer.md"
+            test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
+          fi
+          if [ -d "$PROJ/.opencode" ]; then
+            test -f "$PROJ/.opencode/agents/backend-developer.md"
+            test -f "$PROJ/.opencode/commands/backend-add-endpoint.md"
+            test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
           fi
 
       - name: A second sync changes nothing

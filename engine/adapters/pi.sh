@@ -15,6 +15,20 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+adapter_contract_pi() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_requires agents
+    adapter_contract_managed ".agents/skills"
+    adapter_contract_owned "$output/intelligence-sync"
+    adapter_contract_managed "$output/extensions"
+    adapter_contract_managed "$output/prompts"
+    adapter_contract_ignore ".agents/skills/"
+    adapter_contract_ignore "$output/intelligence-sync/"
+    adapter_contract_ignore "$output/extensions/intelligence-sync-rules.ts"
+    adapter_contract_ignore "$output/prompts/intelligence-agent-*.md"
+}
+
 pi_ts_escape() {
     local s="$1"
     s="${s//\\/\\\\}"

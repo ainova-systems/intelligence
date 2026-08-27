@@ -8,6 +8,21 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+adapter_contract_claude() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_owned "$output/rules"
+    adapter_contract_owned "$output/agents"
+    adapter_contract_owned "$output/skills"
+    adapter_contract_legacy "CLAUDE.md"
+    adapter_contract_legacy "$output/commands"
+    adapter_contract_preserve "$output/settings.json"
+    adapter_contract_preserve "$output/settings.local.json"
+    adapter_contract_ignore "CLAUDE.md"
+    adapter_contract_ignore "$output/*"
+    adapter_contract_include "$output/settings.json"
+}
+
 # Sync rules to Claude format (copy as-is, normalize LF)
 sync_claude_rules() {
     local repo_root="$1"

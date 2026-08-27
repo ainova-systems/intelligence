@@ -47,7 +47,7 @@ The per-artifact checks are procedure, so they live in the meta-skills rather th
 | `intelligence-extract-skill` | turn an observed workflow into a skill |
 | `intelligence-review-skills` | audit the layer for duplication, drift, size, hardcoded paths |
 | `intelligence-learn-from-repository` | propose the initial project-owned layer from repository evidence |
-| `intelligence-learn-from-context` | fold a session's lessons back into the layer |
+| `intelligence-learn-from-context` | recover/finalize onboarding, or later fold a session lesson into the layer |
 | `intelligence-sync` | project the source to every tool channel |
 | `intelligence-update` | interpret and apply the CLI's unified update plan |
 | `intelligence-install-adapter` / `intelligence-uninstall-adapter` | research and manage a tool adapter |

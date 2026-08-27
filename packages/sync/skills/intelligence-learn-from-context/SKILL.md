@@ -1,10 +1,49 @@
 ---
 name: intelligence-learn-from-context
-description: "Capture session lessons and apply to intelligence/ after approval"
-argument-hint: <optional-lesson-statement>
+description: "Finalize or recover initial Intelligence onboarding, or capture one approved session lesson later"
 ---
 
 # Learn from Context
+
+This is the safe continuation point after `intelligence init`. It first makes
+the deterministic setup healthy. When it finds an initial-state backup, it
+then follows `intelligence-learn-from-repository` to migrate repository
+knowledge. Without onboarding state, it captures a lesson from the current
+session as described below.
+
+## Recover or finish initial setup first
+
+1. Locate `<manifest>`, `<content-dir>`, and `<module>`. If the slash command
+   was not installed because the first sync failed, these instructions may
+   have been opened directly from
+   `.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-context/SKILL.md`.
+2. Check for `<content-dir>/_backup/manifest.tsv`. A record
+   `state<TAB>initial-onboarding` means the backup is the byte-preserved state
+   from before Intelligence first wrote adapter output. Read every `path`
+   record and treat those files as migration input, never generated output.
+   A `.intelligence/backup/config.yaml` file instead identifies a converted
+   legacy Intelligence Sync project; treat it as repository onboarding too and
+   use the converted project sources plus that config as migration evidence.
+3. Run `intelligence status --check`. If the project is missing, inconsistent,
+   or its first sync failed, run `intelligence init --preview`, show the exact
+   repair plan, and request approval. After approval run
+   `intelligence init --apply`. Do not reproduce manifest, package, adapter,
+   backup, or `.gitignore` mechanics manually.
+4. Run `intelligence sync`. Sync is transactional: a failure restores every
+   adapter-owned path. Resolve the reported cause and retry; do not continue
+   semantic migration until `IS_STATUS=ok` and `intelligence status --check`
+   is clean.
+5. If initial-onboarding or converted-legacy evidence exists, load
+   `<module>/skills/intelligence-learn-from-repository/SKILL.md` and follow its
+   complete analyze, approval, apply, sync, and verification procedure. A
+   custom original `AGENTS.md` remains authoritative migration evidence at
+   `<content-dir>/_backup/AGENTS.md`; the generated root `AGENTS.md` points to
+   it until onboarding is finalized. Keep the backup until its removal is
+   separately approved. Stop after repository onboarding; do not also invent a
+   session lesson.
+
+Continue below only when no initial-onboarding backup exists and setup is
+healthy.
 
 Use after a session where a meaningful preference, working pattern, or recurring friction emerged that should persist into future sessions. Runs in two phases — analyze (read-only) then apply (after user approval).
 
@@ -60,10 +99,12 @@ Present the proposal list to the user. User accepts or rejects per item. Only ac
    - `UPDATE` existing artifact → edit the file directly, applying the proposed change
    - `ARCHIVE` → move to `<content-dir>/_archive/` and update cross-references that point at it
 
-8. **Run `/intelligence-sync`** once all accepted items are applied.
+8. Run `intelligence sync` once all accepted items are applied. Require
+   `IS_STATUS=ok`, then run `intelligence status --check`.
 
 ## Related skills
 
+- `intelligence-learn-from-repository` — initial onboarding, legacy instruction migration and generated-output policy
 - `intelligence-extract-skill` — when the lesson is a multi-step workflow to be made reusable
 - `intelligence-review-skills` — broader audit across existing intelligence/ artifacts
 - `intelligence-add-rule`, `intelligence-add-skill`, `intelligence-add-agent` — each authors one artifact; Phase B delegates to them

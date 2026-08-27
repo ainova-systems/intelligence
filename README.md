@@ -25,10 +25,11 @@ intelligence init --targets claude,codex
 
 Use `intelligence init --preview` to inspect without writing and `intelligence init --apply` for explicit non-interactive application.
 
-After the first successful sync, ask your agent to run
-`/intelligence-learn-from-repository`. It inspects the repository and proposes
-the smallest useful set of project-owned rules, agents and skills. Analysis is
-read-only; each proposed change requires approval.
+After init, ask your agent to run `/intelligence-learn-from-context`. It first
+recovers or verifies the deterministic setup, recognizes an initial-state
+backup, then follows repository learning to propose the smallest useful set of
+project-owned rules, agents and skills. Analysis is read-only; each proposed
+change requires approval.
 
 Create project-owned content only when you need it:
 
@@ -68,7 +69,7 @@ your-project/
 ├── intelligence/           # project-owned rules, agents, skills, adapters
 ├── .intelligence/          # CLI-managed package store; gitignored
 ├── AGENTS.md               # generated canonical context; normally committed
-└── .claude/ .cursor/ ...   # generated tool-native output
+└── .claude/ .cursor/ ...   # generated output; adapter-owned paths ignored
 ```
 
 The project owns `intelligence/`. The CLI owns `.intelligence/`. The engine ships with the CLI and is never copied into an Intelligence project.
@@ -80,7 +81,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | Command | Purpose |
 |---|---|
 | `init [--preview\|--apply]` | Create, convert, restore or align the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
-| `sync [adapter]` | Restore missing locked content, align the project when safe, then render all enabled adapters or one named enabled adapter. |
+| `sync [adapter] [--compact]` | Restore missing locked content, align the project when safe, then render enabled adapters. Compact mode shows only final status on success and diagnostics on failure. |
 | `update [@scope/name] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |
 | `adapter list\|create\|enable\|disable\|remove` | Discover built-ins and manage project-owned adapters and their manifest state. |
@@ -88,6 +89,32 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | `registry list\|add\|remove` | Manage the ordered trust list used for package-name resolution. |
 
 Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
+
+Fresh initialization runs its first sync in compact mode, then leaves the
+important next steps visible: run `/intelligence-learn-from-context`, review
+adapters, add the recommended starter package with `intelligence package add
+@ainova-systems/core`, and choose a generated-output version-control policy.
+Commit the manifest, lock, project-owned content, `AGENTS.md`, and shared
+`.github/` output. The CLI adds adapter-owned generated paths to `.gitignore`
+while keeping shared tool settings trackable; see the [artifact
+conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
+
+`AGENTS.md` is the shared root instruction entry point. The learn skill proposes
+migrating still-valid guidance out of legacy `.cursorrules` or
+instruction-bearing `CLAUDE.md` files into project-owned rules, then removing
+those legacy files after approval and verification.
+
+Before the first sync can replace adapter-owned directories, `init` preserves
+existing AI instructions under the gitignored `intelligence/_backup/` (or the
+configured content directory). `manifest.tsv` identifies it as the exact
+`initial-onboarding` state and lists every preserved path. A custom original
+`AGENTS.md` is copied there and the generated root file points agents to it
+until onboarding is finalized. The learn skill migrates that copy and keeps it
+until cleanup is approved separately.
+
+Sync validates every adapter's declarative ownership contract before writing.
+All adapter-owned and shared managed paths are snapshotted for the run; if any
+later adapter fails, every earlier output is restored to its pre-sync state.
 
 ### Automatic project alignment
 
@@ -186,7 +213,7 @@ Conversion requires the final legacy Intelligence Sync schema (`0.10.0`). An old
 
 The conversion preserves project-owned sources and replaces the old shared
 module content with the sync package bundled in the installed CLI. When it
-finishes, run `/intelligence-learn-from-repository` to review what was preserved
+finishes, run `/intelligence-learn-from-context` to review what was preserved
 and propose any missing repository-specific context.
 
 ## Repository layout

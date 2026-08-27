@@ -82,5 +82,5 @@ The user accepts items individually; bulk-accept for low-impact tweaks is fine. 
 
 ## Related skills
 
-- `intelligence-learn-from-context` — single-lesson capture; this skill's apply phase delegates to its Phase B
+- `intelligence-learn-from-context` — setup recovery or single-lesson capture; this skill delegates accepted edits to its Phase B
 - `intelligence-extract-skill` — when the audit surfaces a workflow that should become a skill

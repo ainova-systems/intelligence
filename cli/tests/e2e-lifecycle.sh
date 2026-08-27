@@ -26,25 +26,85 @@ stage_vendored() {
 
 echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
-mkdir -p "$FRESH/.cursor" "$FRESH/.github/instructions"
+mkdir -p "$FRESH/.github/instructions"
+touch "$FRESH/.cursorrules"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
+printf '# Existing project instructions\nCUSTOM_AGENTS_MARKER\n' > "$FRESH/AGENTS.md"
 git -C "$FRESH" init --quiet
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init > "$OUT/fresh-init.txt")
 chk test -f "$FRESH/intelligence.yaml"
-chk grep -q '/intelligence-learn-from-repository' "$OUT/fresh-init.txt"
+chk grep -q '/intelligence-learn-from-context' "$OUT/fresh-init.txt"
+chk grep -q 'recognizes the initial backup' "$OUT/fresh-init.txt"
+chk grep -q 'Existing AI instructions preserved' "$OUT/fresh-init.txt"
+chk grep -q 'intelligence package add @ainova-systems/core' "$OUT/fresh-init.txt"
+chk grep -q 'intelligence adapter list' "$OUT/fresh-init.txt"
+chk grep -q 'intelligence adapter enable codex' "$OUT/fresh-init.txt"
+chk grep -q 'intelligence adapter disable cursor' "$OUT/fresh-init.txt"
+chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fresh-init.txt"
+chk grep -q '^IS_STATUS=ok ' "$OUT/fresh-init.txt"
+chk grep -q '^=== Done:' "$OUT/fresh-init.txt"
+chknot grep -q '^=== intelligence-sync ===' "$OUT/fresh-init.txt"
+if ! awk '/^=== Done:/{done=NR} /^=== Intelligence ready ===/{ready=NR} END{exit !(done && ready > done)}' "$OUT/fresh-init.txt"; then
+    echo "FAIL: first-run guidance was not printed after compact sync"
+    fail=1
+fi
 chk grep -q 'cursor: { enabled: true' "$FRESH/intelligence.yaml"
 chk grep -q 'copilot: { enabled: true, output: ".github"' "$FRESH/intelligence.yaml"
 chk grep -q '^\.intelligence/' "$FRESH/.gitignore"
+chk grep -Fqx 'CLAUDE.md' "$FRESH/.gitignore"
+chk grep -Fqx '.claude/*' "$FRESH/.gitignore"
+chk grep -Fqx '!.claude/settings.json' "$FRESH/.gitignore"
+chk grep -Fqx '.cursor/*' "$FRESH/.gitignore"
+chk grep -Fqx '!.cursor/settings.json' "$FRESH/.gitignore"
+chk grep -Fqx 'intelligence/_backup/' "$FRESH/.gitignore"
+chknot grep -Fqx '.github/' "$FRESH/.gitignore"
+chk cmp -s "$FRESH/CLAUDE.md" "$FRESH/intelligence/_backup/CLAUDE.md"
+chk cmp -s "$FRESH/.cursorrules" "$FRESH/intelligence/_backup/.cursorrules"
+chk test -d "$FRESH/intelligence/_backup/.github/instructions"
+chk grep -Fqx $'state\tinitial-onboarding' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'path\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -q 'CUSTOM_AGENTS_MARKER' "$FRESH/intelligence/_backup/AGENTS.md"
+chk grep -q 'intelligence/_backup/AGENTS.md' "$FRESH/AGENTS.md"
+chk grep -q '/intelligence-learn-from-context' "$FRESH/AGENTS.md"
+touch "$FRESH/.claude/settings.json" "$FRESH/.claude/settings.local.json" "$FRESH/.cursor/settings.json"
+chknot git -C "$FRESH" check-ignore -q .claude/settings.json
+chk git -C "$FRESH" check-ignore -q .claude/settings.local.json
+chknot git -C "$FRESH" check-ignore -q .cursor/settings.json
+chknot git -C "$FRESH" check-ignore -q AGENTS.md
 chk test -f "$FRESH/AGENTS.md"
 chk test -d "$FRESH/.claude"
 chk grep -q 'intelligence/\*\*' "$FRESH/.cursor/rules/intelligence-authoring.mdc"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/conventions.md' \
     "$FRESH/.claude/skills/intelligence-review-skills/SKILL.md"
 chk test -f "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
+chk grep -q '_backup/manifest.tsv' "$FRESH/.claude/skills/intelligence-learn-from-context/SKILL.md"
+chk grep -q '.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md' \
+    "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
+chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
     "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github"
 (cd "$FRESH" && bash "$CLI" status --check)
+
+compact_output="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)"
+compact_lines="$(printf '%s\n' "$compact_output" | awk 'NF{n++} END{print n+0}')"
+[ "$compact_lines" -eq 2 ] || { echo "FAIL: compact sync emitted $compact_lines nonblank lines"; fail=1; }
+printf '%s\n' "$compact_output" | grep -q '^IS_STATUS=ok ' || { echo "FAIL: compact sync lacks final status"; fail=1; }
+printf '%s\n' "$compact_output" | grep -q '^=== Done:' || { echo "FAIL: compact sync lacks completion line"; fail=1; }
+
+compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync agents --compact)"
+printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: compact filtered sync failed"; fail=1; }
+compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact agents)"
+printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: compact-first filtered sync failed"; fail=1; }
+
+PREVIEW_AI="$OUT/preview-ai"
+mkdir -p "$PREVIEW_AI"
+printf 'legacy cursor rule\n' > "$PREVIEW_AI/.cursorrules"
+git -C "$PREVIEW_AI" init --quiet
+(cd "$PREVIEW_AI" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --preview > "$OUT/preview-ai.txt")
+chk grep -q 'would preserve 1 existing AI instruction path(s)' "$OUT/preview-ai.txt"
+chknot test -e "$PREVIEW_AI/intelligence.yaml"
+chknot test -e "$PREVIEW_AI/intelligence/_backup"
 
 echo "== legacy project with a mirrored pack =="
 PACK="$OUT/shared-intel"
@@ -109,7 +169,7 @@ chk grep -q 'packages/@' "$OUT/dry.txt"
 echo "== init --apply (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply > "$OUT/migrate.txt")
 chk test -f "$LEG/intelligence.yaml"
-chk grep -q '/intelligence-learn-from-repository' "$OUT/migrate.txt"
+chk grep -q '/intelligence-learn-from-context' "$OUT/migrate.txt"
 chk test -f "$LEG/intelligence.lock"
 chknot test -f "$LEG/intelligence/config.yaml"
 chknot test -d "$LEG/intelligence/sync"
@@ -133,6 +193,10 @@ echo "== deep status after migrate =="
 
 echo "== idempotent init =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init | tail -2)
+for pattern in '.intelligence/' 'CLAUDE.md' '.claude/*' '!.claude/settings.json'; do
+    count="$(grep -Fxc -- "$pattern" "$LEG/.gitignore" || true)"
+    [ "$count" -eq 1 ] || { echo "FAIL: gitignore pattern duplicated or missing: $pattern"; fail=1; }
+done
 
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A

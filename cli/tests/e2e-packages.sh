@@ -47,6 +47,12 @@ targets:
   claude: { enabled: true, output: ".claude" }
 EOF
 printf '# Ctx\n\nproject context\n' > "$PROJ/intelligence/rules/context.md"
+cat > "$PROJ/.gitignore" <<'EOF'
+.intelligence/
+CLAUDE.md
+.claude/*
+!.claude/settings.json
+EOF
 git -C "$PROJ" init --quiet
 
 echo "== package add =="
@@ -72,7 +78,7 @@ echo "== fresh clone + sync restores the locked store =="
 CLONE="$OUT/clone"
 mkdir -p "$CLONE"
 cp -r "$PROJ/intelligence" "$CLONE/intelligence"
-cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$CLONE/"
+cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$PROJ/.gitignore" "$CLONE/"
 git -C "$CLONE" init --quiet
 (cd "$CLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)
 chk test -d "$CLONE/.intelligence/packages/@acme/shared/rules"
