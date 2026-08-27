@@ -11,6 +11,7 @@
 # IS_ENGINE_DIR come exported from the dispatcher.
 source "$IS_ENGINE_DIR/lib/common.sh"
 source "$IS_ENGINE_DIR/lib/contract.sh"
+source "$IS_ENGINE_DIR/lib/adapter-contract.sh"
 
 die() {
     echo "ERROR: $*" >&2
@@ -50,6 +51,9 @@ source "$CLI_DIR/lib/manifest.sh"
 source "$CLI_DIR/lib/semver.sh"
 source "$CLI_DIR/lib/registry.sh"
 source "$CLI_DIR/lib/lockfile.sh"
+source "$CLI_DIR/lib/adapter-lifecycle.sh"
+source "$CLI_DIR/lib/gitignore.sh"
+source "$CLI_DIR/lib/onboarding.sh"
 
 # The engine-content package: OPTIONAL but auto-selected at init. Package by
 # UX (manifest entry, lockfile row, list/search/remove), bundle by mechanics —

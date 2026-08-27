@@ -135,6 +135,12 @@ targets:
   claude: { enabled: true, output: ".claude" }
 EOF
 printf '# Ctx\n\nproject context\n' > "$PROJ/intelligence/rules/context.md"
+cat > "$PROJ/.gitignore" <<'EOF'
+.intelligence/
+CLAUDE.md
+.claude/*
+!.claude/settings.json
+EOF
 git -C "$PROJ" init --quiet
 
 echo "== 1. garbage spec =="
@@ -204,7 +210,7 @@ printf '# Mover rule\n\nMOVER_MARKER_V2\n' > "$MOVE/rules/mover-rule.md"
 git -C "$MOVE" -c user.email=t@t -c user.name=t commit --quiet -am moved
 git -C "$MOVE" tag -f v1.0.0 >/dev/null
 rm -rf "$PROJ/.intelligence/packages"
-xfail "refusing under --frozen" "$PROJ" sync
+xfail "refusing under --frozen" "$PROJ" sync --compact
 sha_frozen="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
 [ "$sha_before" = "$sha_frozen" ] || { echo "FAIL: --frozen modified the lock sha"; fail=1; }
 # The refused content must NOT be committed to the store: a second --frozen
@@ -231,7 +237,7 @@ echo "== 7. status --check and sync restore on a fresh clone =="
 CLONE="$OUT/clone"
 mkdir -p "$CLONE"
 cp -r "$PROJ/intelligence" "$CLONE/intelligence"
-cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$CLONE/"
+cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$PROJ/.gitignore" "$CLONE/"
 git -C "$CLONE" init --quiet
 xfail "not installed" "$CLONE" status --check
 xok "" "$CLONE" sync
@@ -359,9 +365,36 @@ xfail "invalid target name" "$EMPTY" init --targets ../escape
 xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
 chknot test -f "$EMPTY/intelligence.yaml"
 
+# A failed first sync leaves a complete recoverable project state, restores the
+# original AGENTS.md, and points directly at the context-learning recovery skill.
+PFAIL="$OUT/init-failure"
+mkdir -p "$PFAIL/intelligence/adapters"
+printf '# Original agents\nINITIAL_AGENTS_SURVIVES\n' > "$PFAIL/AGENTS.md"
+cat > "$PFAIL/intelligence/adapters/broken.sh" <<'EOF'
+adapter_contract_broken() {
+    adapter_contract_version 1
+    adapter_contract_owned "${1%/}/state"
+    adapter_contract_ignore "${1%/}/state/"
+}
+sync_to_broken() {
+    mkdir -p "$3/state"
+    printf 'partial\n' > "$3/state/partial.txt"
+    return 29
+}
+EOF
+git -C "$PFAIL" init --quiet
+xfail "Intelligence setup needs recovery" "$PFAIL" init --targets agents,broken
+printf '%s\n' "$OUTPUT" | grep -q 'intelligence-learn-from-context/SKILL.md' \
+    || { echo "FAIL: failed init did not expose the recovery skill path"; fail=1; }
+chk grep -q 'INITIAL_AGENTS_SURVIVES' "$PFAIL/AGENTS.md"
+chk grep -Fqx $'state\tinitial-onboarding' "$PFAIL/intelligence/_backup/manifest.tsv"
+chknot test -e "$PFAIL/.broken/state"
+chk test -f "$PFAIL/intelligence.yaml"
+
 echo "== 11. status in all three modes =="
 xok "Intelligence project" "$PROJ" status
 xok "vendored" "$LEG1" status
+xfail "--compact is unavailable for a legacy Intelligence Sync project" "$LEG1" sync --compact
 xok "No intelligence project" "$EMPTY" status
 
 echo "== 12b. registry remove =="
@@ -575,6 +608,8 @@ printf '%s\n' "$OUTPUT" | grep -qF "unknown command" || { echo "FAIL: dispatcher
 echo "== 15. unified adapter commands =="
 # Missing project, invalid shell/path names, missing adapters and targets all
 # fail before a write.
+xfail "Use the singular command: intelligence adapter list" "$PROJ" adapters list
+xfail "adapter action comes first - run: intelligence adapter enable codex" "$PROJ" adapter codex enable
 xfail "no intelligence project" "$EMPTY" adapter create myide
 xfail "no intelligence project" "$EMPTY" adapter enable claude
 xfail "usage: intelligence adapter remove" "$PROJ" adapter remove
@@ -590,17 +625,62 @@ chknot grep -q '<name>' "$PROJ/intelligence/adapters/myide.sh"
 chknot grep -q 'dirname.*BASH_SOURCE' "$PROJ/intelligence/adapters/myide.sh"
 xfail "already exists" "$PROJ" adapter create myide
 
+cp "$PROJ/intelligence/adapters/myide.sh" "$OUT/myide-template.sh"
+cat > "$PROJ/intelligence/adapters/myide.sh" <<'EOF'
+adapter_contract_myide() {
+    adapter_contract_version 1
+    adapter_contract_owned "${1%/}/*"
+}
+sync_to_myide() { :; }
+EOF
+xfail "invalid ownership contract" "$PROJ" adapter enable myide
+chknot grep -q '^  myide:' "$PROJ/intelligence.yaml"
+cp "$OUT/myide-template.sh" "$PROJ/intelligence/adapters/myide.sh"
+
 xok "enabled: myide" "$PROJ" adapter enable myide
 chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
+chk grep -Fqx '.myide/rules/' "$PROJ/.gitignore"
+grep -Fvx '.myide/rules/' "$PROJ/.gitignore" > "$PROJ/.gitignore.tmp"
+mv "$PROJ/.gitignore.tmp" "$PROJ/.gitignore"
+xok "IS_STATUS=ok" "$PROJ" init
+chk grep -Fqx '.myide/rules/' "$PROJ/.gitignore"
 xok "disabled: myide" "$PROJ" adapter disable myide
 chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
 xfail "Adapter 'myide' is disabled" "$PROJ" sync myide
+xfail "Enable it first: intelligence adapter enable myide" "$PROJ" sync --compact myide
+xfail "unknown option '--loud'" "$PROJ" sync --loud
+xfail "usage: intelligence sync" "$PROJ" sync agents claude --compact
+
+# A failure in a later adapter rolls every earlier output back, and adapter
+# enable also restores its manifest/Git-policy mutation.
+cp "$PROJ/AGENTS.md" "$OUT/agents-before-failed-sync.md"
+mkdir -p "$PROJ/intelligence/rules"
+printf '# Rollback probe\n\nROLLBACK_RULE_MUST_NOT_REACH_OUTPUT\n' > "$PROJ/intelligence/rules/rollback-probe.md"
+cat > "$PROJ/intelligence/adapters/myide.sh" <<'EOF'
+adapter_contract_myide() {
+    adapter_contract_version 1
+    adapter_contract_owned "${1%/}/state"
+    adapter_contract_ignore "${1%/}/state/"
+}
+sync_to_myide() {
+    mkdir -p "$3/state"
+    printf 'partial\n' > "$3/state/partial.txt"
+    return 23
+}
+EOF
+xfail "all adapter-owned paths were restored" "$PROJ" adapter enable myide
+chk cmp -s "$OUT/agents-before-failed-sync.md" "$PROJ/AGENTS.md"
+chknot test -e "$PROJ/.myide/state"
+chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
+chknot grep -Fqx '.myide/state/' "$PROJ/.gitignore"
 
 # Existing output is preserved byte-for-byte when a target is toggled.
 xok "disabled: claude" "$PROJ" adapter disable claude
 chk grep -q 'claude: { enabled: false, output: ".claude" }' "$PROJ/intelligence.yaml"
 xok "enabled: claude" "$PROJ" adapter enable claude
 chk grep -q 'claude: { enabled: true, output: ".claude" }' "$PROJ/intelligence.yaml"
+chk grep -Fqx '.claude/*' "$PROJ/.gitignore"
+chk grep -Fqx '!.claude/settings.json' "$PROJ/.gitignore"
 
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.
@@ -609,6 +689,8 @@ xok "disabled: agents" "$PROJ" adapter disable agents
 xfail "requires target 'agents'" "$PROJ" adapter enable cursor
 xok "enabled: agents" "$PROJ" adapter enable agents
 xok "enabled: cursor" "$PROJ" adapter enable cursor
+chk grep -Fqx '.cursor/*' "$PROJ/.gitignore"
+chk grep -Fqx '!.cursor/settings.json' "$PROJ/.gitignore"
 xfail "required by enabled target 'cursor'" "$PROJ" adapter disable agents
 xok "disabled: cursor" "$PROJ" adapter disable cursor
 xok "disabled: agents" "$PROJ" adapter disable agents
@@ -624,6 +706,8 @@ run_in "$PROJ" help
 [ "$RC" -eq 0 ] || { echo "FAIL: help failed"; fail=1; }
 printf '%s\n' "$OUTPUT" | grep -qF -- "--targets a,b --dir name --bare --no-sync" \
     || { echo "FAIL: init options missing from help"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -qF -- "sync [adapter] [--compact]" \
+    || { echo "FAIL: compact sync missing from help"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

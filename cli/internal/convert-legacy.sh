@@ -348,16 +348,10 @@ rollback_on_exit() {
 # plain set -e/EXIT failure rather than only an explicit sync refusal.
 trap rollback_on_exit EXIT
 trap 'rollback; exit 130' INT TERM
-if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
-    {
-        [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
-        echo "# intelligence CLI package store (restored automatically by 'intelligence sync')"
-        echo ".intelligence/"
-    } >> "$root/.gitignore"
-fi
 mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
+ensure_manifest_gitignore "$root" "$root/intelligence.yaml"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
@@ -397,4 +391,4 @@ rmdir "$umbrella" 2>/dev/null || true
 echo ""
 echo "converted. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
 echo "From now on: intelligence sync | package | update | status."
-echo "Next: ask your agent to run /intelligence-learn-from-repository to review the converted project context."
+echo "Next: ask your agent to run /intelligence-learn-from-context to verify setup and review the converted project context."

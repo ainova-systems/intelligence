@@ -7,8 +7,9 @@
 # occurrence with your adapter name before sourcing.
 #
 # Required:
-#   1. Implement sync_to_<name>() and its three content transforms
-#   2. Enable it after implementation: intelligence adapter enable <name>
+#   1. Keep adapter_contract_<name>() accurate for every path this file writes
+#   2. Implement sync_to_<name>() and its three content transforms
+#   3. Enable it after implementation: intelligence adapter enable <name>
 #      This adds the target to intelligence.yaml when it is absent:
 #      targets:
 #        <name>: { enabled: true, output: ".<name>" }
@@ -34,6 +35,22 @@
 # Project adapters are sourced by engine/sync.sh after the shared library is
 # loaded. Keep this template position-independent: after scaffolding it lives
 # under the project's content directory, not beside engine/lib/.
+
+# Ownership contract. Paths are repository-relative and derive from the
+# configured target output passed as $1. `owned` paths are exclusively managed;
+# `managed` paths share a directory with another adapter or hand-authored files.
+# Add `legacy` inputs to the initial backup, `preserve` for settings that must
+# never be replaced, and explicit ignore/include records for Git policy.
+adapter_contract_<name>() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_owned "$output/rules"
+    adapter_contract_owned "$output/agents"
+    adapter_contract_owned "$output/skills"
+    adapter_contract_ignore "$output/rules/"
+    adapter_contract_ignore "$output/agents/"
+    adapter_contract_ignore "$output/skills/"
+}
 
 # Sync rules for <agent-name>
 # Typical transformations:

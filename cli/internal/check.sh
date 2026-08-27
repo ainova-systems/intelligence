@@ -86,6 +86,46 @@ while IFS= read -r name; do
     fi
 done < <(qmap_keys "$manifest" "packages")
 
+# Adapter contracts are the shared source of truth for dependencies, rollback,
+# onboarding backup and Git policy. Validate every declared target, including
+# disabled ones, so a later enable cannot reveal a stale custom adapter.
+content_dir="$(manifest_intelligence_dir "$manifest")"
+while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    output="$(get_target_output "$manifest" "$target")"
+    [ -n "$output" ] || output="$(default_target_output "$target")"
+    adapter_file="$(adapter_file_for "$IP_ROOT" "$content_dir" "$target" 2>/dev/null || true)"
+    if [ -z "$adapter_file" ]; then
+        warn "adapter '$target' is declared but its implementation is missing"
+        continue
+    fi
+    records="$(adapter_contract_records "$target" "$adapter_file" "$output" 2>/dev/null || true)"
+    if ! printf '%s\n' "$records" | grep -Fqx $'version\t1'; then
+        warn "adapter '$target' has an invalid ownership contract"
+        continue
+    fi
+    while IFS=$'\t' read -r kind value; do
+        if [ "$kind" = "requires" ] \
+            && [ "$(is_target_enabled "$manifest" "$target")" = "1" ] \
+            && [ "$(is_target_enabled "$manifest" "$value")" != "1" ]; then
+            warn "enabled adapter '$target' requires enabled adapter '$value'"
+        fi
+        if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
+            case "$kind" in
+                ignore)
+                    grep -Fqx -- "$value" "$IP_ROOT/.gitignore" 2>/dev/null \
+                        || warn "adapter '$target' Git policy is missing '$value'"
+                    ;;
+                include)
+                    grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null \
+                        || warn "adapter '$target' Git policy is missing '!$value'"
+                    ;;
+            esac
+        fi
+    done <<< "$records"
+    ok "adapter $target contract v1"
+done < <(target_names "$manifest")
+
 # Lock orphans.
 if [ -f "$lock" ]; then
     while IFS= read -r name; do

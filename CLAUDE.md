@@ -46,7 +46,7 @@ The public lifecycle surface is intentionally small:
 
 ```text
 intelligence init [--preview|--apply]        initialize, convert legacy Intelligence Sync, restore or align
-intelligence sync [adapter]                 restore the locked store if missing, then render enabled targets
+intelligence sync [adapter] [--compact]     restore the locked store, then render enabled targets
 intelligence update [@scope/name] [--preview|--apply]  plan, confirm or apply project/package updates
 intelligence package <add|remove|list|search>   manage packages
 intelligence adapter <list|create|enable|disable|remove>  manage adapters and target state
@@ -146,15 +146,18 @@ The `agents` target is therefore required whenever an enabled target relies on `
 
 ### Adapter contract
 
-An adapter is one file defining:
+An adapter is one file defining both sides of the versioned interface:
 
 ```bash
+adapter_contract_<name>(configured_output)
 sync_to_<name>(repo_root, config_file, output_dir)
 ```
 
 Built-ins live in `engine/adapters/`. Project adapters live in `<content-dir>/adapters/`, survive upgrades, and override a built-in of the same name with a visible note.
 
-Every emitted text file must pass through `finalize_output_file`; skill directories must be copied with `copy_skill_bundle`, and adapters sharing `.agents/skills/` must use `sync_open_skill_dirs`. Never delete an entire tool root when the adapter owns only subpaths. `validate_output_path` is the mandatory engine-side guard against source, store, root and out-of-repository writes.
+The contract must declare every owned or shared managed write path, required target, onboarding legacy/preserved path, and Git policy. Backup, rollback, enable/disable checks and `status --check` consume that declaration; never duplicate ownership in CLI case statements.
+
+Every emitted text file must pass through `finalize_output_file`; skill directories must be copied with `copy_skill_bundle`, and adapters sharing `.agents/skills/` must use `sync_open_skill_dirs`. Never delete an entire tool root when the adapter owns only subpaths. `validate_output_path` is the mandatory engine-side guard against source, store, root and out-of-repository writes. A full sync is transactional across all selected adapter paths.
 
 See `packages/sync/references/adapters.md` for the adapter contract and `packages/sync/references/conventions.md` for artifact formats.
 

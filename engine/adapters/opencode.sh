@@ -26,6 +26,17 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+adapter_contract_opencode() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_requires agents
+    adapter_contract_managed ".agents/skills"
+    adapter_contract_owned "$output/agents"
+    adapter_contract_managed "$output/commands"
+    adapter_contract_ignore ".agents/skills/"
+    adapter_contract_ignore "$output/agents/"
+}
+
 # Strip frontmatter, return body only.
 # Direct call to the shared `strip_frontmatter` helper in lib/common.sh —
 # duplicating the awk block here would violate the "all parsing in common.sh"

@@ -12,6 +12,47 @@ source "$CLI_DIR/lib/cli-common.sh"
 
 targets_arg="" no_sync=0 content_dir="intelligence" bare=0
 targets_set=0 dir_set=0 bare_set=0 preview=0 apply=0 force=0
+
+print_new_project_onboarding() {
+    local heading="Intelligence ready"
+    [ "$no_sync" -eq 0 ] || heading="Next steps"
+
+    echo ""
+    echo "=== $heading ==="
+    if [ -n "${ONBOARDING_BACKUP_REL:-}" ]; then
+        echo "  Existing AI instructions preserved:"
+        echo "    $ONBOARDING_BACKUP_REL ($ONBOARDING_BACKUP_COUNT path(s))"
+        if [ "$bare" -eq 0 ]; then
+            echo "    The learn skill will migrate them before proposing backup removal."
+        else
+            echo "    Review and migrate them before removing this backup."
+        fi
+    fi
+    if [ "$no_sync" -eq 1 ]; then
+        echo "  Run first:"
+        echo "    intelligence sync"
+    fi
+    if [ "$bare" -eq 0 ]; then
+        echo "  Finalize repository onboarding:"
+        echo "    Ask your agent to run /intelligence-learn-from-context"
+        echo "    It recognizes the initial backup, recovers setup if needed, then proposes repository-specific migration after approval."
+        echo "  Recommended starter package:"
+        echo "    intelligence package add @ainova-systems/core"
+    fi
+    echo "  Review adapters:"
+    echo "    intelligence adapter list"
+    echo "    intelligence adapter enable codex"
+    echo "    intelligence adapter disable cursor"
+    echo "  Version control:"
+    echo "    Generated adapter output is gitignored by CLI-owned path."
+    echo "    Commit intelligence.yaml, intelligence.lock, intelligence/, AGENTS.md, and .github/."
+    echo "    Shared tool settings remain trackable; review the exact ownership policy:"
+    echo "    https://github.com/ainova-systems/intelligence/blob/main/packages/sync/references/conventions.md#generated-output-and-version-control"
+    echo "  Write your own:"
+    echo "    create $content_dir/rules/context.md, then intelligence sync"
+    echo "  Docs: https://github.com/ainova-systems/intelligence#readme"
+}
+
 while [ $# -gt 0 ]; do
     case "$1" in
         --targets) shift; targets_arg="${1:-}"; targets_set=1 ;;
@@ -68,9 +109,25 @@ case "$IP_MODE" in
             ensure_project_current "$IP_ROOT"
         fi
         restore_project_store_if_missing "$IP_ROOT"
+        ensure_manifest_gitignore "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         [ "$no_sync" -eq 1 ] && exit 0
         cd "$IP_ROOT"
-        exec bash "$CLI_DIR/commands/sync.sh"
+        sync_rc=0
+        bash "$CLI_DIR/commands/sync.sh" || sync_rc=$?
+        if [ "$sync_rc" -ne 0 ]; then
+            content_dir="$(manifest_intelligence_dir "$IP_ROOT/intelligence.yaml")"
+            recovery_backup=""
+            if [ -f "$IP_ROOT/$content_dir/_backup/manifest.tsv" ]; then
+                recovery_backup="; initial backup: $content_dir/_backup/manifest.tsv"
+            fi
+            echo "" >&2
+            echo "=== Intelligence setup needs recovery ===" >&2
+            echo "  No partial adapter update was kept; sync restored its pre-run outputs." >&2
+            echo "  Ask your agent to read:" >&2
+            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-context/SKILL.md" >&2
+            echo "  and finalize this Intelligence setup$recovery_backup." >&2
+        fi
+        exit "$sync_rc"
         ;;
     legacy)
         [ "$targets_set" -eq 0 ] || die "--targets applies only when creating a new project"
@@ -117,15 +174,28 @@ if [ -n "$targets_arg" ]; then
     done
 else
     if [ -d "$root/.claude" ] || [ -f "$root/CLAUDE.md" ]; then targets="$targets claude"; fi
-    [ -d "$root/.cursor" ] && targets="$targets cursor"
-    [ -d "$root/.codex" ] && targets="$targets codex"
+    if [ -d "$root/.cursor" ] || [ -f "$root/.cursorrules" ]; then targets="$targets cursor"; fi
+    if [ -d "$root/.codex" ] || [ -d "$root/.agents" ]; then targets="$targets codex"; fi
     [ -d "$root/.pi" ] && targets="$targets pi"
     [ -d "$root/.opencode" ] && targets="$targets opencode"
-    [ -d "$root/.github" ] && [ -d "$root/.github/instructions" ] && targets="$targets copilot"
+    if [ -f "$root/.github/copilot-instructions.md" ] \
+        || [ -d "$root/.github/instructions" ] \
+        || [ -d "$root/.github/agents" ] \
+        || [ -d "$root/.github/skills" ]; then
+        targets="$targets copilot"
+    fi
     if [ "$targets" = "agents" ]; then
         echo "  NOTE: no tool markers found (.claude/, CLAUDE.md, .cursor/, …) — only AGENTS.md is enabled." >&2
         echo "        Name your tools explicitly: intelligence init --targets claude,cursor  (or edit targets: later)" >&2
     fi
+fi
+
+onboarding_count="$(onboarding_source_count "$root" "$content_dir" "$targets")"
+onboarding_has_agents=0
+[ -f "$root/AGENTS.md" ] && onboarding_has_agents=1
+if [ "$preview" -eq 0 ] && [ "$onboarding_count" -gt 0 ] \
+    && [ -e "$root/$content_dir/_backup" ]; then
+    die "onboarding backup already exists at $content_dir/_backup - review or move it before rerunning init"
 fi
 
 if [ "$preview" -eq 1 ]; then
@@ -140,6 +210,9 @@ if [ "$preview" -eq 1 ]; then
         echo "  would enable adapters:$targets and stop before sync"
     else
         echo "  would enable adapters:$targets, then sync"
+    fi
+    if [ "$onboarding_count" -gt 0 ]; then
+        echo "  would preserve $onboarding_count existing AI instruction path(s) in $content_dir/_backup before sync"
     fi
     exit 0
 fi
@@ -175,7 +248,21 @@ manifest="$root/intelligence.yaml"
     echo "# Generated output, one entry per tool. Add or drop tools freely."
     echo "targets:"
     for t in $targets; do
-        echo "  $t: { enabled: true, output: \"$(default_target_output "$t")\" }"
+        if [ "$t" = "agents" ] && [ "$onboarding_has_agents" -eq 1 ]; then
+            echo "  agents:"
+            echo "    enabled: true"
+            echo "    output: \"AGENTS.md\""
+            echo "    header: |"
+            echo "      > Intelligence onboarding is pending. Before repository work, read"
+            echo "      > \`$content_dir/_backup/AGENTS.md\`, which preserves the original project instructions."
+            if [ "$bare" -eq 0 ]; then
+                echo "      > Run /intelligence-learn-from-context to migrate and verify them before removing the backup."
+            else
+                echo "      > Review and migrate that backup before removing it."
+            fi
+        else
+            echo "  $t: { enabled: true, output: \"$(default_target_output "$t")\" }"
+        fi
     done
     echo ""
     echo "# Packages are managed with 'intelligence package add|search|list':"
@@ -202,13 +289,10 @@ manifest="$root/intelligence.yaml"
 } > "$manifest"
 
 # The package store is restorable state, never committed — the npm model.
-if [ ! -f "$root/.gitignore" ] || ! grep -q '^\.intelligence/' "$root/.gitignore"; then
-    {
-        [ -f "$root/.gitignore" ] && [ -n "$(tail -c 1 "$root/.gitignore" 2>/dev/null)" ] && echo ""
-        echo "# intelligence CLI package store (restored automatically by 'intelligence sync')"
-        echo ".intelligence/"
-    } >> "$root/.gitignore"
-fi
+ensure_base_gitignore "$root"
+for target in $targets; do
+    ensure_target_gitignore "$root" "$manifest" "$target"
+done
 
 # The engine's own content (meta-skills, authoring rule, engine agents) is an
 # ordinary package: auto-selected, opted out with --bare, removable later with
@@ -218,16 +302,27 @@ if [ "$bare" -eq 0 ]; then
     sync_pkg_install "$root"
 fi
 
+preserve_onboarding_sources "$root" "$content_dir" "$targets"
+
 echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
-echo "  add packages:  intelligence package add @ainova-systems/core   (browse: intelligence package search)"
-echo "  write your own: create $content_dir/rules/context.md, then intelligence sync"
-if [ "$bare" -eq 0 ]; then
-    echo "  tailor this repository: ask your agent to run /intelligence-learn-from-repository after sync"
-fi
-echo "  docs: https://github.com/ainova-systems/intelligence#readme"
-
 if [ "$no_sync" -eq 0 ]; then
     cd "$root"
-    exec bash "$CLI_DIR/commands/sync.sh"
+    sync_rc=0
+    bash "$CLI_DIR/commands/sync.sh" --compact || sync_rc=$?
+    if [ "$sync_rc" -ne 0 ]; then
+        echo "" >&2
+        echo "=== Intelligence setup needs recovery ===" >&2
+        echo "  No partial adapter update was kept; sync restored its pre-run outputs." >&2
+        if [ "$bare" -eq 0 ]; then
+            echo "  Ask your agent to read:" >&2
+            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-context/SKILL.md" >&2
+            echo "  and finalize the initial Intelligence setup. The snapshot is $content_dir/_backup/manifest.tsv." >&2
+        else
+            echo "  Fix the reported error, then rerun: intelligence init" >&2
+        fi
+        exit "$sync_rc"
+    fi
 fi
+
+print_new_project_onboarding

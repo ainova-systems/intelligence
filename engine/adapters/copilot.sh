@@ -14,6 +14,17 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
+adapter_contract_copilot() {
+    local output="${1%/}"
+    adapter_contract_version 1
+    adapter_contract_requires agents
+    adapter_contract_owned "$output/instructions"
+    adapter_contract_owned "$output/prompts"
+    adapter_contract_owned "$output/agents"
+    adapter_contract_owned "$output/skills"
+    adapter_contract_legacy "$output/copilot-instructions.md"
+}
+
 # Sync rules to Copilot format. Only path-scoped rules are emitted —
 # always-on rules live in AGENTS.md (read by Copilot natively).
 sync_copilot_rules() {

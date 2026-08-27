@@ -25,31 +25,38 @@ if [ "$action" = "enable" ]; then
         die "adapter '$name' not found — create it first: intelligence adapter create $name"
     fi
 
-    # These adapters intentionally omit always-on rules because their tools
-    # read AGENTS.md. Do not create a manifest that full sync must refuse.
-    case "$name" in
-        cursor|copilot|codex|pi|opencode)
-            if [ "$(is_target_enabled "$manifest" "agents")" != "1" ]; then
-                die "target '$name' requires target 'agents' — enable it first"
-            fi
-            ;;
-    esac
-
     output="$(get_target_output "$manifest" "$name")"
     [ -n "$output" ] || output="$(default_target_output "$name")"
+    validate_adapter_contract_for "$IP_ROOT" "$content_dir" "$name" "$output" \
+        || die "adapter '$name' has an invalid ownership contract"
+    while IFS= read -r required; do
+        [ -n "$required" ] || continue
+        if [ "$(is_target_enabled "$manifest" "$required")" != "1" ]; then
+            die "target '$name' requires target '$required' — enable it first"
+        fi
+    done < <(adapter_records_for "$IP_ROOT" "$content_dir" "$name" "$output" \
+        | awk -F '\t' '$1 == "requires" { print $2 }')
     target_set_enabled "$manifest" "$name" true "$output"
+    ensure_target_gitignore "$IP_ROOT" "$manifest" "$name"
     echo "enabled: $name (output: $output)"
     exit 0
 fi
 
 target_exists "$manifest" "$name" || die "target '$name' is not in the manifest"
-if [ "$name" = "agents" ]; then
-    for dependent in cursor copilot codex pi opencode; do
-        if [ "$(is_target_enabled "$manifest" "$dependent")" = "1" ]; then
-            die "target 'agents' is required by enabled target '$dependent' — disable '$dependent' first"
-        fi
-    done
-fi
+while IFS= read -r dependent; do
+    [ -n "$dependent" ] || continue
+    [ "$dependent" = "$name" ] && continue
+    [ "$(is_target_enabled "$manifest" "$dependent")" = "1" ] || continue
+    dependent_output="$(get_target_output "$manifest" "$dependent")"
+    [ -n "$dependent_output" ] || dependent_output="$(default_target_output "$dependent")"
+    dependent_records="$(adapter_records_for "$IP_ROOT" "$content_dir" "$dependent" "$dependent_output")" \
+        || die "adapter '$dependent' has an invalid ownership contract"
+    if awk -F '\t' -v required="$name" \
+        '$1 == "requires" && $2 == required { found=1 } END { exit(found ? 0 : 1) }' \
+        <<< "$dependent_records"; then
+        die "target '$name' is required by enabled target '$dependent' — disable '$dependent' first"
+    fi
+done < <(target_names "$manifest")
 output="$(get_target_output "$manifest" "$name")"
 [ -n "$output" ] || output="$(default_target_output "$name")"
 target_set_enabled "$manifest" "$name" false "$output"

@@ -20,6 +20,8 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
+- Added versioned adapter contracts for owned, shared, legacy, preserved, required, ignored, and tracked paths.
+- Added initial-onboarding backup manifests so recovery skills can distinguish original files from generated output.
 - Added `/intelligence-learn-from-repository` for approval-gated repository onboarding after initialization or legacy conversion.
 - Added the `@ainova-systems/intelligence` npm CLI with seven public lifecycle commands.
 - Added root manifests, committed package locks, and restorable gitignored package stores.
@@ -36,6 +38,14 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Changed
 
+- Made multi-adapter sync transactional; a failure restores every selected adapter path to its exact pre-sync state.
+- Made `/intelligence-learn-from-context` recover or verify setup before routing initial backups through repository learning.
+- Preserved custom root `AGENTS.md` in the initial backup and linked it from generated onboarding context until migration finishes.
+- Moved first-run guidance after a compact sync and restored adapter-owned `.gitignore` setup, exact adapter commands, and the starter-package recommendation.
+- Made repository learning migrate legacy root instructions into project-owned rules instead of preserving parallel entry points.
+- Preserved existing AI instruction paths before first sync and restored format-aware, approval-gated onboarding migration guidance.
+- Restored legacy tool-marker detection for `.cursorrules`, `.agents/`, and Copilot instruction, agent, and skill paths.
+- Added `sync --compact`, which prints final status on success and full diagnostics on failure.
 - Changed npm publication to run only when a matching tagged GitHub Release is published from `main`.
 - Renamed the early CLI manifest schema stamp from `sync_version` to `schema_version`; `intelligence init` aligns RC manifests automatically.
 - Reduced every manifest package entry to requested `version` or `ref`; resolved URL/path, tag/ref, and SHA now live only in `intelligence.lock`.
@@ -51,6 +61,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Security
 
+- Refused adapters with missing, malformed, unsupported, or unsafe ownership contracts before enable or sync.
 - Validated package names, source URLs, refs, paths, and dispatcher command names before filesystem or Git operations.
 - Staged package changes and project conversion before replacing live state; locked restoration refetches and verifies SHAs.
 - Added containment checks, unpredictable temporary paths, YAML escaping, interrupt rollback, and fail-closed source validation.

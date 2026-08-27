@@ -223,6 +223,16 @@ agents_md_append_rules_list() {
 }
 
 # Main entry point for AGENTS.md adapter
+adapter_contract_agents() {
+    local output="$1"
+    if [[ "$output" == */ ]] || [[ "$output" != *.md ]]; then
+        output="${output%/}/AGENTS.md"
+    fi
+    adapter_contract_version 1
+    adapter_contract_owned "$output"
+    adapter_contract_legacy "AGENTS.md"
+}
+
 sync_to_agents() {
     local repo_root="$1"
     local config_file="$2"
@@ -231,10 +241,11 @@ sync_to_agents() {
     echo "=== AGENTS.md ==="
 
     # output_dir points at the target file path (e.g., /repo/AGENTS.md).
-    # If it looks like a directory (trailing slash, existing dir, or no .md
-    # extension), append default filename.
+    # If it looks like a directory lexically (trailing slash or no .md
+    # extension), append the default filename. The ownership contract uses the
+    # same rule, so filesystem state cannot make its write-set ambiguous.
     local output_file="$output_dir"
-    if [ -d "$output_file" ] || [[ "$output_file" == */ ]] || [[ "$output_file" != *.md ]]; then
+    if [[ "$output_file" == */ ]] || [[ "$output_file" != *.md ]]; then
         output_file="${output_file%/}/AGENTS.md"
     fi
 

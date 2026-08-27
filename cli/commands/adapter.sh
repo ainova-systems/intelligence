@@ -137,10 +137,32 @@ case "$action" in
         assert_valid_target_name "$name"
         require_cli_project
         ensure_project_current "$IP_ROOT"
-        bash "$CLI_DIR/internal/target-state.sh" "$action" "$name"
         if [ "$action" = "enable" ]; then
-            exec bash "$CLI_DIR/commands/sync.sh"
+            state_stage="$(mktemp -d -t intelligence-adapter-state-XXXXXX)"
+            cp "$IP_ROOT/intelligence.yaml" "$state_stage/intelligence.yaml"
+            gitignore_existed=0
+            if [ -f "$IP_ROOT/.gitignore" ]; then
+                gitignore_existed=1
+                cp "$IP_ROOT/.gitignore" "$state_stage/gitignore"
+            fi
+            enable_rc=0
+            bash "$CLI_DIR/internal/target-state.sh" "$action" "$name" || enable_rc=$?
+            if [ "$enable_rc" -eq 0 ]; then
+                bash "$CLI_DIR/commands/sync.sh" || enable_rc=$?
+            fi
+            if [ "$enable_rc" -ne 0 ]; then
+                cp "$state_stage/intelligence.yaml" "$IP_ROOT/intelligence.yaml"
+                if [ "$gitignore_existed" -eq 1 ]; then
+                    cp "$state_stage/gitignore" "$IP_ROOT/.gitignore"
+                else
+                    rm -f "$IP_ROOT/.gitignore"
+                fi
+                echo "ERROR: adapter enable failed; manifest and Git policy were restored." >&2
+            fi
+            rm -rf "$state_stage"
+            exit "$enable_rc"
         fi
+        bash "$CLI_DIR/internal/target-state.sh" "$action" "$name"
         ;;
     remove)
         [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
@@ -148,6 +170,14 @@ case "$action" in
         adapter_remove "$@"
         ;;
     *)
+        case "$name" in
+            list)
+                die "adapter action comes first - run: intelligence adapter list"
+                ;;
+            create|enable|disable|remove)
+                die "adapter action comes first - run: intelligence adapter $name $action"
+                ;;
+        esac
         die "usage: intelligence adapter <list|create|enable|disable|remove> [name]"
         ;;
 esac
