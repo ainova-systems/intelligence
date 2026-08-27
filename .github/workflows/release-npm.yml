@@ -91,7 +91,8 @@ jobs:
           "$PREFIX/bin/intelligence" version
           PROJ="$RUNNER_TEMP/verify-proj"
           mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
-          "$PREFIX/bin/intelligence" init | grep -q '^IS_STATUS=ok'
+          init_output="$("$PREFIX/bin/intelligence" init)"
+          grep -q '^IS_STATUS=ok' <<< "$init_output"
 
       - name: Publish
         run: cd npm/dist && npm publish --tag "${{ steps.ver.outputs.tag }}" --provenance --access public
