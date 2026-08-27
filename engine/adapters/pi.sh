@@ -207,13 +207,12 @@ sync_pi_agents() {
 
             access_note=""
             if [ "$access" = "readonly" ]; then
-                access_note=$(cat <<'EOF'
-## Access Mode
+                # Bash 3.2 (the macOS system shell) misparses an apostrophe in
+                # a quoted heredoc nested inside command substitution.
+                access_note="## Access Mode
 
 Default to read-only analysis. Do not change files or run mutating commands unless the user explicitly asks you to override this agent's normal restriction.
-
-EOF
-)
+"
             fi
 
             {
