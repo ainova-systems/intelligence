@@ -138,7 +138,7 @@ case "$action" in
         require_cli_project
         ensure_project_current "$IP_ROOT"
         if [ "$action" = "enable" ]; then
-            state_stage="$(mktemp -d)"
+            state_stage="$(mktemp -d -t intelligence-adapter-state-XXXXXX)"
             cp "$IP_ROOT/intelligence.yaml" "$state_stage/intelligence.yaml"
             gitignore_existed=0
             if [ -f "$IP_ROOT/.gitignore" ]; then

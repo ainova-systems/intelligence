@@ -639,6 +639,11 @@ cp "$OUT/myide-template.sh" "$PROJ/intelligence/adapters/myide.sh"
 
 xok "enabled: myide" "$PROJ" adapter enable myide
 chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
+chk grep -Fqx '.myide/rules/' "$PROJ/.gitignore"
+grep -Fvx '.myide/rules/' "$PROJ/.gitignore" > "$PROJ/.gitignore.tmp"
+mv "$PROJ/.gitignore.tmp" "$PROJ/.gitignore"
+xok "IS_STATUS=ok" "$PROJ" init
+chk grep -Fqx '.myide/rules/' "$PROJ/.gitignore"
 xok "disabled: myide" "$PROJ" adapter disable myide
 chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
 xfail "Adapter 'myide' is disabled" "$PROJ" sync myide

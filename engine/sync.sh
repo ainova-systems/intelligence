@@ -147,7 +147,7 @@ done
 # snapshot the declared write-set. If a later adapter fails, the EXIT handler
 # restores all earlier adapter outputs so sync is atomic from the repository's
 # point of view.
-SYNC_TX_DIR="$(mktemp -d)"
+SYNC_TX_DIR="$(mktemp -d -t intelligence-sync-XXXXXX)"
 SYNC_TX_INDEX="$SYNC_TX_DIR/paths.tsv"
 SYNC_TX_SEEN="$SYNC_TX_DIR/seen"
 mkdir -p "$SYNC_TX_DIR/data"

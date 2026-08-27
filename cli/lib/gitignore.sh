@@ -44,9 +44,10 @@ ensure_target_gitignore() {
 ensure_manifest_gitignore() {
     local root="$1" manifest="$2" target
     ensure_base_gitignore "$root"
-    for target in agents claude cursor copilot codex pi opencode; do
+    while IFS= read -r target; do
+        [ -n "$target" ] || continue
         if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
             ensure_target_gitignore "$root" "$manifest" "$target"
         fi
-    done
+    done < <(target_names "$manifest")
 }

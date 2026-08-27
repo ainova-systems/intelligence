@@ -60,7 +60,7 @@ fi
 # Compact mode is intentionally quiet only on success. Buffering the complete
 # combined stream means a failure still returns every diagnostic emitted by
 # lifecycle preflight, locked restore or the engine, together with its real rc.
-compact_output="$(mktemp)"
+compact_output="$(mktemp -t intelligence-sync-XXXXXX)"
 trap 'rm -f "$compact_output"' EXIT
 rc=0
 (run_sync) > "$compact_output" 2>&1 || rc=$?
