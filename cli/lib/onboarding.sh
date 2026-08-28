@@ -32,12 +32,13 @@ onboarding_source_count() {
 
 preserve_onboarding_sources() {
     local root="$1" content_dir="$2" targets="$3"
-    local rel src dest backup_rel backup stage target
+    local rel src dest backup_rel backup stage target legacy_count=0
     backup_rel="$content_dir/_backup"
     backup="$root/$backup_rel"
     ONBOARDING_BACKUP_COUNT="$(onboarding_source_count "$root" "$content_dir" "$targets")"
     ONBOARDING_BACKUP_REL=""
-    export ONBOARDING_BACKUP_COUNT ONBOARDING_BACKUP_REL
+    ONBOARDING_LEGACY_COUNT=0
+    export ONBOARDING_BACKUP_COUNT ONBOARDING_BACKUP_REL ONBOARDING_LEGACY_COUNT
     [ "$ONBOARDING_BACKUP_COUNT" -gt 0 ] || return 0
     [ ! -e "$backup" ] || die "onboarding backup already exists at $backup_rel - review or move it before rerunning init"
 
@@ -68,17 +69,19 @@ preserve_onboarding_sources() {
     while IFS= read -r rel; do
         [ -e "$stage/$rel" ] || [ -L "$stage/$rel" ] || continue
         printf 'legacy\t%s\n' "$rel" >> "$stage/manifest.tsv"
+        legacy_count=$((legacy_count + 1))
     done < <(onboarding_legacy_paths "$root" "$content_dir" "$targets")
 
     # This marker is deliberately outside manifest.tsv: the manifest is the
     # immutable inventory, while the marker is short-lived transaction state.
-    : > "$stage/.quarantine-pending"
+    [ "$legacy_count" -eq 0 ] || : > "$stage/.quarantine-pending"
 
     mv "$stage" "$backup"
     ensure_gitignore_header "$root"
     gitignore_add_line "$root" "$backup_rel/"
     ONBOARDING_BACKUP_REL="$backup_rel"
-    export ONBOARDING_BACKUP_REL
+    ONBOARDING_LEGACY_COUNT="$legacy_count"
+    export ONBOARDING_BACKUP_REL ONBOARDING_LEGACY_COUNT
 }
 
 onboarding_quarantine_is_pending() {

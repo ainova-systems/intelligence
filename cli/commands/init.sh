@@ -18,7 +18,7 @@ onboarding_transaction_exit() {
     local rc=$?
     trap - EXIT
     if [ "$onboarding_tx_active" -eq 1 ]; then
-        restore_onboarding_legacy_sources "$onboarding_tx_root" "$onboarding_tx_content" || true
+        restore_onboarding_legacy_sources "$onboarding_tx_root" "$onboarding_tx_content"
     fi
     exit "$rc"
 }
@@ -57,7 +57,9 @@ print_new_project_onboarding() {
     if [ -n "${ONBOARDING_BACKUP_REL:-}" ]; then
         echo "  Existing AI instructions preserved:"
         echo "    $ONBOARDING_BACKUP_REL ($ONBOARDING_BACKUP_COUNT path(s))"
-        echo "    Legacy root entry points were quarantined before the successful render."
+        if [ "${ONBOARDING_LEGACY_COUNT:-0}" -gt 0 ]; then
+            echo "    Legacy root entry points were quarantined before the successful render."
+        fi
         if [ "$bare" -eq 0 ]; then
             echo "    The learn skill will migrate them before proposing backup removal."
         else

@@ -177,6 +177,20 @@ chknot test -e "$DEFERRED/CLAUDE.md"
 chknot test -e "$DEFERRED/intelligence/_backup/.quarantine-pending"
 chk grep -q 'Deferred legacy instructions' "$DEFERRED/intelligence/_backup/CLAUDE.md"
 
+echo "== settings-only backup does not claim or schedule quarantine =="
+SETTINGS_ONLY="$OUT/settings-only"
+mkdir -p "$SETTINGS_ONLY/.claude"
+printf '{"permissions":{}}\n' > "$SETTINGS_ONLY/.claude/settings.json"
+git -C "$SETTINGS_ONLY" init --quiet
+(cd "$SETTINGS_ONLY" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --targets claude --no-sync > "$OUT/settings-only-init.txt")
+chk test -f "$SETTINGS_ONLY/intelligence/_backup/.claude/settings.json"
+chk test -f "$SETTINGS_ONLY/.claude/settings.json"
+chknot test -e "$SETTINGS_ONLY/intelligence/_backup/.quarantine-pending"
+chknot grep -q 'Legacy root entry points were quarantined' "$OUT/settings-only-init.txt"
+(cd "$SETTINGS_ONLY" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init >/dev/null)
+chk test -f "$SETTINGS_ONLY/.claude/settings.json"
+chknot test -e "$SETTINGS_ONLY/intelligence/_backup/.quarantine-pending"
+
 compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync agents --compact)"
 printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: compact filtered sync failed"; fail=1; }
 compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact agents)"
