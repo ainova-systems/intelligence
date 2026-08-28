@@ -159,8 +159,10 @@ report_tracked_managed_ignores() {
     while IFS= read -r -d '' path; do
         [ -n "$path" ] || continue
         if [[ "$path" == *"'"* ]]; then
-            posix_quoted="${path//\'/\'\\\'\'}"
-            powershell_quoted="${path//\'/\'\'}"
+            # macOS still ships Bash 3.2; use portable sed rather than newer
+            # parameter-replacement behavior for the embedded quote.
+            posix_quoted="$(printf '%s' "$path" | sed "s/'/'\\\\''/g")"
+            powershell_quoted="$(printf '%s' "$path" | sed "s/'/''/g")"
             printf "    POSIX:      git rm --cached -- '%s'\n" "$posix_quoted"
             printf "    PowerShell: git rm --cached -- '%s'\n" "$powershell_quoted"
         else
