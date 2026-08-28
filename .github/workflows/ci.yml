@@ -138,17 +138,17 @@ jobs:
           test -d packages/sync/skills
           test -f AGENTS.md
           legacy_matches="$(mktemp)"
-          rg_rc=0
-          rg -n '<umbrella>|IS_UMBRELLA_REL' \
-            engine packages/sync cli docs README.md AGENTS.md > "$legacy_matches" || rg_rc=$?
-          case "$rg_rc" in
+          search_rc=0
+          git grep -nE '<umbrella>|IS_UMBRELLA_REL' -- \
+            engine packages/sync cli docs README.md AGENTS.md > "$legacy_matches" || search_rc=$?
+          case "$search_rc" in
             0)
               cat "$legacy_matches"
               echo "LEGACY TOKEN: use <content-dir> and IS_CONTENT_REL"
               fail=1
               ;;
             1) ;;
-            *) echo "LEGACY SEARCH FAILED (rg exit $rg_rc)"; fail=1 ;;
+            *) echo "LEGACY SEARCH FAILED (git grep exit $search_rc)"; fail=1 ;;
           esac
           rm -f "$legacy_matches"
           for f in docs/*.md packages/sync/references/*.md; do
