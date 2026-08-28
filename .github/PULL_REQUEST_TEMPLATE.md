@@ -19,11 +19,7 @@
 
 ## Verification
 
-- [ ] `bash cli/tests/unit-semver.sh .`
-- [ ] `bash cli/tests/unit-manifest.sh .`
-- [ ] `bash cli/tests/e2e-packages.sh .`
-- [ ] `bash cli/tests/e2e-lifecycle.sh .`
-- [ ] `bash cli/tests/e2e-negative.sh .`
+- [ ] `bash cli/tests/verify.sh` reports `verify ok` and skipped nothing this change needed
 - [ ] `intelligence status --check` succeeds in the relevant fixture/project
 - [ ] A second `intelligence sync` produces no unexpected diff
 - [ ] Adapter changes were checked against the real tool format and preserve hand-authored sibling files

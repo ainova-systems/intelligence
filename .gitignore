@@ -6,15 +6,15 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Generated (from intelligence/sync/scripts/sync.sh — only relevant if testing locally)
-.claude/
-.cursor/
-.agents/
-.codex/
-
-# Temp dirs from intelligence/sync/scripts/update.sh (mktemp fallback)
+# Scratch dirs (mktemp fallback)
 .tmp/
 
 # npm package assembly (npm/build.sh output)
 npm/dist/
 *.tgz
+# Intelligence generated state and tool output
+.intelligence/
+CLAUDE.md
+.claude/*
+!.claude/settings.json
+intelligence/_backup/

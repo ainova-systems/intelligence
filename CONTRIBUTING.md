@@ -31,28 +31,18 @@ Do not add a top-level command when one of these groups already owns the lifecyc
 
 ## Validation
 
-Run the full CLI baseline from the repository root:
+One gate runner owns the list, so local runs and CI cannot drift:
 
 ```bash
-bash cli/tests/unit-semver.sh .
-bash cli/tests/unit-manifest.sh .
-bash cli/tests/e2e-packages.sh .
-bash cli/tests/e2e-lifecycle.sh .
-bash cli/tests/e2e-negative.sh .
+bash cli/tests/verify.sh        # the gates your diff can affect
+bash cli/tests/verify.sh all    # shellcheck plus every CLI suite
 ```
+
+Without an argument it reads the diff against `main`, runs the applicable gates cheapest first, and prints the ones it skipped. `lint`, `lint-cli`, `lint-engine` and `tests` select a scope explicitly; CI calls those same scopes. Adding a gate means editing `cli/tests/verify.sh`, never the workflow.
+
+The lint gate needs `shellcheck` on `PATH` and refuses to report success without it. The unexpanded adapter template is intentionally excluded from its scope.
 
 The end-to-end tests use local `file://` Git fixtures. Keep new tests hermetic and independent of public registries.
-
-For shell changes, run the same lint scopes as CI:
-
-```bash
-shellcheck --severity=warning cli/intelligence
-find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
-find engine -name '*.sh' -not -path '*/adapters/_template.sh' \
-  -print0 | xargs -0 shellcheck --severity=warning
-```
-
-The unexpanded adapter template is intentionally excluded from shellcheck.
 
 For distribution changes, verify the npm payload:
 
