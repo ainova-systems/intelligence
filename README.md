@@ -104,22 +104,25 @@ Commit the manifest, lock, project-owned content, `AGENTS.md`, and shared
 while keeping shared tool settings trackable. Existing `.vscodeignore`,
 `.npmignore`, and `.dockerignore` files receive exclusions for Intelligence
 development context and adapter output. If Git already tracks a newly ignored
-path, init prints the exact `git rm --cached` command required to untrack it
-without deleting the local file. See the [artifact
+path that remains in the worktree, init prints the exact `git rm --cached`
+command required to untrack it without deleting the local file. See the [artifact
 conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
 
 `AGENTS.md` is the shared root instruction entry point. The learn skill proposes
-migrating still-valid guidance out of legacy `.cursorrules` or
-instruction-bearing `CLAUDE.md` files into project-owned rules, then removing
-those legacy files after approval and verification.
+migrating still-valid guidance from backed-up legacy `.cursorrules` or
+instruction-bearing `CLAUDE.md` files into project-owned rules. It never
+restores the original root monolith; a small new local file is created only for
+separately approved machine-specific guidance.
 
 Before the first sync can replace adapter-owned directories, `init` preserves
 existing AI instructions under the gitignored `intelligence/_backup/` (or the
 configured content directory). `manifest.tsv` identifies it as the exact
-`initial-onboarding` state and lists every preserved path. A custom original
-`AGENTS.md` is copied there and the generated root file points agents to it
-until onboarding is finalized. The learn skill migrates that copy and keeps it
-until cleanup is approved separately.
+`initial-onboarding` state, lists every preserved path, and marks legacy entry
+points. Init quarantines those legacy paths for the first transactional render:
+a failure restores them exactly, while success leaves them inactive. A custom
+original `AGENTS.md` is copied there and the generated root file points agents
+to it until onboarding is finalized. The backup remains until cleanup is
+approved separately.
 
 Sync validates every adapter's declarative ownership contract before writing.
 All adapter-owned and shared managed paths are snapshotted for the run; if any

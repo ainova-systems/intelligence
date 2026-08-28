@@ -19,7 +19,9 @@ mechanics; this skill supplies repository judgement.
 2. Inspect `<content-dir>/_backup/manifest.tsv`. A
    `state<TAB>initial-onboarding` record identifies the byte-preserved state
    from before Intelligence first wrote adapter output. Read every `path`
-   record and treat it as migration input, never generated output. A
+   record and treat it as migration input, never generated output. `legacy`
+   records name old entry points the CLI quarantined for the first successful
+   render; read their backup copies rather than restoring them. A
    `.intelligence/backup/config.yaml` file identifies a converted legacy
    Intelligence Sync project; use the converted sources and that config as
    migration evidence.
@@ -55,12 +57,12 @@ mechanics; this skill supplies repository judgement.
    materially covered by package content, propose `REMOVE` or a smaller
    `UPDATE`; require a content comparison, not merely a matching name.
 
-   Treat committed legacy root instructions such as `.cursorrules` and an
+   Treat backed-up legacy root instructions such as `.cursorrules` and an
    instruction-bearing `CLAUDE.md` as migration sources, not permanent parallel
-   entry points. Propose moving still-valid guidance into project-owned rules
-   and removing the legacy file after generated output is verified. Keep one
-   only for genuinely local, gitignored configuration an adapter cannot
-   represent. `AGENTS.md` remains the shared root instruction entry point.
+   entry points. Move still-valid shared guidance into project-owned rules; do
+   not restore the original monolith. Only when approved machine-local guidance
+   remains, create a small new gitignored `CLAUDE.md` from that subset after
+   migration. `AGENTS.md` remains the shared root instruction entry point.
 
    Review `.gitignore` and every existing `.vscodeignore`, `.npmignore`, and
    `.dockerignore` against the CLI-managed policy. Detect tracked files which
@@ -92,10 +94,12 @@ explains itself well.
    installed package content or generated tool output.
 10. Run `intelligence sync`, then `intelligence status --check`. Inspect the
     relevant generated `AGENTS.md`, Cursor rules, Claude rules, and any
-    packaging/build file list affected by ignore policy. Only then remove each
-    separately approved legacy root instruction file and rerun the consistency
-    check. Completion requires `IS_STATUS=ok`, a clean final check, and no
-    `onboarding is pending` header after accepted migration.
+    packaging/build file list affected by ignore policy. Verify quarantined
+    legacy root entry points remain absent. If the user approved a genuinely
+    machine-local exception, create a concise new gitignored root file from only
+    that content; never copy the backed-up monolith back. Completion requires
+    `IS_STATUS=ok`, a clean final check, and no `onboarding is pending` header
+    after accepted migration.
 11. Report what was created, updated, removed, or deliberately kept. Remind the
     user to commit source, manifest, lock, `AGENTS.md`, and shared `.github/`
     changes. Keep or remove the initial backup only by separate user approval.

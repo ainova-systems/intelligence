@@ -48,9 +48,11 @@ New-project adapter selection always enables `agents`. Other adapters come only 
 Before first sync, init preserves existing root and tool-specific AI
 instructions and preserved tool settings under the content directory's
 gitignored `_backup/`. Its `manifest.tsv` declares `initial-onboarding` and
-lists exact source paths. Settings also remain in place. Repository learning
-migrates the preserved instructions and removes the backup only after separate
-approval and verified output.
+lists exact source paths and legacy entry points. Settings remain in place.
+Legacy entry points are quarantined for the transactional first render; a
+failure restores them exactly, while success leaves them inactive for
+repository learning. The backup is removed only after separate approval and
+verified output.
 
 Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
@@ -71,7 +73,8 @@ are listed in the [artifact conventions](../packages/sync/references/conventions
 When `.vscodeignore`, `.npmignore`, or `.dockerignore` already exists, init
 also adds packaging exclusions for Intelligence development context and
 adapter outputs. It reports exact `git rm --cached` commands when Git already
-tracks a path covered by a generated `.gitignore` rule.
+tracks a covered path that remains in the worktree; quarantined legacy paths
+are reported by Git as normal deletions instead.
 
 ### `intelligence sync`
 

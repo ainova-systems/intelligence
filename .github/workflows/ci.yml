@@ -57,8 +57,16 @@ jobs:
       - name: Build and pack
         shell: bash
         run: |
+          set -euo pipefail
           bash npm/build.sh 0.0.0-ci
-          cd npm/dist && npm pack --silent
+          cd npm/dist
+          TGZ="$(npm pack --silent)"
+          CONTENTS="$(tar -tf "$TGZ")"
+          if grep -q '^package/cli/tests/' <<< "$CONTENTS"; then
+            echo "PUBLISH LEAK: cli/tests must not be present in the npm artifact" >&2
+            exit 1
+          fi
+          grep -q '^package/cli/intelligence$' <<< "$CONTENTS"
       - name: Global install into a spaced prefix, then init + sync through the shim
         if: runner.os != 'Windows'
         shell: bash
@@ -128,9 +136,21 @@ jobs:
           test -f engine/sync.sh
           test -f engine/VERSION
           test -d packages/sync/skills
-          if rg -n '<umbrella>|IS_UMBRELLA_REL' engine packages/sync cli docs README.md AGENTS.md; then
-            echo "LEGACY TOKEN: use <content-dir> and IS_CONTENT_REL"; fail=1
-          fi
+          test -f AGENTS.md
+          legacy_matches="$(mktemp)"
+          rg_rc=0
+          rg -n '<umbrella>|IS_UMBRELLA_REL' \
+            engine packages/sync cli docs README.md AGENTS.md > "$legacy_matches" || rg_rc=$?
+          case "$rg_rc" in
+            0)
+              cat "$legacy_matches"
+              echo "LEGACY TOKEN: use <content-dir> and IS_CONTENT_REL"
+              fail=1
+              ;;
+            1) ;;
+            *) echo "LEGACY SEARCH FAILED (rg exit $rg_rc)"; fail=1 ;;
+          esac
+          rm -f "$legacy_matches"
           for f in docs/*.md packages/sync/references/*.md; do
             name="$(basename "$f")"
             [[ "$name" =~ ^[a-z0-9]+(-[a-z0-9]+)*\.md$ ]] \

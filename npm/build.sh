@@ -2,7 +2,8 @@
 # Assemble the publishable npm package into npm/dist.
 #
 # The repo is the single source, and the package mirrors its layout one-to-one:
-# cli/ ships as-is (engine-package.yaml — the distribution's data — included),
+# cli/ ships without repository-only tests (engine-package.yaml — the
+# distribution's data — remains included),
 # engine/ is the executable, packages/sync/ is the engine-content package the
 # bundle seed materializes. The version is injected into package.json (engine
 # VERSION by default; release-npm passes an explicit one for prereleases —

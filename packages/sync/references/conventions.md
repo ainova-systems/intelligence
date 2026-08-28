@@ -57,7 +57,7 @@ project:
   name: payments
   intelligence_dir: "intelligence"  # optional; this is the default
 
-schema_version: "0.11.0"
+schema_version: "0.11.1"
 
 sources:
   rules:
@@ -309,8 +309,10 @@ CLAUDE.md
 
 # Generated Claude and Cursor content; shared settings remain trackable
 .claude/*
+!.claude/
 !.claude/settings.json
 .cursor/*
+!.cursor/
 !.cursor/settings.json
 
 # Generated open-standard and Codex content
@@ -337,9 +339,11 @@ adapter output. Existing entries remain untouched and absent secondary ignore
 files are not created.
 
 An ignore rule does not untrack a file already in Git. After init or adapter
-enable, the CLI reports each affected tracked path with an exact
-`git rm --cached -- '<path>'` command; this preserves the local file while
-removing it from the index.
+enable, the CLI reports each affected tracked path that remains in the
+worktree with an exact `git rm --cached -- '<path>'` command; this preserves
+the local file while removing it from the index. Legacy root entry points
+quarantined into the initial backup are ordinary worktree deletions to review
+and stage, not candidates for `git rm --cached`.
 
 Before release, inspect the packager's actual file list. An npm `files`
 allowlist can force inclusion despite `.npmignore`, and a Dockerfile-specific
@@ -349,18 +353,18 @@ than inferring contents from Git status.
 
 `AGENTS.md` is the only shared root instruction entry point. During onboarding,
 move useful repository guidance from legacy root files such as `.cursorrules`
-and instruction-bearing `CLAUDE.md` into project-owned rules, verify the
-generated tool output, then remove the legacy file. Keep a root tool-specific
-file only when it contains genuinely local configuration that an adapter cannot
-represent; keep that exception gitignored rather than maintaining a second
-committed instruction source.
+and instruction-bearing `CLAUDE.md` out of their quarantined backup copies and
+into project-owned rules, then verify the generated tool output. Do not restore
+the original root monolith. Create a new root tool-specific file only when it
+contains genuinely local configuration that an adapter cannot represent; keep
+that exception gitignored rather than maintaining a second committed source.
 
 Before the first render, `intelligence init` preserves existing AI prompt paths
 under `<content-dir>/_backup/`. Its `manifest.tsv` labels the snapshot
-`initial-onboarding` and lists exact original paths. The context-learning skill
-first recovers or verifies CLI setup, then routes that state through
-`onboarding-migration.md` and repository learning. The backup remains until the
-user approves removal.
+`initial-onboarding`, lists exact original paths, and marks legacy entry points.
+Those legacy paths are quarantined only for the transactional first render; a
+failed render restores them, while a successful render leaves them inactive for
+repository learning. The backup remains until the user approves removal.
 
 ## Project-owned adapters
 
