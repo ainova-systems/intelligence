@@ -82,11 +82,16 @@ target_names() {
 # and comment. A missing target is added in the compact form used by init.
 target_set_enabled() {
     local file="$1" target="$2" enabled="$3" output="$4"
+    local target_missing=1
     [ -f "$file" ] || die "no such file: $file"
     case "$enabled" in true|false) ;; *) die "internal: invalid target state '$enabled'" ;; esac
+    target_exists "$file" "$target" && target_missing=0
     output="$(_yq_esc "$output")"
-    _qmap_stage "$file" -v target="$target" -v enabled="$enabled" -v output="$output" '
+    _qmap_stage "$file" -v target="$target" -v enabled="$enabled" -v output="$output" -v target_missing="$target_missing" '
         function entry() { return "  " target ": { enabled: " enabled ", output: \"" output "\" }" }
+        function insert_missing_target() {
+            if (in_targets && target_missing && !target_seen) { print entry(); target_seen = 1 }
+        }
         function add_enabled_to_inline(line,    p) {
             p = index(line, "{")
             if (p > 0) return substr(line, 1, p) " enabled: " enabled "," substr(line, p + 1)
@@ -103,8 +108,20 @@ target_set_enabled() {
         }
         { sub(/\r$/, "") }
         /^targets:[[:space:]]*$/ { targets_seen = 1; in_targets = 1; print; next }
+        in_targets && target_missing && target_entry_seen && /^#/ {
+            flush_target()
+            insert_missing_target()
+            print
+            next
+        }
+        in_targets && target_missing && target_entry_seen && !in_target && /^[[:space:]]*$/ {
+            insert_missing_target()
+            print
+            next
+        }
         in_targets && /^[A-Za-z]/ { flush_targets() }
         in_targets && /^  [A-Za-z]/ {
+            target_entry_seen = 1
             flush_target()
             if ($0 ~ "^  " target ":[[:space:]]*") {
                 target_seen = 1

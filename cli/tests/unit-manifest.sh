@@ -274,6 +274,10 @@ targets:
     # preserve this field while toggling enabled
     output: ".custom-claude"
 
+# Package examples follow the generated target list.
+# packages:
+#   "@acme/core":
+#     version: "^1.0.0"
 models:
   claude:
     heavy: opus
@@ -294,6 +298,14 @@ chk eq "$(is_target_enabled "$MT" cursor)" "1"
 chk eq "$(get_target_output "$MT" cursor)" ".cursor"
 chk eq "$(grep -c '^targets:' "$MT")" "1"
 chk grep -q '^models:' "$MT"
+if ! awk '
+    /^  cursor:/ { target=NR }
+    /^# Package examples/ { comment=NR }
+    END { exit !(target && comment > target) }
+' "$MT"; then
+    echo "FAIL: missing target was not inserted before the next section comment"
+    fail=1
+fi
 cp "$MT" "$OUT/targets.once"
 target_set_enabled "$MT" cursor true ".cursor"
 chk diff "$OUT/targets.once" "$MT"
