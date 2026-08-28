@@ -61,7 +61,7 @@ migration to `intelligence-learn-from-repository`; no semantic proposal is
 applied before individual approval. The CLI remains the only owner of
 initialization and legacy conversion mechanics.
 
-After the first successful sync, setup also prints exact commands for reviewing
+Setup announces the start and completion of its first compact sync. It then prints exact commands for reviewing
 and toggling adapters, recommends `intelligence package add
 @ainova-systems/core`, and explains the generated-output version-control
 choices. The CLI ignores restorable adapter-owned output while keeping

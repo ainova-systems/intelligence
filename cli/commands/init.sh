@@ -309,6 +309,9 @@ echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 if [ "$no_sync" -eq 0 ]; then
     cd "$root"
     sync_rc=0
+    echo ""
+    echo "=== Sync started ==="
+    echo "  Rendering enabled adapters in compact mode..."
     bash "$CLI_DIR/commands/sync.sh" --compact || sync_rc=$?
     if [ "$sync_rc" -ne 0 ]; then
         echo "" >&2
@@ -323,6 +326,7 @@ if [ "$no_sync" -eq 0 ]; then
         fi
         exit "$sync_rc"
     fi
+    echo "=== Sync completed ==="
 fi
 
 print_new_project_onboarding

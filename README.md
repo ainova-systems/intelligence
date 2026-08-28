@@ -90,7 +90,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 
 Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
 
-Fresh initialization runs its first sync in compact mode, then leaves the
+Fresh initialization announces and confirms its first compact sync, then leaves the
 important next steps visible: run `/intelligence-learn-from-context`, review
 adapters, add the recommended starter package with `intelligence package add
 @ainova-systems/core`, and choose a generated-output version-control policy.

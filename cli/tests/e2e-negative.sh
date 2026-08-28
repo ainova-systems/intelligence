@@ -384,6 +384,12 @@ sync_to_broken() {
 EOF
 git -C "$PFAIL" init --quiet
 xfail "Intelligence setup needs recovery" "$PFAIL" init --targets agents,broken
+printf '%s\n' "$OUTPUT" | grep -q '^=== Sync started ===$' \
+    || { echo "FAIL: failed init did not announce sync start"; fail=1; }
+if printf '%s\n' "$OUTPUT" | grep -q '^=== Sync completed ===$'; then
+    echo "FAIL: failed init falsely announced sync completion"
+    fail=1
+fi
 printf '%s\n' "$OUTPUT" | grep -q 'intelligence-learn-from-context/SKILL.md' \
     || { echo "FAIL: failed init did not expose the recovery skill path"; fail=1; }
 chk grep -q 'INITIAL_AGENTS_SURVIVES' "$PFAIL/AGENTS.md"
