@@ -268,7 +268,13 @@ project:
   name: target-unit
 
 targets:
-  agents: { enabled: true, output: "AGENTS.md" }
+  agents:
+    enabled: true
+    output: "AGENTS.md"
+    header: |
+      # Intelligence
+
+      Keep this header paragraph after its blank line.
   claude:
     enabled: false
     # preserve this field while toggling enabled
@@ -299,11 +305,12 @@ chk eq "$(get_target_output "$MT" cursor)" ".cursor"
 chk eq "$(grep -c '^targets:' "$MT")" "1"
 chk grep -q '^models:' "$MT"
 if ! awk '
+    /Keep this header paragraph/ { header=NR }
     /^  cursor:/ { target=NR }
     /^# Package examples/ { comment=NR }
-    END { exit !(target && comment > target) }
+    END { exit !(header && target > header && comment > target) }
 ' "$MT"; then
-    echo "FAIL: missing target was not inserted before the next section comment"
+    echo "FAIL: missing target did not preserve the preceding block scalar"
     fail=1
 fi
 cp "$MT" "$OUT/targets.once"

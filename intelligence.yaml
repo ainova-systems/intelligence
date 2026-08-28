@@ -42,6 +42,7 @@ targets:
       This repository is also an Intelligence project: this file is generated —
       edit `intelligence/rules/`, then run `intelligence sync`.
       Canonical context: [`intelligence/rules/product.md`](intelligence/rules/product.md).
+  codex: { enabled: true, output: ".codex" }
   claude: { enabled: true, output: ".claude" }
 
 # Packages are managed with 'intelligence package add|search|list':

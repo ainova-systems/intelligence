@@ -114,11 +114,9 @@ target_set_enabled() {
             print
             next
         }
-        in_targets && target_missing && target_entry_seen && !in_target && /^[[:space:]]*$/ {
-            insert_missing_target()
-            print
-            next
-        }
+        # A blank line is not a target-section boundary: it may belong to a
+        # block scalar such as targets.agents.header. Wait until the target
+        # list reaches a top-level comment/key or EOF before inserting.
         in_targets && /^[A-Za-z]/ { flush_targets() }
         in_targets && /^  [A-Za-z]/ {
             target_entry_seen = 1
