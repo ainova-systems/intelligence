@@ -325,6 +325,10 @@ if [ -f "$root/.gitignore" ]; then
     gitignore_existed=1
     cp "$root/.gitignore" "$stage/gitignore.orig"
 fi
+while IFS= read -r policy_file; do
+    [ -f "$root/$policy_file" ] || continue
+    cp "$root/$policy_file" "$stage/$policy_file.orig"
+done < <(publisher_ignore_file_names)
 commit_active=1
 rollback() {
     [ "$commit_active" -eq 1 ] || return 0
@@ -336,6 +340,10 @@ rollback() {
     else
         rm -f "$root/.gitignore"
     fi
+    while IFS= read -r policy_file; do
+        [ -f "$stage/$policy_file.orig" ] || continue
+        cp "$stage/$policy_file.orig" "$root/$policy_file"
+    done < <(publisher_ignore_file_names)
     rm -rf "$stage"
     echo "rolled back — the vendored setup is untouched" >&2
 }
@@ -352,6 +360,7 @@ mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
 ensure_manifest_gitignore "$root" "$root/intelligence.yaml"
+ensure_manifest_publisher_ignores "$root" "$root/intelligence.yaml"
 
 sync_out="$(cd "$root" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI_DIR/commands/sync.sh" 2>&1)" || {
     echo "$sync_out"
@@ -391,4 +400,5 @@ rmdir "$umbrella" 2>/dev/null || true
 echo ""
 echo "converted. Review the diff, then commit. The old config.yaml is kept at .intelligence/backup/config.yaml."
 echo "From now on: intelligence sync | package | update | status."
-echo "Next: ask your agent to run /intelligence-learn-from-context to verify setup and review the converted project context."
+report_tracked_managed_ignores "$root" "$root/intelligence.yaml"
+echo "Next: ask your agent to run /intelligence-learn-from-repository to verify setup and review the converted project context."

@@ -329,6 +329,24 @@ CLAUDE.md
 
 Copilot output lives under `.github/` and is committed with other repository-level GitHub configuration. Do not ignore `.github/` wholesale. `AGENTS.md` is also committed so every clone has the shared tool-neutral entry point before sync.
 
+Git tracking and release packaging are separate policies. When a project
+already has `.vscodeignore`, `.npmignore`, or `.dockerignore`, the CLI appends a
+small idempotent block excluding the package store, `intelligence.yaml`,
+`intelligence.lock`, the complete project content directory, and enabled
+adapter output. Existing entries remain untouched and absent secondary ignore
+files are not created.
+
+An ignore rule does not untrack a file already in Git. After init or adapter
+enable, the CLI reports each affected tracked path with an exact
+`git rm --cached -- "<path>"` command; this preserves the local file while
+removing it from the index.
+
+Before release, inspect the packager's actual file list. An npm `files`
+allowlist can force inclusion despite `.npmignore`, and a Dockerfile-specific
+`<name>.Dockerfile.dockerignore` takes precedence over the root
+`.dockerignore`. Use the relevant pack/list command as the final proof rather
+than inferring contents from Git status.
+
 `AGENTS.md` is the only shared root instruction entry point. During onboarding,
 move useful repository guidance from legacy root files such as `.cursorrules`
 and instruction-bearing `CLAUDE.md` into project-owned rules, verify the

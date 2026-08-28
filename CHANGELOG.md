@@ -39,7 +39,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Changed
 
 - Made multi-adapter sync transactional; a failure restores every selected adapter path to its exact pre-sync state.
-- Made `/intelligence-learn-from-context` recover or verify setup before routing initial backups through repository learning.
+- Split learning by lifecycle: `/intelligence-learn-from-repository` owns onboarding; `/intelligence-learn-from-context` captures later session lessons.
 - Preserved custom root `AGENTS.md` in the initial backup and linked it from generated onboarding context until migration finishes.
 - Added visible start/completion progress around init's compact sync, then printed adapter, Git policy, learning, and starter-package guidance.
 - Ordered starter-package installation before repository learning and added package/project duplicate review.
@@ -63,6 +63,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Security
 
+- Added Intelligence exclusions to existing publisher/build ignore files and exact untrack commands for Git-indexed ignored paths.
 - Refused adapters with missing, malformed, unsupported, or unsafe ownership contracts before enable or sync.
 - Validated package names, source URLs, refs, paths, and dispatcher command names before filesystem or Git operations.
 - Staged package changes and project conversion before replacing live state; locked restoration refetches and verifies SHAs.
@@ -70,6 +71,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
+- Excluded init-owned `_backup/` paths from unsynced-source warnings.
 - Fixed tilde ranges, annotated-tag resolution, empty lockfile paths, and comment-preserving manifest edits.
 - Fixed stale package sources during update, registry repoints under unchanged tags, and partial package replacement.
 - Fixed package/project source precedence so project artifacts override same-named package artifacts.

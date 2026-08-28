@@ -27,12 +27,13 @@ Use `intelligence init --preview` to inspect without writing and `intelligence i
 
 After init, add the recommended starter package with
 `intelligence package add @ainova-systems/core`, then ask your agent to run
-`/intelligence-learn-from-context`. It first
-recovers or verifies the deterministic setup, recognizes an initial-state
-backup, then follows repository learning to propose the smallest useful set of
-project-owned rules, agents and skills. Installed package content participates
-in duplicate detection. Analysis is read-only; each proposed change requires
-approval.
+`/intelligence-learn-from-repository`. It recovers or verifies the
+deterministic setup, recognizes an initial-state backup, then proposes the
+smallest useful set of project-owned rules, agents and skills. Installed
+package content participates in duplicate detection. Analysis is read-only;
+each proposed change requires approval. Use
+`/intelligence-learn-from-context` later to capture one durable lesson from a
+working session.
 
 Create project-owned content only when you need it:
 
@@ -96,11 +97,15 @@ Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md
 Fresh initialization announces and confirms its first compact sync, then leaves the
 important next steps visible: add the recommended starter package with
 `intelligence package add @ainova-systems/core`, run
-`/intelligence-learn-from-context`, review adapters, and choose a
+`/intelligence-learn-from-repository`, review adapters, and choose a
 generated-output version-control policy.
 Commit the manifest, lock, project-owned content, `AGENTS.md`, and shared
 `.github/` output. The CLI adds adapter-owned generated paths to `.gitignore`
-while keeping shared tool settings trackable; see the [artifact
+while keeping shared tool settings trackable. Existing `.vscodeignore`,
+`.npmignore`, and `.dockerignore` files receive exclusions for Intelligence
+development context and adapter output. If Git already tracks a newly ignored
+path, init prints the exact `git rm --cached` command required to untrack it
+without deleting the local file. See the [artifact
 conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
 
 `AGENTS.md` is the shared root instruction entry point. The learn skill proposes
@@ -217,7 +222,7 @@ Conversion requires the final legacy Intelligence Sync schema (`0.10.0`). An old
 
 The conversion preserves project-owned sources and replaces the old shared
 module content with the sync package bundled in the installed CLI. When it
-finishes, run `/intelligence-learn-from-context` to review what was preserved
+finishes, run `/intelligence-learn-from-repository` to review what was preserved
 and propose any missing repository-specific context.
 
 ## Repository layout

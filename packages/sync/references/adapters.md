@@ -89,6 +89,11 @@ or unsupported contracts before enabling or syncing an adapter. `owned` and
 `managed` paths form the transactional write-set: if any adapter fails, the
 engine restores every selected adapter path to its pre-sync state.
 
+For an existing `.vscodeignore`, `.npmignore`, or `.dockerignore`, enable/init
+also excludes the configured adapter output plus its `owned`, `managed`, and
+`legacy` paths from published or build artifacts. This packaging policy is
+separate from the narrower Git policy expressed by `ignore` and `include`.
+
 The engine calls:
 
 ```text

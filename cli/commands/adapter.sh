@@ -145,6 +145,10 @@ case "$action" in
                 gitignore_existed=1
                 cp "$IP_ROOT/.gitignore" "$state_stage/gitignore"
             fi
+            while IFS= read -r policy_file; do
+                [ -f "$IP_ROOT/$policy_file" ] || continue
+                cp "$IP_ROOT/$policy_file" "$state_stage/$policy_file"
+            done < <(publisher_ignore_file_names)
             enable_rc=0
             bash "$CLI_DIR/internal/target-state.sh" "$action" "$name" || enable_rc=$?
             if [ "$enable_rc" -eq 0 ]; then
@@ -157,7 +161,13 @@ case "$action" in
                 else
                     rm -f "$IP_ROOT/.gitignore"
                 fi
-                echo "ERROR: adapter enable failed; manifest and Git policy were restored." >&2
+                while IFS= read -r policy_file; do
+                    [ -f "$state_stage/$policy_file" ] || continue
+                    cp "$state_stage/$policy_file" "$IP_ROOT/$policy_file"
+                done < <(publisher_ignore_file_names)
+                echo "ERROR: adapter enable failed; manifest and ignore policies were restored." >&2
+            else
+                report_tracked_managed_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
             fi
             rm -rf "$state_stage"
             exit "$enable_rc"
