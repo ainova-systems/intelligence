@@ -141,20 +141,32 @@ managed_gitignore_patterns() {
 # Name each affected path and print a command which only untracks it; the local
 # file remains available as migration input.
 report_tracked_managed_ignores() {
-    local root="$1" manifest="$2" patterns tracked path quoted
+    local root="$1" manifest="$2" patterns tracked path quoted posix_quoted powershell_quoted
     git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
     patterns="$(mktemp -t intelligence-gitignore-XXXXXX)"
+    tracked="$(mktemp -t intelligence-tracked-XXXXXX)"
     managed_gitignore_patterns "$root" "$manifest" > "$patterns" || {
-        rm -f "$patterns"
+        rm -f "$patterns" "$tracked"
         return 0
     }
-    tracked="$(git -C "$root" ls-files -ci --exclude-from="$patterns" 2>/dev/null || true)"
+    git -C "$root" ls-files -z -ci --exclude-from="$patterns" > "$tracked" 2>/dev/null || true
     rm -f "$patterns"
-    [ -n "$tracked" ] || return 0
+    [ -s "$tracked" ] || {
+        rm -f "$tracked"
+        return 0
+    }
     echo "  Tracked files still bypass these .gitignore rules. Untrack them without deleting local copies:"
-    while IFS= read -r path; do
+    while IFS= read -r -d '' path; do
         [ -n "$path" ] || continue
-        quoted="${path//\"/\\\"}"
-        echo "    git rm --cached -- \"$quoted\""
-    done <<< "$tracked"
+        if [[ "$path" == *"'"* ]]; then
+            posix_quoted="${path//\'/\'\\\'\'}"
+            powershell_quoted="${path//\'/\'\'}"
+            printf "    POSIX:      git rm --cached -- '%s'\n" "$posix_quoted"
+            printf "    PowerShell: git rm --cached -- '%s'\n" "$powershell_quoted"
+        else
+            quoted="'$path'"
+            printf '    git rm --cached -- %s\n' "$quoted"
+        fi
+    done < "$tracked"
+    rm -f "$tracked"
 }

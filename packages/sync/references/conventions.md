@@ -338,7 +338,7 @@ files are not created.
 
 An ignore rule does not untrack a file already in Git. After init or adapter
 enable, the CLI reports each affected tracked path with an exact
-`git rm --cached -- "<path>"` command; this preserves the local file while
+`git rm --cached -- '<path>'` command; this preserves the local file while
 removing it from the index.
 
 Before release, inspect the packager's actual file list. An npm `files`

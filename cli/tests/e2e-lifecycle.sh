@@ -26,17 +26,22 @@ stage_vendored() {
 
 echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
+SPECIAL_TRACKED='.claude/special-$-tick-`-bang-!-backslash\.md'
+APOSTROPHE_TRACKED=".claude/apostrophe's.md"
 mkdir -p "$FRESH/.github/instructions" "$FRESH/.claude/skills/legacy"
 touch "$FRESH/.cursorrules"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
 printf '%s\n' '# Legacy local skill' > "$FRESH/.claude/skills/legacy/SKILL.md"
 printf '# Existing project instructions\nCUSTOM_AGENTS_MARKER\n' > "$FRESH/AGENTS.md"
+printf '%s\n' '# Shell-special legacy file' > "$FRESH/$SPECIAL_TRACKED"
+printf '%s\n' '# Apostrophe legacy file' > "$FRESH/$APOSTROPHE_TRACKED"
 printf '# keep vscode packaging rule\nout/**\n' > "$FRESH/.vscodeignore"
 printf '# keep npm packaging rule\ndist/**\n' > "$FRESH/.npmignore"
 printf '# keep docker context rule\nnode_modules\n' > "$FRESH/.dockerignore"
 git -C "$FRESH" init --quiet
-git -C "$FRESH" add CLAUDE.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md
+git -C "$FRESH" add CLAUDE.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md \
+    "$SPECIAL_TRACKED" "$APOSTROPHE_TRACKED"
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init > "$OUT/fresh-init.txt")
 chk test -f "$FRESH/intelligence.yaml"
 chk grep -q '/intelligence-learn-from-repository' "$OUT/fresh-init.txt"
@@ -47,9 +52,12 @@ chk grep -q 'intelligence adapter list' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter enable codex' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter disable cursor' "$OUT/fresh-init.txt"
 chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fresh-init.txt"
-chk grep -q 'git rm --cached -- "CLAUDE.md"' "$OUT/fresh-init.txt"
-chk grep -q 'git rm --cached -- ".cursorrules"' "$OUT/fresh-init.txt"
-chk grep -q 'git rm --cached -- ".claude/skills/legacy/SKILL.md"' "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- 'CLAUDE.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '.cursorrules'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '.claude/skills/legacy/SKILL.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '$SPECIAL_TRACKED'" "$OUT/fresh-init.txt"
+chk grep -Fq "POSIX:      git rm --cached -- '.claude/apostrophe'\\''s.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "PowerShell: git rm --cached -- '.claude/apostrophe''s.md'" "$OUT/fresh-init.txt"
 chk grep -q '^IS_STATUS=ok ' "$OUT/fresh-init.txt"
 chk grep -q '^=== Done:' "$OUT/fresh-init.txt"
 chknot grep -q '^=== intelligence-sync ===' "$OUT/fresh-init.txt"
