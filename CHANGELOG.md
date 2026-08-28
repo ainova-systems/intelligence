@@ -4,7 +4,17 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
-## [0.11.1] — 2026-08-28
+## [0.11.2]
+
+### Changed
+
+- Made stable npm installation the documented default while keeping `next` for prerelease testing.
+
+### Fixed
+
+- Preserved multiline target header block scalars when enabling an adapter missing from the manifest.
+
+## [0.11.1]
 
 ### Changed
 
@@ -18,7 +28,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - Made npm package smoke fail if repository-only CLI tests enter the published tarball.
 - Made repository purity require the committed `AGENTS.md` entry point explicitly.
 
-## [0.11.0] — 2026-08-24
+## [0.11.0]
 
 ### Breaking
 

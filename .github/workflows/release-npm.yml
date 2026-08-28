@@ -5,7 +5,7 @@ name: release-npm
 # Publishing a GitHub Release is the only release action. The release tag is
 # the npm version and selects the channel:
 #   vX.Y.Z-rc.N -> npm dist-tag `next` (GitHub prerelease required)
-#   vX.Y.Z      -> npm dist-tag `latest` (ordinary GitHub release required)
+#   vX.Y.Z      -> npm dist-tag `latest` (non-prerelease GitHub Release required)
 # The tag's base X.Y.Z must match engine/VERSION, and its commit must be in
 # main. engine/VERSION and schema_version never carry the npm RC suffix.
 #

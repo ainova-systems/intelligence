@@ -88,13 +88,24 @@ Verify the generated paths, run a second sync to prove idempotence, and confirm 
 
 ## Versioned files
 
-When a change includes an engine version bump, keep these exact values aligned:
+Every pull request merged into `main` belongs to one concrete changelog version.
+Check whether the non-prerelease GitHub Release matching `engine/VERSION` is already
+published. If it is, select the next SemVer version and create its changelog
+section; otherwise add the change to the existing pending version. Changelog
+headings contain only `[X.Y.Z]`—GitHub Release records the publication date, and
+this repository does not use an `[Unreleased]` section.
+
+When selecting a new version, keep these exact values aligned:
 
 - `engine/VERSION`;
 - `schema_version` in every `examples/*/intelligence.yaml`;
 - the `@ainova-systems/sync` exact pin in every example.
 
-Do not create releases as part of an ordinary contribution. Intelligence remains prerelease until the owner approves a stable release.
+Do not create tags or Releases as part of an ordinary contribution. A maintainer
+tags the reviewed `main` commit whose concrete version is already prepared, then
+publishes the matching GitHub Release. Non-prerelease GitHub Releases publish to
+npm `latest`; GitHub prereleases publish to `next`. The pipeline never writes back
+to `main`.
 
 ## Commit messages
 

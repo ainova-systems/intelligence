@@ -49,7 +49,7 @@ Two directories now carry the word: `intelligence/` is this project's own conten
 
 ## Release status
 
-Intelligence is not approved as a stable release. Unless the owner has explicitly
-said the CLI is ready, publish an `X.Y.Z-rc.N` prerelease on npm dist-tag `next`.
-Do not create a stable release, publish a stable package, or push to the public
-registry repository without that explicit direction.
+Intelligence has a stable release line. Publishing a matching non-prerelease
+GitHub Release sends `X.Y.Z` to npm dist-tag `latest`; publishing a GitHub prerelease
+sends `X.Y.Z-rc.N` to `next`. Release timing remains an owner decision, and public
+registry traffic changes are coordinated separately from product publishing.

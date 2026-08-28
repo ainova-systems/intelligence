@@ -2,10 +2,10 @@
 
 The CLI owns a project's complete Intelligence lifecycle: initialization, legacy Intelligence Sync conversion, project alignment, package resolution, lock restoration, adapter management, consistency checks and rendering.
 
-Intelligence is currently a release candidate:
+Install the stable CLI from npm:
 
 ```bash
-npm install -g @ainova-systems/intelligence@next
+npm install -g @ainova-systems/intelligence
 ```
 
 ## Project layout

@@ -18,3 +18,5 @@ CLAUDE.md
 .claude/*
 !.claude/settings.json
 intelligence/_backup/
+.agents/skills/
+.codex/agents/
