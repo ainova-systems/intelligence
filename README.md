@@ -4,14 +4,15 @@
 
 Intelligence keeps rules, agents and skills in tool-neutral Markdown, installs shared content as versioned packages, and renders each enabled AI tool's native files. One CLI owns the manifest, lockfile, package store and sync engine.
 
-> Intelligence is currently a release candidate. Use the `next` npm tag until a stable release is announced.
+Intelligence is available on npm as a stable release. Prerelease builds remain
+available on the `next` tag for early testing.
 
 ## Quick start
 
 Requirements: Node.js 18+, Git, Bash and awk. On Windows, use Git Bash or WSL.
 
 ```bash
-npm install -g @ainova-systems/intelligence@next
+npm install -g @ainova-systems/intelligence
 
 cd your-project
 intelligence init --targets claude,codex

@@ -3,7 +3,7 @@
 **npm for AI agent intelligence.** One CLI that builds, versions and distributes the rules, agents and skills your AI coding tools run on — rendered natively for Claude Code, Cursor, GitHub Copilot, OpenAI Codex, Pi, OpenCode and `AGENTS.md`.
 
 ```bash
-npm install -g @ainova-systems/intelligence@next
+npm install -g @ainova-systems/intelligence
 
 cd your-project
 intelligence init

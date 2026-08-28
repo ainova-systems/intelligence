@@ -94,7 +94,9 @@ When a change includes an engine version bump, keep these exact values aligned:
 - `schema_version` in every `examples/*/intelligence.yaml`;
 - the `@ainova-systems/sync` exact pin in every example.
 
-Do not create releases as part of an ordinary contribution. Intelligence remains prerelease until the owner approves a stable release.
+Do not create releases as part of an ordinary contribution. A maintainer cuts a
+release from reviewed `main` by publishing a matching GitHub Release: ordinary
+releases publish to npm `latest`, while GitHub prereleases publish to `next`.
 
 ## Commit messages
 
