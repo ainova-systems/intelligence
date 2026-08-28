@@ -8,7 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
-- Aligned npm `next` with each stable release so explicit preview installs never select an older build.
+- Advanced stale npm `next` tags with stable releases without replacing a newer preview line.
 
 ## [0.11.2]
 

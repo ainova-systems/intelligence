@@ -2,6 +2,11 @@
 # Keep npm's stable and preview channels coherent after a successful publish.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Reuse the product's digits-only comparator; release tags are restricted to
+# stable X.Y.Z and X.Y.Z-rc.N forms by release-npm.yml.
+source "$SCRIPT_DIR/../cli/lib/semver.sh"
+
 channel="${1:?usage: align-dist-tags.sh <latest|next> <version> [package]}"
 version="${2:?usage: align-dist-tags.sh <latest|next> <version> [package]}"
 pkg="${3:-@ainova-systems/intelligence}"
@@ -9,11 +14,14 @@ pkg="${3:-@ainova-systems/intelligence}"
 case "$channel" in
     latest)
         current="$(npm view "$pkg" dist-tags.next 2>/dev/null || true)"
-        if [ "$current" != "$version" ]; then
+        current_base="${current%%-*}"
+        if [ "$current" = "$version" ]; then
+            echo "next already points at stable $version"
+        elif [ -z "$current" ] || [ "$(semver_cmp "$current_base" "$version")" != "1" ]; then
             npm dist-tag add "$pkg@$version" next
             echo "next: ${current:-<unset>} -> $version (stable release)"
         else
-            echo "next already points at stable $version"
+            echo "next is $current (newer preview) - left alone"
         fi
         ;;
     next)

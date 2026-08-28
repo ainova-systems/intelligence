@@ -65,6 +65,10 @@ echo "== stable release leaves aligned next alone =="
 run_case "0.11.3" "0.11.3" latest "0.11.3"
 expect_no_calls
 
+echo "== stable release preserves a newer preview line =="
+run_case "0.11.3" "0.12.0-rc.1" latest "0.11.3"
+expect_no_calls
+
 echo "== prerelease advances prerelease-only latest =="
 run_case "0.12.0-rc.1" "0.12.0-rc.1" next "0.12.0-rc.2"
 expect_call "dist-tag add @ainova-systems/intelligence@0.12.0-rc.2 latest"
