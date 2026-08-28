@@ -38,6 +38,7 @@ if [ "$action" = "enable" ]; then
         | awk -F '\t' '$1 == "requires" { print $2 }')
     target_set_enabled "$manifest" "$name" true "$output"
     ensure_target_gitignore "$IP_ROOT" "$manifest" "$name"
+    ensure_manifest_publisher_ignores "$IP_ROOT" "$manifest"
     echo "enabled: $name (output: $output)"
     exit 0
 fi

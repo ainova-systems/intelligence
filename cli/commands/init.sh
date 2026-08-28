@@ -37,7 +37,7 @@ print_new_project_onboarding() {
         echo "    intelligence package add @ainova-systems/core"
         echo "    Install it before learning so package/project duplicates can be detected."
         echo "  Finalize repository onboarding:"
-        echo "    Ask your agent to run /intelligence-learn-from-context"
+        echo "    Ask your agent to run /intelligence-learn-from-repository"
         echo "    It recognizes the initial backup, recovers setup if needed, then proposes repository-specific migration after approval."
     fi
     echo "  Review adapters:"
@@ -47,8 +47,10 @@ print_new_project_onboarding() {
     echo "  Version control:"
     echo "    Generated adapter output is gitignored by CLI-owned path."
     echo "    Commit intelligence.yaml, intelligence.lock, intelligence/, AGENTS.md, and .github/."
+    echo "    Existing .vscodeignore, .npmignore, and .dockerignore files receive packaging exclusions."
     echo "    Shared tool settings remain trackable; review the exact ownership policy:"
     echo "    https://github.com/ainova-systems/intelligence/blob/main/packages/sync/references/conventions.md#generated-output-and-version-control"
+    report_tracked_managed_ignores "$root" "$manifest"
     echo "  Write your own:"
     echo "    create $content_dir/rules/context.md, then intelligence sync"
     echo "  Docs: https://github.com/ainova-systems/intelligence#readme"
@@ -111,6 +113,7 @@ case "$IP_MODE" in
         fi
         restore_project_store_if_missing "$IP_ROOT"
         ensure_manifest_gitignore "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
+        ensure_manifest_publisher_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         [ "$no_sync" -eq 1 ] && exit 0
         cd "$IP_ROOT"
         sync_rc=0
@@ -125,9 +128,10 @@ case "$IP_MODE" in
             echo "=== Intelligence setup needs recovery ===" >&2
             echo "  No partial adapter update was kept; sync restored its pre-run outputs." >&2
             echo "  Ask your agent to read:" >&2
-            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-context/SKILL.md" >&2
+            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-repository/SKILL.md" >&2
             echo "  and finalize this Intelligence setup$recovery_backup." >&2
         fi
+        [ "$sync_rc" -ne 0 ] || report_tracked_managed_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         exit "$sync_rc"
         ;;
     legacy)
@@ -257,7 +261,7 @@ manifest="$root/intelligence.yaml"
             echo "      > Intelligence onboarding is pending. Before repository work, read"
             echo "      > \`$content_dir/_backup/AGENTS.md\`, which preserves the original project instructions."
             if [ "$bare" -eq 0 ]; then
-                echo "      > Run /intelligence-learn-from-context to migrate and verify them before removing the backup."
+                echo "      > Run /intelligence-learn-from-repository to migrate and verify them before removing the backup."
             else
                 echo "      > Review and migrate that backup before removing it."
             fi
@@ -304,6 +308,7 @@ if [ "$bare" -eq 0 ]; then
 fi
 
 preserve_onboarding_sources "$root" "$content_dir" "$targets"
+ensure_manifest_publisher_ignores "$root" "$manifest"
 
 echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
@@ -320,7 +325,7 @@ if [ "$no_sync" -eq 0 ]; then
         echo "  No partial adapter update was kept; sync restored its pre-run outputs." >&2
         if [ "$bare" -eq 0 ]; then
             echo "  Ask your agent to read:" >&2
-            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-context/SKILL.md" >&2
+            echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-repository/SKILL.md" >&2
             echo "  and finalize the initial Intelligence setup. The snapshot is $content_dir/_backup/manifest.tsv." >&2
         else
             echo "  Fix the reported error, then rerun: intelligence init" >&2

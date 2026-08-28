@@ -806,6 +806,11 @@ warn_unsynced() {
         case "$rel_dir" in
             .claude/*|.cursor/*|.github/*|.codex/*|.agents/*|.intelligence/*|*/node_modules/*|*/vendor/*|*/dist/*) continue ;;
         esac
+        # Initial onboarding backups are immutable migration evidence, never
+        # source directories. Suggesting one would reintroduce legacy content.
+        case "/$rel_dir/" in
+            *"/$intel_basename/_backup/"*) continue ;;
+        esac
 
         # Skip ignore/submodule patterns.
         local skip=false

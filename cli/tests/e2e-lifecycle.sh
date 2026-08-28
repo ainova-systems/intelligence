@@ -26,15 +26,25 @@ stage_vendored() {
 
 echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
-mkdir -p "$FRESH/.github/instructions"
+SPECIAL_TRACKED='.claude/special-$-tick-`-bang-!-backslash\.md'
+APOSTROPHE_TRACKED=".claude/apostrophe's.md"
+mkdir -p "$FRESH/.github/instructions" "$FRESH/.claude/skills/legacy"
 touch "$FRESH/.cursorrules"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
+printf '%s\n' '# Legacy local skill' > "$FRESH/.claude/skills/legacy/SKILL.md"
 printf '# Existing project instructions\nCUSTOM_AGENTS_MARKER\n' > "$FRESH/AGENTS.md"
+printf '%s\n' '# Shell-special legacy file' > "$FRESH/$SPECIAL_TRACKED"
+printf '%s\n' '# Apostrophe legacy file' > "$FRESH/$APOSTROPHE_TRACKED"
+printf '# keep vscode packaging rule\nout/**\n' > "$FRESH/.vscodeignore"
+printf '# keep npm packaging rule\ndist/**\n' > "$FRESH/.npmignore"
+printf '# keep docker context rule\nnode_modules\n' > "$FRESH/.dockerignore"
 git -C "$FRESH" init --quiet
+git -C "$FRESH" add CLAUDE.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md \
+    "$SPECIAL_TRACKED" "$APOSTROPHE_TRACKED"
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init > "$OUT/fresh-init.txt")
 chk test -f "$FRESH/intelligence.yaml"
-chk grep -q '/intelligence-learn-from-context' "$OUT/fresh-init.txt"
+chk grep -q '/intelligence-learn-from-repository' "$OUT/fresh-init.txt"
 chk grep -q 'recognizes the initial backup' "$OUT/fresh-init.txt"
 chk grep -q 'Existing AI instructions preserved' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence package add @ainova-systems/core' "$OUT/fresh-init.txt"
@@ -42,6 +52,12 @@ chk grep -q 'intelligence adapter list' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter enable codex' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter disable cursor' "$OUT/fresh-init.txt"
 chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- 'CLAUDE.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '.cursorrules'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '.claude/skills/legacy/SKILL.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "git rm --cached -- '$SPECIAL_TRACKED'" "$OUT/fresh-init.txt"
+chk grep -Fq "POSIX:      git rm --cached -- '.claude/apostrophe'\\''s.md'" "$OUT/fresh-init.txt"
+chk grep -Fq "PowerShell: git rm --cached -- '.claude/apostrophe''s.md'" "$OUT/fresh-init.txt"
 chk grep -q '^IS_STATUS=ok ' "$OUT/fresh-init.txt"
 chk grep -q '^=== Done:' "$OUT/fresh-init.txt"
 chknot grep -q '^=== intelligence-sync ===' "$OUT/fresh-init.txt"
@@ -58,7 +74,7 @@ if ! awk '
 fi
 if ! awk '
     /intelligence package add @ainova-systems\/core/ { package=NR }
-    /Ask your agent to run \/intelligence-learn-from-context/ { learn=NR }
+    /Ask your agent to run \/intelligence-learn-from-repository/ { learn=NR }
     END { exit !(package && learn > package) }
 ' "$OUT/fresh-init.txt"; then
     echo "FAIL: init did not recommend the starter package before repository learning"
@@ -74,14 +90,31 @@ chk grep -Fqx '.cursor/*' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/settings.json' "$FRESH/.gitignore"
 chk grep -Fqx 'intelligence/_backup/' "$FRESH/.gitignore"
 chknot grep -Fqx '.github/' "$FRESH/.gitignore"
+for policy in .vscodeignore .npmignore .dockerignore; do
+    chk grep -Fqx '# Intelligence development context and generated output' "$FRESH/$policy"
+    chk grep -Fqx '.intelligence/**' "$FRESH/$policy"
+    chk grep -Fqx 'intelligence.yaml' "$FRESH/$policy"
+    chk grep -Fqx 'intelligence.lock' "$FRESH/$policy"
+    chk grep -Fqx 'intelligence/**' "$FRESH/$policy"
+    chk grep -Fqx 'AGENTS.md' "$FRESH/$policy"
+    chk grep -Fqx '.claude/**' "$FRESH/$policy"
+    chk grep -Fqx '.cursor/**' "$FRESH/$policy"
+    chk grep -Fqx '.github/**' "$FRESH/$policy"
+done
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --no-sync >/dev/null)
+for policy in .vscodeignore .npmignore .dockerignore; do
+    count="$(grep -Fxc '# Intelligence development context and generated output' "$FRESH/$policy" || true)"
+    [ "$count" -eq 1 ] || { echo "FAIL: publisher-ignore block duplicated in $policy"; fail=1; }
+done
 chk cmp -s "$FRESH/CLAUDE.md" "$FRESH/intelligence/_backup/CLAUDE.md"
 chk cmp -s "$FRESH/.cursorrules" "$FRESH/intelligence/_backup/.cursorrules"
+chk grep -q 'Legacy local skill' "$FRESH/intelligence/_backup/.claude/skills/legacy/SKILL.md"
 chk test -d "$FRESH/intelligence/_backup/.github/instructions"
 chk grep -Fqx $'state\tinitial-onboarding' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'path\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -q 'CUSTOM_AGENTS_MARKER' "$FRESH/intelligence/_backup/AGENTS.md"
 chk grep -q 'intelligence/_backup/AGENTS.md' "$FRESH/AGENTS.md"
-chk grep -q '/intelligence-learn-from-context' "$FRESH/AGENTS.md"
+chk grep -q '/intelligence-learn-from-repository' "$FRESH/AGENTS.md"
 touch "$FRESH/.claude/settings.json" "$FRESH/.claude/settings.local.json" "$FRESH/.cursor/settings.json"
 chknot git -C "$FRESH" check-ignore -q .claude/settings.json
 chk git -C "$FRESH" check-ignore -q .claude/settings.local.json
@@ -93,13 +126,17 @@ chk grep -q 'intelligence/\*\*' "$FRESH/.cursor/rules/intelligence-authoring.mdc
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/conventions.md' \
     "$FRESH/.claude/skills/intelligence-review-skills/SKILL.md"
 chk test -f "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
-chk grep -q '_backup/manifest.tsv' "$FRESH/.claude/skills/intelligence-learn-from-context/SKILL.md"
+chk grep -q '_backup/manifest.tsv' "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
+chk grep -q 'established Intelligence project' "$FRESH/.claude/skills/intelligence-learn-from-context/SKILL.md"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md' \
     "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
     "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github"
 (cd "$FRESH" && bash "$CLI" status --check)
+
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/fresh-resync.txt")
+chknot grep -q 'NOT SYNCED: intelligence/_backup/' "$OUT/fresh-resync.txt"
 
 compact_output="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)"
 compact_lines="$(printf '%s\n' "$compact_output" | awk 'NF{n++} END{print n+0}')"
@@ -163,6 +200,7 @@ targets:
 EOF
 mkdir -p "$LEG/intelligence/rules"
 printf '# Ctx\n\nlegacy project context\n' > "$LEG/intelligence/rules/context.md"
+printf '# existing Docker context rule\nnode_modules\n' > "$LEG/.dockerignore"
 git -C "$LEG" init --quiet
 # The mirror is what legacy Intelligence Sync would have materialized: committed pack content
 # plus its stamp. migrate must COPY it rather than refetch, so the fixture
@@ -184,7 +222,7 @@ chk grep -q 'packages/@' "$OUT/dry.txt"
 echo "== init --apply (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply > "$OUT/migrate.txt")
 chk test -f "$LEG/intelligence.yaml"
-chk grep -q '/intelligence-learn-from-context' "$OUT/migrate.txt"
+chk grep -q '/intelligence-learn-from-repository' "$OUT/migrate.txt"
 chk test -f "$LEG/intelligence.lock"
 chknot test -f "$LEG/intelligence/config.yaml"
 chknot test -d "$LEG/intelligence/sync"
@@ -201,6 +239,8 @@ chk grep -q "url: \"file://$PACK\"" "$LEG/intelligence.lock"
 chknot grep -q '^packs:' "$LEG/intelligence.yaml"
 chknot grep -q '^sync_version:' "$LEG/intelligence.yaml"
 chk grep -q "^schema_version: \"$ENGINE_VER\"" "$LEG/intelligence.yaml"
+chk grep -Fqx '.intelligence/**' "$LEG/.dockerignore"
+chk grep -Fqx 'intelligence.yaml' "$LEG/.dockerignore"
 git -C "$LEG" status --porcelain | grep -q . || { echo "FAIL: migrate produced no diff"; fail=1; }
 
 echo "== deep status after migrate =="

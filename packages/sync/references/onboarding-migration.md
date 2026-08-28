@@ -66,9 +66,14 @@ For every removed or renamed path, search all tracked files with `git ls-files`
 and report remaining references with file and line number. Apply an unambiguous
 replacement directly; ask about narrative or otherwise ambiguous references.
 
-The CLI owns generated-output `.gitignore` entries. Verify its patterns against
-the enabled adapters and preserve `AGENTS.md`, `.github/`, shared settings, and
-unrelated files under shared tool roots.
+The CLI owns generated-output `.gitignore` entries and its blocks in existing
+`.vscodeignore`, `.npmignore`, and `.dockerignore` files. Verify them against
+the enabled adapters. Treat CLI-reported tracked ignored paths as unresolved
+until the user approves the exact `git rm --cached` commands. Preserve
+`AGENTS.md`, `.github/`, shared settings, and unrelated files under shared tool
+roots in Git, while excluding development-only Intelligence content from
+published artifacts. Inspect the packager's actual file list before release;
+do not infer package or Docker context contents from Git status.
 
 Keep `<content-dir>/_backup/` until the user separately approves its removal
 after migration and reference checks pass. The backup remains gitignored.

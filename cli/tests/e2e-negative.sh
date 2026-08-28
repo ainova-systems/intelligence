@@ -390,7 +390,7 @@ if printf '%s\n' "$OUTPUT" | grep -q '^=== Sync completed ===$'; then
     echo "FAIL: failed init falsely announced sync completion"
     fail=1
 fi
-printf '%s\n' "$OUTPUT" | grep -q 'intelligence-learn-from-context/SKILL.md' \
+printf '%s\n' "$OUTPUT" | grep -q 'intelligence-learn-from-repository/SKILL.md' \
     || { echo "FAIL: failed init did not expose the recovery skill path"; fail=1; }
 chk grep -q 'INITIAL_AGENTS_SURVIVES' "$PFAIL/AGENTS.md"
 chk grep -Fqx $'state\tinitial-onboarding' "$PFAIL/intelligence/_backup/manifest.tsv"
@@ -420,6 +420,9 @@ printf "# Claude marker
 git -C "$P13" init --quiet
 xok "engine content installed" "$P13" init
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
+chknot test -e "$P13/.vscodeignore"
+chknot test -e "$P13/.npmignore"
+chknot test -e "$P13/.dockerignore"
 chknot grep -q '^[[:space:]]*url:' "$P13/intelligence.yaml"
 chknot grep -q '^[[:space:]]*path:' "$P13/intelligence.yaml"
 chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/intelligence.lock"
@@ -643,9 +646,11 @@ xfail "invalid ownership contract" "$PROJ" adapter enable myide
 chknot grep -q '^  myide:' "$PROJ/intelligence.yaml"
 cp "$OUT/myide-template.sh" "$PROJ/intelligence/adapters/myide.sh"
 
+printf '# existing VSIX rule\nout/**\n' > "$PROJ/.vscodeignore"
 xok "enabled: myide" "$PROJ" adapter enable myide
 chk grep -q 'myide: { enabled: true, output: ".myide" }' "$PROJ/intelligence.yaml"
 chk grep -Fqx '.myide/rules/' "$PROJ/.gitignore"
+chk grep -Fqx '.myide/**' "$PROJ/.vscodeignore"
 grep -Fvx '.myide/rules/' "$PROJ/.gitignore" > "$PROJ/.gitignore.tmp"
 mv "$PROJ/.gitignore.tmp" "$PROJ/.gitignore"
 xok "IS_STATUS=ok" "$PROJ" init
@@ -660,6 +665,7 @@ xfail "usage: intelligence sync" "$PROJ" sync agents claude --compact
 # A failure in a later adapter rolls every earlier output back, and adapter
 # enable also restores its manifest/Git-policy mutation.
 cp "$PROJ/AGENTS.md" "$OUT/agents-before-failed-sync.md"
+cp "$PROJ/.vscodeignore" "$OUT/vscodeignore-before-failed-sync"
 mkdir -p "$PROJ/intelligence/rules"
 printf '# Rollback probe\n\nROLLBACK_RULE_MUST_NOT_REACH_OUTPUT\n' > "$PROJ/intelligence/rules/rollback-probe.md"
 cat > "$PROJ/intelligence/adapters/myide.sh" <<'EOF'
@@ -679,6 +685,7 @@ chk cmp -s "$OUT/agents-before-failed-sync.md" "$PROJ/AGENTS.md"
 chknot test -e "$PROJ/.myide/state"
 chk grep -q 'myide: { enabled: false, output: ".myide" }' "$PROJ/intelligence.yaml"
 chknot grep -Fqx '.myide/state/' "$PROJ/.gitignore"
+chk cmp -s "$OUT/vscodeignore-before-failed-sync" "$PROJ/.vscodeignore"
 
 # Existing output is preserved byte-for-byte when a target is toggled.
 xok "disabled: claude" "$PROJ" adapter disable claude
