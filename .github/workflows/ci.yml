@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Run shellcheck over the CLI
+      - name: Run shellcheck over the CLI and npm scripts
         run: bash cli/tests/verify.sh lint-cli
 
   cli-e2e:

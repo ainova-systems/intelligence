@@ -10,9 +10,9 @@
 #   bash cli/tests/verify.sh              gates the current diff can affect
 #   bash cli/tests/verify.sh all          every gate
 #   bash cli/tests/verify.sh lint         shellcheck over cli/ and engine/
-#   bash cli/tests/verify.sh lint-cli     shellcheck over cli/ only
+#   bash cli/tests/verify.sh lint-cli     shellcheck over cli/ and npm/ scripts
 #   bash cli/tests/verify.sh lint-engine  shellcheck over engine/ only
-#   bash cli/tests/verify.sh tests        the five CLI suites
+#   bash cli/tests/verify.sh tests        the six hermetic suites
 #
 # Suites take a repository root so CI can point them at its workspace; they
 # default to the tree this script lives in, which is what the local flow wants.
@@ -21,7 +21,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest e2e-packages e2e-lifecycle e2e-negative)
+SUITES=(unit-semver unit-manifest unit-release e2e-packages e2e-lifecycle e2e-negative)
 
 failed=0
 skipped=()
@@ -50,6 +50,7 @@ lint_cli() {
     require_shellcheck || return 1
     shellcheck --severity=warning cli/intelligence || rc=1
     find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning || rc=1
+    find npm -maxdepth 1 -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning || rc=1
     return "$rc"
 }
 
@@ -113,7 +114,7 @@ main() {
             fi
             # Shell sources decide the lint gate; anything the engine renders or
             # the CLI resolves decides the suites.
-            if grep -Eq '^(cli|engine)/.*\.sh$|^cli/intelligence$' <<< "$paths"; then
+            if grep -Eq '^(cli|engine)/.*\.sh$|^npm/[^/]+\.sh$|^cli/intelligence$' <<< "$paths"; then
                 want_lint=1
             fi
             if grep -Eq '^(cli|engine|packages/sync|examples|npm)/' <<< "$paths"; then

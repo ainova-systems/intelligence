@@ -5,7 +5,7 @@ name: release-npm
 # Publishing a GitHub Release is the only release action. The release tag is
 # the npm version and selects the channel:
 #   vX.Y.Z-rc.N -> npm dist-tag `next` (GitHub prerelease required)
-#   vX.Y.Z      -> npm dist-tag `latest` (non-prerelease GitHub Release required)
+#   vX.Y.Z      -> npm `latest`; advances `next` unless a newer preview exists
 # The tag's base X.Y.Z must match engine/VERSION, and its commit must be in
 # main. engine/VERSION and schema_version never carry the npm RC suffix.
 #
@@ -103,25 +103,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # npm pins `latest` to the FIRST version a package ever publishes,
-      # whatever `--tag` said — so a package whose first release was a
-      # prerelease serves that prerelease to every plain `npm i -g` until a
-      # stable ships. While `latest` still points at a prerelease, keep it on
-      # the newest one; the first stable publish takes it over for good.
-      - name: Keep `latest` off a stale prerelease
-        if: steps.ver.outputs.tag == 'next'
-        run: |
-          set -euo pipefail
-          PKG="@ainova-systems/intelligence"
-          CURRENT="$(npm view "$PKG" dist-tags.latest 2>/dev/null || true)"
-          case "$CURRENT" in
-            *-*)
-              npm dist-tag add "$PKG@${{ steps.ver.outputs.version }}" latest
-              echo "latest: $CURRENT -> ${{ steps.ver.outputs.version }} (no stable release yet)"
-              ;;
-            *)
-              echo "latest is $CURRENT (stable) — left alone"
-              ;;
-          esac
+      - name: Align npm dist-tags after publish
+        run: bash npm/align-dist-tags.sh "${{ steps.ver.outputs.tag }}" "${{ steps.ver.outputs.version }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

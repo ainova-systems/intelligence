@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.3]
+
+### Fixed
+
+- Advanced stale npm `next` tags with stable releases without replacing a newer preview line.
+
 ## [0.11.2]
 
 ### Changed
