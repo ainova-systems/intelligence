@@ -50,6 +50,6 @@ Two directories now carry the word: `intelligence/` is this project's own conten
 ## Release status
 
 Intelligence has a stable release line. Publishing a matching non-prerelease
-GitHub Release sends `X.Y.Z` to npm dist-tag `latest`; publishing a GitHub prerelease
-sends `X.Y.Z-rc.N` to `next`. Release timing remains an owner decision, and public
-registry traffic changes are coordinated separately from product publishing.
+GitHub Release sends `X.Y.Z` to npm dist-tags `latest` and `next`; a later GitHub
+prerelease advances `next` to `X.Y.Z-rc.N`. Release timing remains an owner decision,
+and public registry traffic changes are coordinated separately from product publishing.

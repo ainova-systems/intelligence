@@ -104,8 +104,8 @@ When selecting a new version, keep these exact values aligned:
 Do not create tags or Releases as part of an ordinary contribution. A maintainer
 tags the reviewed `main` commit whose concrete version is already prepared, then
 publishes the matching GitHub Release. Non-prerelease GitHub Releases publish to
-npm `latest`; GitHub prereleases publish to `next`. The pipeline never writes back
-to `main`.
+npm `latest` and advance `next` to the same stable version; GitHub prereleases
+publish to `next`. The pipeline never writes back to `main`.
 
 ## Commit messages
 

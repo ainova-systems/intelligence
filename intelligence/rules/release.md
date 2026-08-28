@@ -34,7 +34,8 @@ Publishing a GitHub Release is the only release action — there is no separate 
 workflow to trigger. `release-npm` runs on `release.published`:
 
 - a GitHub prerelease tagged `vX.Y.Z-rc.N` publishes `X.Y.Z-rc.N` to dist-tag `next`;
-- a non-prerelease GitHub Release tagged `vX.Y.Z` publishes `X.Y.Z` to dist-tag `latest`;
+- a non-prerelease GitHub Release tagged `vX.Y.Z` publishes `X.Y.Z` to `latest`
+  and advances `next` to the same stable version, preventing stale preview installs;
 - the tag's base version must equal `engine/VERSION`, and its commit must be
   reachable from `main`;
 - `engine/VERSION` and `schema_version` never carry the npm RC suffix.
