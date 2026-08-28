@@ -27,7 +27,7 @@
 
 ## Versioned artifacts
 
-- [ ] `CHANGELOG.md` records the user-visible change; breaking items are verifiable post-conditions
+- [ ] If the change is user-visible, `CHANGELOG.md` records it; breaking items are verifiable post-conditions
 - [ ] If `engine/VERSION` changed, every example's `schema_version` and exact `@ainova-systems/sync` pin changed with it
 - [ ] No stable release is implied or published without owner approval
 
