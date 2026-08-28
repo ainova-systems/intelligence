@@ -33,11 +33,12 @@ print_new_project_onboarding() {
         echo "    intelligence sync"
     fi
     if [ "$bare" -eq 0 ]; then
+        echo "  Recommended starter package:"
+        echo "    intelligence package add @ainova-systems/core"
+        echo "    Install it before learning so package/project duplicates can be detected."
         echo "  Finalize repository onboarding:"
         echo "    Ask your agent to run /intelligence-learn-from-context"
         echo "    It recognizes the initial backup, recovers setup if needed, then proposes repository-specific migration after approval."
-        echo "  Recommended starter package:"
-        echo "    intelligence package add @ainova-systems/core"
     fi
     echo "  Review adapters:"
     echo "    intelligence adapter list"

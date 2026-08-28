@@ -54,7 +54,8 @@ approval and verified output.
 
 Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
-After a new setup or conversion completes, the CLI suggests
+After a new setup or conversion completes, the CLI first recommends
+`intelligence package add @ainova-systems/core`, then suggests
 `/intelligence-learn-from-context`. It repairs or verifies mechanical setup,
 recognizes initial backup state, then delegates repository analysis and
 migration to `intelligence-learn-from-repository`; no semantic proposal is
@@ -62,9 +63,9 @@ applied before individual approval. The CLI remains the only owner of
 initialization and legacy conversion mechanics.
 
 Setup announces the start and completion of its first compact sync. It then prints exact commands for reviewing
-and toggling adapters, recommends `intelligence package add
-@ainova-systems/core`, and explains the generated-output version-control
-choices. The CLI ignores restorable adapter-owned output while keeping
+and toggling adapters and explains the generated-output version-control
+choices. Installing the starter package before learning lets repository
+analysis detect overlap with package-owned content. The CLI ignores restorable adapter-owned output while keeping
 `AGENTS.md`, `.github/`, and shared tool settings trackable. The exact patterns
 are listed in the [artifact conventions](../packages/sync/references/conventions.md#generated-output-and-version-control).
 

@@ -33,9 +33,13 @@ mechanical setup; this skill adds only repository-specific judgement.
    and skills. Detect submodules and treat them as separate repositories unless
    the user explicitly includes them. Treat documentation as a claim and
    verify important behavior in code or executable configuration.
-4. Inventory what initialization preserved or installed. Do not
+4. Inventory what initialization preserved or installed. Compare project-owned
+   rules, agents, and skills with every configured package source. Do not
    recreate package-owned content, duplicate existing instructions, or convert
-   current generated target output into source content. Treat committed legacy root
+   current generated target output into source content. When an existing
+   project artifact is materially covered by installed package content, propose
+   `REMOVE` or a smaller `UPDATE`; require a content comparison, not merely a
+   matching name. Treat committed legacy root
    instruction files such as `.cursorrules` and instruction-bearing `CLAUDE.md`
    as migration sources, not permanent parallel entry points: propose moving
    still-valid guidance into project-owned rules and removing the legacy file

@@ -56,6 +56,14 @@ if ! awk '
     echo "FAIL: init did not show ordered sync progress before first-run guidance"
     fail=1
 fi
+if ! awk '
+    /intelligence package add @ainova-systems\/core/ { package=NR }
+    /Ask your agent to run \/intelligence-learn-from-context/ { learn=NR }
+    END { exit !(package && learn > package) }
+' "$OUT/fresh-init.txt"; then
+    echo "FAIL: init did not recommend the starter package before repository learning"
+    fail=1
+fi
 chk grep -q 'cursor: { enabled: true' "$FRESH/intelligence.yaml"
 chk grep -q 'copilot: { enabled: true, output: ".github"' "$FRESH/intelligence.yaml"
 chk grep -q '^\.intelligence/' "$FRESH/.gitignore"
