@@ -271,8 +271,8 @@ Two directories now carry the word: `intelligence/` is this project's own conten
 
 ## Release status
 
-Intelligence has a stable release line. Publishing a matching ordinary GitHub
-Release sends `X.Y.Z` to npm dist-tag `latest`; publishing a GitHub prerelease
+Intelligence has a stable release line. Publishing a matching non-prerelease
+GitHub Release sends `X.Y.Z` to npm dist-tag `latest`; publishing a GitHub prerelease
 sends `X.Y.Z-rc.N` to `next`. Release timing remains an owner decision, and public
 registry traffic changes are coordinated separately from product publishing.
 
@@ -281,7 +281,7 @@ registry traffic changes are coordinated separately from product publishing.
 
 Every PR merged into `main` belongs to one concrete version. Read
 `engine/VERSION`, then use `gh release view vX.Y.Z` to determine whether its
-ordinary GitHub Release is already published:
+non-prerelease GitHub Release is already published:
 
 - When it is published, the first following PR selects the next SemVer version,
   moves all lockstep files, and creates `## [X.Y.Z]` in `CHANGELOG.md`.
@@ -309,7 +309,7 @@ Publishing a GitHub Release is the only release action — there is no separate 
 workflow to trigger. `release-npm` runs on `release.published`:
 
 - a GitHub prerelease tagged `vX.Y.Z-rc.N` publishes `X.Y.Z-rc.N` to dist-tag `next`;
-- an ordinary GitHub release tagged `vX.Y.Z` publishes `X.Y.Z` to dist-tag `latest`;
+- a non-prerelease GitHub Release tagged `vX.Y.Z` publishes `X.Y.Z` to dist-tag `latest`;
 - the tag's base version must equal `engine/VERSION`, and its commit must be
   reachable from `main`;
 - `engine/VERSION` and `schema_version` never carry the npm RC suffix.

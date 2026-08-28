@@ -89,7 +89,7 @@ Verify the generated paths, run a second sync to prove idempotence, and confirm 
 ## Versioned files
 
 Every pull request merged into `main` belongs to one concrete changelog version.
-Check whether the ordinary GitHub Release matching `engine/VERSION` is already
+Check whether the non-prerelease GitHub Release matching `engine/VERSION` is already
 published. If it is, select the next SemVer version and create its changelog
 section; otherwise add the change to the existing pending version. Changelog
 headings contain only `[X.Y.Z]`—GitHub Release records the publication date, and
@@ -103,8 +103,9 @@ When selecting a new version, keep these exact values aligned:
 
 Do not create tags or Releases as part of an ordinary contribution. A maintainer
 tags the reviewed `main` commit whose concrete version is already prepared, then
-publishes the matching GitHub Release. Ordinary releases publish to npm `latest`;
-GitHub prereleases publish to `next`. The pipeline never writes back to `main`.
+publishes the matching GitHub Release. Non-prerelease GitHub Releases publish to
+npm `latest`; GitHub prereleases publish to `next`. The pipeline never writes back
+to `main`.
 
 ## Commit messages
 

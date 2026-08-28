@@ -37,7 +37,7 @@ adapters           agents · claude · cursor · copilot · codex · pi · openc
 
 `init` is universal: create a new Intelligence project, convert an eligible legacy Intelligence Sync project, or align an existing Intelligence project. Project-aware mutations align the project automatically before continuing; CI refuses an implicit tracked alignment and requires a reviewed `intelligence init --apply` diff. `sync` restores a missing locked package store before rendering.
 
-Intelligence includes the root manifest/lock/store layout, semver-over-Git-tag packages, trust-list-only name resolution, explicit Git sources, bundle-seeded `@ainova-systems/sync`, transactional legacy-project conversion, npm distribution and fail-closed security checks. The remaining work below follows the stable product release.
+Intelligence includes the root manifest/lock/store layout, semver-over-Git-tag packages, trust-list-only name resolution, explicit Git sources, bundle-seeded `@ainova-systems/sync`, transactional legacy-project conversion, npm distribution and fail-closed security checks. The remaining work below follows the stable release line.
 
 ## Ordered changes
 
