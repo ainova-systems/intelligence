@@ -4,6 +4,20 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.1] — 2026-08-28
+
+### Changed
+
+- Quarantined backed-up legacy root instructions before the first render; failed or interrupted sync restores them exactly.
+- Added consent-gated, sanitized GitHub issue drafting to `/intelligence-sync`, with session, personal, project-local, or team opt-out scope.
+
+### Fixed
+
+- Made settings reinclusions effective after pre-existing broad tool-directory ignores and made `status --check` detect overridden rules.
+- Stopped suggesting `git rm --cached` for legacy paths already quarantined as worktree deletions.
+- Made npm package smoke fail if repository-only CLI tests enter the published tarball.
+- Made repository purity require the committed `AGENTS.md` entry point explicitly.
+
 ## [0.11.0] — 2026-08-24
 
 ### Breaking

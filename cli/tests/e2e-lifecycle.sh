@@ -42,6 +42,10 @@ printf '# keep docker context rule\nnode_modules\n' > "$FRESH/.dockerignore"
 git -C "$FRESH" init --quiet
 git -C "$FRESH" add CLAUDE.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md \
     "$SPECIAL_TRACKED" "$APOSTROPHE_TRACKED"
+# Existing broad tool ignores are common in established projects. The CLI's
+# settings reinclusions must remain effective even when these earlier rules
+# would otherwise exclude the parent directories.
+printf '%s\n' '.claude/' '.cursor/' > "$FRESH/.gitignore"
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init > "$OUT/fresh-init.txt")
 chk test -f "$FRESH/intelligence.yaml"
 chk grep -q '/intelligence-learn-from-repository' "$OUT/fresh-init.txt"
@@ -52,9 +56,9 @@ chk grep -q 'intelligence adapter list' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter enable codex' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter disable cursor' "$OUT/fresh-init.txt"
 chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fresh-init.txt"
-chk grep -Fq "git rm --cached -- 'CLAUDE.md'" "$OUT/fresh-init.txt"
-chk grep -Fq "git rm --cached -- '.cursorrules'" "$OUT/fresh-init.txt"
-chk grep -Fq "git rm --cached -- '.claude/skills/legacy/SKILL.md'" "$OUT/fresh-init.txt"
+chknot grep -Fq "git rm --cached -- 'CLAUDE.md'" "$OUT/fresh-init.txt"
+chknot grep -Fq "git rm --cached -- '.cursorrules'" "$OUT/fresh-init.txt"
+chknot grep -Fq "git rm --cached -- '.claude/skills/legacy/SKILL.md'" "$OUT/fresh-init.txt"
 chk grep -Fq "git rm --cached -- '$SPECIAL_TRACKED'" "$OUT/fresh-init.txt"
 chk grep -Fq "POSIX:      git rm --cached -- '.claude/apostrophe'\\''s.md'" "$OUT/fresh-init.txt"
 chk grep -Fq "PowerShell: git rm --cached -- '.claude/apostrophe''s.md'" "$OUT/fresh-init.txt"
@@ -85,8 +89,10 @@ chk grep -q 'copilot: { enabled: true, output: ".github"' "$FRESH/intelligence.y
 chk grep -q '^\.intelligence/' "$FRESH/.gitignore"
 chk grep -Fqx 'CLAUDE.md' "$FRESH/.gitignore"
 chk grep -Fqx '.claude/*' "$FRESH/.gitignore"
+chk grep -Fqx '!.claude/' "$FRESH/.gitignore"
 chk grep -Fqx '!.claude/settings.json' "$FRESH/.gitignore"
 chk grep -Fqx '.cursor/*' "$FRESH/.gitignore"
+chk grep -Fqx '!.cursor/' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/settings.json' "$FRESH/.gitignore"
 chk grep -Fqx 'intelligence/_backup/' "$FRESH/.gitignore"
 chknot grep -Fqx '.github/' "$FRESH/.gitignore"
@@ -106,12 +112,20 @@ for policy in .vscodeignore .npmignore .dockerignore; do
     count="$(grep -Fxc '# Intelligence development context and generated output' "$FRESH/$policy" || true)"
     [ "$count" -eq 1 ] || { echo "FAIL: publisher-ignore block duplicated in $policy"; fail=1; }
 done
-chk cmp -s "$FRESH/CLAUDE.md" "$FRESH/intelligence/_backup/CLAUDE.md"
-chk cmp -s "$FRESH/.cursorrules" "$FRESH/intelligence/_backup/.cursorrules"
+chk grep -q '# Claude marker' "$FRESH/intelligence/_backup/CLAUDE.md"
+chk test -f "$FRESH/intelligence/_backup/.cursorrules"
+chknot test -e "$FRESH/CLAUDE.md"
+chknot test -e "$FRESH/.cursorrules"
+chknot test -e "$FRESH/.claude/commands"
+chknot test -e "$FRESH/.cursor/commands"
 chk grep -q 'Legacy local skill' "$FRESH/intelligence/_backup/.claude/skills/legacy/SKILL.md"
 chk test -d "$FRESH/intelligence/_backup/.github/instructions"
 chk grep -Fqx $'state\tinitial-onboarding' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'path\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\tCLAUDE.md' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\t.cursorrules' "$FRESH/intelligence/_backup/manifest.tsv"
+chknot test -e "$FRESH/intelligence/_backup/.quarantine-pending"
 chk grep -q 'CUSTOM_AGENTS_MARKER' "$FRESH/intelligence/_backup/AGENTS.md"
 chk grep -q 'intelligence/_backup/AGENTS.md' "$FRESH/AGENTS.md"
 chk grep -q '/intelligence-learn-from-repository' "$FRESH/AGENTS.md"
@@ -135,6 +149,12 @@ chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
     "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github"
 (cd "$FRESH" && bash "$CLI" status --check)
 
+# A deliberately new, machine-local CLAUDE.md created after onboarding is not
+# the original migration source and must survive later init/alignment runs.
+printf '# Local machine only\n' > "$FRESH/CLAUDE.md"
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init >/dev/null)
+chk grep -q 'Local machine only' "$FRESH/CLAUDE.md"
+
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/fresh-resync.txt")
 chknot grep -q 'NOT SYNCED: intelligence/_backup/' "$OUT/fresh-resync.txt"
 
@@ -143,6 +163,33 @@ compact_lines="$(printf '%s\n' "$compact_output" | awk 'NF{n++} END{print n+0}')
 [ "$compact_lines" -eq 2 ] || { echo "FAIL: compact sync emitted $compact_lines nonblank lines"; fail=1; }
 printf '%s\n' "$compact_output" | grep -q '^IS_STATUS=ok ' || { echo "FAIL: compact sync lacks final status"; fail=1; }
 printf '%s\n' "$compact_output" | grep -q '^=== Done:' || { echo "FAIL: compact sync lacks completion line"; fail=1; }
+
+echo "== init --no-sync keeps legacy input until a transactional render =="
+DEFERRED="$OUT/deferred"
+mkdir -p "$DEFERRED/.claude"
+printf '# Deferred legacy instructions\n' > "$DEFERRED/CLAUDE.md"
+git -C "$DEFERRED" init --quiet
+(cd "$DEFERRED" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --targets claude --no-sync >/dev/null)
+chk grep -q 'Deferred legacy instructions' "$DEFERRED/CLAUDE.md"
+chk test -f "$DEFERRED/intelligence/_backup/.quarantine-pending"
+(cd "$DEFERRED" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init >/dev/null)
+chknot test -e "$DEFERRED/CLAUDE.md"
+chknot test -e "$DEFERRED/intelligence/_backup/.quarantine-pending"
+chk grep -q 'Deferred legacy instructions' "$DEFERRED/intelligence/_backup/CLAUDE.md"
+
+echo "== settings-only backup does not claim or schedule quarantine =="
+SETTINGS_ONLY="$OUT/settings-only"
+mkdir -p "$SETTINGS_ONLY/.claude"
+printf '{"permissions":{}}\n' > "$SETTINGS_ONLY/.claude/settings.json"
+git -C "$SETTINGS_ONLY" init --quiet
+(cd "$SETTINGS_ONLY" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --targets claude --no-sync > "$OUT/settings-only-init.txt")
+chk test -f "$SETTINGS_ONLY/intelligence/_backup/.claude/settings.json"
+chk test -f "$SETTINGS_ONLY/.claude/settings.json"
+chknot test -e "$SETTINGS_ONLY/intelligence/_backup/.quarantine-pending"
+chknot grep -q 'Legacy root entry points were quarantined' "$OUT/settings-only-init.txt"
+(cd "$SETTINGS_ONLY" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init >/dev/null)
+chk test -f "$SETTINGS_ONLY/.claude/settings.json"
+chknot test -e "$SETTINGS_ONLY/intelligence/_backup/.quarantine-pending"
 
 compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync agents --compact)"
 printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: compact filtered sync failed"; fail=1; }

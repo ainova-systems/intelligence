@@ -394,8 +394,15 @@ printf '%s\n' "$OUTPUT" | grep -q 'intelligence-learn-from-repository/SKILL.md' 
     || { echo "FAIL: failed init did not expose the recovery skill path"; fail=1; }
 chk grep -q 'INITIAL_AGENTS_SURVIVES' "$PFAIL/AGENTS.md"
 chk grep -Fqx $'state\tinitial-onboarding' "$PFAIL/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\tAGENTS.md' "$PFAIL/intelligence/_backup/manifest.tsv"
+chk test -f "$PFAIL/intelligence/_backup/.quarantine-pending"
 chknot test -e "$PFAIL/.broken/state"
 chk test -f "$PFAIL/intelligence.yaml"
+# Recovery is repeatable: a project-aware retry quarantines the original only
+# for the sync transaction and restores it again when the adapter still fails.
+xfail "Intelligence setup needs recovery" "$PFAIL" init
+chk grep -q 'INITIAL_AGENTS_SURVIVES' "$PFAIL/AGENTS.md"
+chk test -f "$PFAIL/intelligence/_backup/.quarantine-pending"
 
 echo "== 11. status in all three modes =="
 xok "Intelligence project" "$PROJ" status
@@ -457,9 +464,9 @@ xok "removed stale .intelligence/engine" "$P13" init --apply
 chknot test -d "$P13/.intelligence/engine"
 # Early RC manifests duplicated resolved source fields. Alignment removes
 # them for every package while preserving lock-only source state.
-awk '
+awk -v engine="$ENGINE_VER" '
     { print }
-    /^    version: "0\.11\.0"/ {
+    $0 == "    version: \"" engine "\"" {
         print "    url: \"https://github.com/ainova-systems/intelligence.git\""
         print "    path: \"packages/sync\""
     }
@@ -694,6 +701,14 @@ xok "enabled: claude" "$PROJ" adapter enable claude
 chk grep -q 'claude: { enabled: true, output: ".claude" }' "$PROJ/intelligence.yaml"
 chk grep -Fqx '.claude/*' "$PROJ/.gitignore"
 chk grep -Fqx '!.claude/settings.json' "$PROJ/.gitignore"
+# A later broad rule can make an exact negation look present while remaining
+# ineffective. Deep status must catch it and init must restore effective order.
+printf '%s\n' '.claude/' >> "$PROJ/.gitignore"
+xfail "cannot re-include '.claude/settings.json'" "$PROJ" status --check
+xok "" "$PROJ" init --no-sync
+chk grep -Fqx '!.claude/' "$PROJ/.gitignore"
+chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
+xok "all good" "$PROJ" status --check
 
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.

@@ -12,6 +12,41 @@ source "$CLI_DIR/lib/cli-common.sh"
 
 targets_arg="" no_sync=0 content_dir="intelligence" bare=0
 targets_set=0 dir_set=0 bare_set=0 preview=0 apply=0 force=0
+onboarding_tx_active=0 onboarding_tx_root="" onboarding_tx_content=""
+
+onboarding_transaction_exit() {
+    local rc=$?
+    trap - EXIT
+    if [ "$onboarding_tx_active" -eq 1 ]; then
+        restore_onboarding_legacy_sources "$onboarding_tx_root" "$onboarding_tx_content"
+    fi
+    exit "$rc"
+}
+
+onboarding_transaction_begin() {
+    local tx_root="$1" tx_content="$2"
+    onboarding_quarantine_is_pending "$tx_root" "$tx_content" || return 0
+    onboarding_tx_root="$tx_root"
+    onboarding_tx_content="$tx_content"
+    onboarding_tx_active=1
+    trap onboarding_transaction_exit EXIT
+    quarantine_onboarding_legacy_sources "$tx_root" "$tx_content"
+}
+
+onboarding_transaction_rollback() {
+    trap - EXIT
+    if [ "$onboarding_tx_active" -eq 1 ]; then
+        restore_onboarding_legacy_sources "$onboarding_tx_root" "$onboarding_tx_content"
+    fi
+    onboarding_tx_active=0
+}
+
+onboarding_transaction_commit() {
+    local tx_root="$1" tx_content="$2"
+    complete_onboarding_quarantine "$tx_root" "$tx_content"
+    onboarding_tx_active=0
+    trap - EXIT
+}
 
 print_new_project_onboarding() {
     local heading="Intelligence ready"
@@ -22,6 +57,9 @@ print_new_project_onboarding() {
     if [ -n "${ONBOARDING_BACKUP_REL:-}" ]; then
         echo "  Existing AI instructions preserved:"
         echo "    $ONBOARDING_BACKUP_REL ($ONBOARDING_BACKUP_COUNT path(s))"
+        if [ "${ONBOARDING_LEGACY_COUNT:-0}" -gt 0 ]; then
+            echo "    Legacy root entry points were quarantined before the successful render."
+        fi
         if [ "$bare" -eq 0 ]; then
             echo "    The learn skill will migrate them before proposing backup removal."
         else
@@ -115,11 +153,13 @@ case "$IP_MODE" in
         ensure_manifest_gitignore "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         ensure_manifest_publisher_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         [ "$no_sync" -eq 1 ] && exit 0
+        content_dir="$(manifest_intelligence_dir "$IP_ROOT/intelligence.yaml")"
+        onboarding_transaction_begin "$IP_ROOT" "$content_dir"
         cd "$IP_ROOT"
         sync_rc=0
         bash "$CLI_DIR/commands/sync.sh" || sync_rc=$?
         if [ "$sync_rc" -ne 0 ]; then
-            content_dir="$(manifest_intelligence_dir "$IP_ROOT/intelligence.yaml")"
+            onboarding_transaction_rollback
             recovery_backup=""
             if [ -f "$IP_ROOT/$content_dir/_backup/manifest.tsv" ]; then
                 recovery_backup="; initial backup: $content_dir/_backup/manifest.tsv"
@@ -131,6 +171,7 @@ case "$IP_MODE" in
             echo "    $SYNC_PKG_STORE/skills/intelligence-learn-from-repository/SKILL.md" >&2
             echo "  and finalize this Intelligence setup$recovery_backup." >&2
         fi
+        [ "$sync_rc" -ne 0 ] || onboarding_transaction_commit "$IP_ROOT" "$content_dir"
         [ "$sync_rc" -ne 0 ] || report_tracked_managed_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         exit "$sync_rc"
         ;;
@@ -313,6 +354,7 @@ ensure_manifest_publisher_ignores "$root" "$manifest"
 echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 [ "$bare" -eq 1 ] && echo "  bare setup: no packages — engine meta-skills not installed"
 if [ "$no_sync" -eq 0 ]; then
+    onboarding_transaction_begin "$root" "$content_dir"
     cd "$root"
     sync_rc=0
     echo ""
@@ -320,6 +362,7 @@ if [ "$no_sync" -eq 0 ]; then
     echo "  Rendering enabled adapters in compact mode..."
     bash "$CLI_DIR/commands/sync.sh" --compact || sync_rc=$?
     if [ "$sync_rc" -ne 0 ]; then
+        onboarding_transaction_rollback
         echo "" >&2
         echo "=== Intelligence setup needs recovery ===" >&2
         echo "  No partial adapter update was kept; sync restored its pre-run outputs." >&2
@@ -332,6 +375,7 @@ if [ "$no_sync" -eq 0 ]; then
         fi
         exit "$sync_rc"
     fi
+    onboarding_transaction_commit "$root" "$content_dir"
     echo "=== Sync completed ==="
 fi
 

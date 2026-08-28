@@ -9,6 +9,42 @@ gitignore_add_line() {
     printf '%s\n' "$line" >> "$file"
 }
 
+gitignore_path_is_ignored() {
+    local root="$1" path="$2"
+    git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 2
+    git -C "$root" check-ignore -q --no-index -- "$path"
+}
+
+# Git cannot re-include a child of an excluded directory. Add explicit parent
+# reinclusions, then make sure both parent and child negations occur after any
+# pre-existing rule that still wins. The check-ignore probe also catches broad
+# patterns such as an old `.claude/` or `.cursor/**`, not just exact matches.
+gitignore_add_effective_include() {
+    local root="$1" value="${2#./}" dir parent="" part rc
+    dir="${value%/*}"
+    if [ "$dir" != "$value" ]; then
+        while IFS= read -r part; do
+            [ -n "$part" ] || continue
+            if [ -n "$parent" ]; then parent="$parent/$part"; else parent="$part"; fi
+            gitignore_add_line "$root" "!$parent/"
+            if gitignore_path_is_ignored "$root" "$parent/"; then
+                printf '!%s/\n' "$parent" >> "$root/.gitignore"
+            else
+                rc=$?
+                [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ] || return "$rc"
+            fi
+        done < <(printf '%s\n' "$dir" | tr '/' '\n')
+    fi
+
+    gitignore_add_line "$root" "!$value"
+    if gitignore_path_is_ignored "$root" "$value"; then
+        printf '!%s\n' "$value" >> "$root/.gitignore"
+    else
+        rc=$?
+        [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ] || return "$rc"
+    fi
+}
+
 ensure_gitignore_header() {
     local root="$1" file="$1/.gitignore"
     if [ ! -f "$file" ] || ! grep -Fqx '# Intelligence generated state and tool output' "$file"; then
@@ -36,7 +72,7 @@ ensure_target_gitignore() {
     while IFS=$'\t' read -r kind value; do
         case "$kind" in
             ignore)  gitignore_add_line "$root" "$value" ;;
-            include) gitignore_add_line "$root" "!$value" ;;
+            include) gitignore_add_effective_include "$root" "$value" ;;
         esac
     done <<< "$records"
 }
@@ -138,10 +174,11 @@ managed_gitignore_patterns() {
 }
 
 # Git does not apply ignore rules retroactively to files already in its index.
-# Name each affected path and print a command which only untracks it; the local
-# file remains available as migration input.
+# Name each affected path that still exists and print a command which only
+# untracks it. Quarantined legacy paths are already worktree deletions and must
+# not receive a misleading "keep the local copy" instruction.
 report_tracked_managed_ignores() {
-    local root="$1" manifest="$2" patterns tracked path quoted posix_quoted powershell_quoted
+    local root="$1" manifest="$2" patterns tracked path quoted posix_quoted powershell_quoted announced=0
     git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
     patterns="$(mktemp -t intelligence-gitignore-XXXXXX)"
     tracked="$(mktemp -t intelligence-tracked-XXXXXX)"
@@ -155,9 +192,13 @@ report_tracked_managed_ignores() {
         rm -f "$tracked"
         return 0
     }
-    echo "  Tracked files still bypass these .gitignore rules. Untrack them without deleting local copies:"
     while IFS= read -r -d '' path; do
         [ -n "$path" ] || continue
+        [ -e "$root/$path" ] || [ -L "$root/$path" ] || continue
+        if [ "$announced" -eq 0 ]; then
+            echo "  Tracked files still bypass these .gitignore rules. Untrack them without deleting local copies:"
+            announced=1
+        fi
         if [[ "$path" == *"'"* ]]; then
             # macOS still ships Bash 3.2; use portable sed rather than newer
             # parameter-replacement behavior for the embedded quote.

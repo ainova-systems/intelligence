@@ -31,3 +31,13 @@ adapter_contract_paths() {
     adapter_records_for "$root" "$content_dir" "$name" "$output" \
         | awk -F '\t' '$1 == "owned" || $1 == "managed" || $1 == "legacy" || $1 == "preserve" { print $2 }'
 }
+
+# Keep the record kind for onboarding. A single concrete path may be both an
+# adapter output and a legacy input (AGENTS.md is the important example), so
+# flattening the contract too early loses the information needed to quarantine
+# only legacy entry points.
+adapter_contract_onboarding_records() {
+    local root="$1" content_dir="$2" name="$3" output="$4"
+    adapter_records_for "$root" "$content_dir" "$name" "$output" \
+        | awk -F '\t' '$1 == "owned" || $1 == "managed" || $1 == "legacy" || $1 == "preserve" { print $1 "\t" $2 }'
+}

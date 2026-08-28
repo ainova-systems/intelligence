@@ -117,8 +117,17 @@ while IFS= read -r target; do
                         || warn "adapter '$target' Git policy is missing '$value'"
                     ;;
                 include)
-                    grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null \
-                        || warn "adapter '$target' Git policy is missing '!$value'"
+                    if ! grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null; then
+                        warn "adapter '$target' Git policy is missing '!$value'"
+                    elif git -C "$IP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                        if git -C "$IP_ROOT" check-ignore -q --no-index -- "$value"; then
+                            warn "adapter '$target' Git policy cannot re-include '$value' because another ignore rule still wins"
+                        else
+                            ignore_rc=$?
+                            [ "$ignore_rc" -eq 1 ] \
+                                || warn "adapter '$target' Git policy for '$value' could not be evaluated"
+                        fi
+                    fi
                     ;;
             esac
         fi

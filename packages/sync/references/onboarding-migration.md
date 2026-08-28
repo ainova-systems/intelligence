@@ -8,8 +8,10 @@ Git diff showing that the first sync replaced tracked tool output.
 
 When `<content-dir>/_backup/manifest.tsv` contains
 `state<TAB>initial-onboarding`, it is the authoritative inventory from before
-the first generated write. Read each `target` and `path` record before looking
-at current adapter output. If `path<TAB>AGENTS.md` is present, the backed-up
+the first generated write. Read each `target`, `path`, and `legacy` record
+before looking at current adapter output. A `legacy` record means the CLI
+quarantined that active entry point before the first successful render. If
+`path<TAB>AGENTS.md` is present, the backed-up
 file is the original custom project contract; keep following it while deciding
 how to migrate its durable guidance.
 
@@ -22,7 +24,8 @@ Treat these as migration inputs, not as current generated output:
 - Codex/Open Agent Skills, Pi rules/prompts, and OpenCode agents/commands;
 - scripts or documentation that describe an older sync path.
 
-Prefer the copy under `<content-dir>/_backup/`. If it is absent and the first
+Prefer the copy under `<content-dir>/_backup/`; do not restore quarantined root
+monoliths as active instructions. If the backup is absent and the first
 sync changed tracked files, inspect their pre-sync content read-only through
 Git (`git diff` and `git show HEAD:<path>`). Never restore old content directly
 into an adapter output directory.
@@ -60,7 +63,10 @@ Prefer updating an existing project-owned artifact to creating a sibling.
 Obtain approval per `CREATE`, `UPDATE`, `REMOVE`, or `KEEP` proposal. Apply
 project-owned source changes first, then run `intelligence sync` and
 `intelligence status --check`. Inspect the enabled targets to prove the
-migrated guidance arrived before removing old root instructions or tool files.
+migrated guidance arrived and verify quarantined old root instructions remain
+absent. Create a new root tool file only from a separately approved, genuinely
+machine-local subset that has no adapter representation; never restore the
+original instruction monolith.
 
 For every removed or renamed path, search all tracked files with `git ls-files`
 and report remaining references with file and line number. Apply an unambiguous
@@ -68,8 +74,10 @@ replacement directly; ask about narrative or otherwise ambiguous references.
 
 The CLI owns generated-output `.gitignore` entries and its blocks in existing
 `.vscodeignore`, `.npmignore`, and `.dockerignore` files. Verify them against
-the enabled adapters. Treat CLI-reported tracked ignored paths as unresolved
-until the user approves the exact `git rm --cached` commands. Preserve
+the enabled adapters. Treat CLI-reported tracked ignored paths that still exist
+locally as unresolved until the user approves the exact `git rm --cached`
+commands. A quarantined tracked legacy path is already a worktree deletion;
+review and stage that deletion normally instead of using `git rm --cached`. Preserve
 `AGENTS.md`, `.github/`, shared settings, and unrelated files under shared tool
 roots in Git, while excluding development-only Intelligence content from
 published artifacts. Inspect the packager's actual file list before release;
