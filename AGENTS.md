@@ -198,8 +198,8 @@ auto-detect what is absent.
 ## Releases
 
 - release_flow: tag-on-default
-- changelog: assembled
-- release_cut: release-pr
+- changelog: continuous
+- release_cut: direct          <!-- no release branch or release PR has ever existed; a maintainer tags a reviewed main commit -->
 - release_artifact: github-release
 - release_notes: changelog-section
 - tagger: maintainer
