@@ -27,8 +27,9 @@
 
 ## Versioned artifacts
 
-- [ ] If the change is user-visible, `CHANGELOG.md` records it; breaking items are verifiable post-conditions
-- [ ] If `engine/VERSION` changed, every example's `schema_version` and exact `@ainova-systems/sync` pin changed with it
+- [ ] The PR records its change under one concrete `CHANGELOG.md` version; there is no `[Unreleased]` section or duplicated release date
+- [ ] The current `engine/VERSION` release state was checked: append while pending, or select the next SemVer after publication
+- [ ] If a new version was selected, every example's `schema_version` and exact `@ainova-systems/sync` pin changed with it
 - [ ] No stable release is implied or published without owner approval
 
 ## Notes for reviewers

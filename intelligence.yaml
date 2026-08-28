@@ -4,7 +4,7 @@ project:
   name: "intelligence"
 
 # Schema version of this manifest. The CLI keeps it in step with its engine.
-schema_version: "0.11.1"
+schema_version: "0.11.2"
 
 # Where content comes from. Nothing here has to exist: a directory that is
 # absent is skipped, so a project consuming only packages authors nothing of
@@ -64,6 +64,6 @@ registries:
 
 packages:
   "@ainova-systems/sync":
-    version: "0.11.1"
+    version: "0.11.2"
   "@ainova-systems/core":
     version: "^0.3.0"
