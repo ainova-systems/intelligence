@@ -19,11 +19,7 @@
 
 ## Verification
 
-- [ ] `bash cli/tests/unit-semver.sh .`
-- [ ] `bash cli/tests/unit-manifest.sh .`
-- [ ] `bash cli/tests/e2e-packages.sh .`
-- [ ] `bash cli/tests/e2e-lifecycle.sh .`
-- [ ] `bash cli/tests/e2e-negative.sh .`
+- [ ] `bash cli/tests/verify.sh` reports `verify ok` and skipped nothing this change needed
 - [ ] `intelligence status --check` succeeds in the relevant fixture/project
 - [ ] A second `intelligence sync` produces no unexpected diff
 - [ ] Adapter changes were checked against the real tool format and preserve hand-authored sibling files
@@ -31,7 +27,7 @@
 
 ## Versioned artifacts
 
-- [ ] `CHANGELOG.md` records the user-visible change; breaking items are verifiable post-conditions
+- [ ] If the change is user-visible, `CHANGELOG.md` records it; breaking items are verifiable post-conditions
 - [ ] If `engine/VERSION` changed, every example's `schema_version` and exact `@ainova-systems/sync` pin changed with it
 - [ ] No stable release is implied or published without owner approval
 

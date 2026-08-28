@@ -18,11 +18,7 @@ jobs:
       - name: Run shellcheck over the engine
         run: |
           shellcheck --version
-          # Skip the adapter template — `<name>` placeholders are parsed as
-          # input redirection by bash/shellcheck.
-          find engine -name '*.sh' \
-            -not -path '*/adapters/_template.sh' \
-            -print0 | xargs -0 shellcheck --severity=warning
+          bash cli/tests/verify.sh lint-engine
 
   cli-shellcheck:
     name: cli-shellcheck
@@ -30,9 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Run shellcheck over the CLI
-        run: |
-          shellcheck --severity=warning cli/intelligence
-          find cli -name '*.sh' -print0 | xargs -0 shellcheck --severity=warning
+        run: bash cli/tests/verify.sh lint-cli
 
   cli-e2e:
     name: cli-e2e (${{ matrix.os }})
@@ -43,16 +37,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - name: Unit — semver over git tags
-        run: bash cli/tests/unit-semver.sh "$GITHUB_WORKSPACE"
-      - name: Unit — manifest editors and lockfile round-trip
-        run: bash cli/tests/unit-manifest.sh "$GITHUB_WORKSPACE"
-      - name: Package lifecycle (package commands, update plan/apply, registry)
-        run: bash cli/tests/e2e-packages.sh "$GITHUB_WORKSPACE"
-      - name: Project lifecycle (universal init, sync restore/alignment, status checks)
-        run: bash cli/tests/e2e-lifecycle.sh "$GITHUB_WORKSPACE"
-      - name: Negative paths (bad specs, lock drift, init rollback, refusals)
-        run: bash cli/tests/e2e-negative.sh "$GITHUB_WORKSPACE"
+      # The suite list lives in the gate runner, so a new suite is added there
+      # once instead of here and in three documents.
+      - name: CLI suites (semver, manifest, packages, lifecycle, negative paths)
+        run: bash cli/tests/verify.sh tests
 
   npm-pack-smoke:
     name: npm-pack-smoke (${{ matrix.os }})
@@ -140,7 +128,7 @@ jobs:
           test -f engine/sync.sh
           test -f engine/VERSION
           test -d packages/sync/skills
-          if rg -n '<umbrella>|IS_UMBRELLA_REL' engine packages/sync cli docs README.md CLAUDE.md; then
+          if rg -n '<umbrella>|IS_UMBRELLA_REL' engine packages/sync cli docs README.md AGENTS.md; then
             echo "LEGACY TOKEN: use <content-dir> and IS_CONTENT_REL"; fail=1
           fi
           for f in docs/*.md packages/sync/references/*.md; do

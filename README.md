@@ -242,11 +242,8 @@ The executable engine and its content package are separate trees on purpose. See
 ## Development
 
 ```bash
-bash cli/tests/unit-semver.sh .
-bash cli/tests/unit-manifest.sh .
-bash cli/tests/e2e-packages.sh .
-bash cli/tests/e2e-lifecycle.sh .
-bash cli/tests/e2e-negative.sh .
+bash cli/tests/verify.sh        # the gates your diff can affect
+bash cli/tests/verify.sh all    # shellcheck plus every CLI suite
 bash npm/build.sh 0.0.0-dev
 ```
 

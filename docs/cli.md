@@ -263,14 +263,13 @@ The engine reads local sources only. Package/network mechanics and project schem
 
 ## Developing the CLI
 
-Run the five hermetic suites:
+`cli/tests/verify.sh` is the single gate runner. Bare, it reads the diff against `main` and runs the gates that diff can affect, printing the ones it skipped; `all`, `lint`, `lint-cli`, `lint-engine` and `tests` select a scope explicitly. CI calls the same scopes, so adding a gate means editing the runner rather than a workflow.
 
 ```bash
-bash cli/tests/unit-semver.sh .
-bash cli/tests/unit-manifest.sh .
-bash cli/tests/e2e-packages.sh .
-bash cli/tests/e2e-lifecycle.sh .
-bash cli/tests/e2e-negative.sh .
+bash cli/tests/verify.sh
+bash cli/tests/verify.sh all
 ```
+
+The `tests` scope runs the five hermetic suites (`unit-semver`, `unit-manifest`, `e2e-packages`, `e2e-lifecycle`, `e2e-negative`); the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
 
 Build the npm payload with `bash npm/build.sh 0.0.0-dev`. To release, create and push a tag from `main`, then publish a GitHub Release for it. Prerelease tag `vX.Y.Z-rc.N` goes to npm dist-tag `next`, while stable tag `vX.Y.Z` goes to `latest`. Mark an RC Release as a prerelease; the workflow rejects a tag outside `main`, a base version that differs from `engine/VERSION`, or a mismatched prerelease flag.

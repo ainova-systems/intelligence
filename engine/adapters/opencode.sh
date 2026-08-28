@@ -39,8 +39,8 @@ adapter_contract_opencode() {
 
 # Strip frontmatter, return body only.
 # Direct call to the shared `strip_frontmatter` helper in lib/common.sh —
-# duplicating the awk block here would violate the "all parsing in common.sh"
-# convention (see CLAUDE.md / packages/sync/references/conventions.md).
+# duplicating the awk block here would fork frontmatter parsing, which the
+# convention keeps in one place.
 
 sync_opencode_skills() {
     local repo_root="$1"
