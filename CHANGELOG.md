@@ -41,7 +41,9 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - Made multi-adapter sync transactional; a failure restores every selected adapter path to its exact pre-sync state.
 - Made `/intelligence-learn-from-context` recover or verify setup before routing initial backups through repository learning.
 - Preserved custom root `AGENTS.md` in the initial backup and linked it from generated onboarding context until migration finishes.
-- Moved first-run guidance after a compact sync and restored adapter-owned `.gitignore` setup, exact adapter commands, and the starter-package recommendation.
+- Added visible start/completion progress around init's compact sync, then printed adapter, Git policy, learning, and starter-package guidance.
+- Ordered starter-package installation before repository learning and added package/project duplicate review.
+- Kept newly enabled adapters inside the visible target list, before following commented manifest sections.
 - Made repository learning migrate legacy root instructions into project-owned rules instead of preserving parallel entry points.
 - Preserved existing AI instruction paths before first sync and restored format-aware, approval-gated onboarding migration guidance.
 - Restored legacy tool-marker detection for `.cursorrules`, `.agents/`, and Copilot instruction, agent, and skill paths.

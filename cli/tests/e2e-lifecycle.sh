@@ -45,8 +45,23 @@ chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fre
 chk grep -q '^IS_STATUS=ok ' "$OUT/fresh-init.txt"
 chk grep -q '^=== Done:' "$OUT/fresh-init.txt"
 chknot grep -q '^=== intelligence-sync ===' "$OUT/fresh-init.txt"
-if ! awk '/^=== Done:/{done=NR} /^=== Intelligence ready ===/{ready=NR} END{exit !(done && ready > done)}' "$OUT/fresh-init.txt"; then
-    echo "FAIL: first-run guidance was not printed after compact sync"
+if ! awk '
+    /^=== Sync started ===$/ { started=NR }
+    /^IS_STATUS=ok / { status=NR }
+    /^=== Done:/ { done=NR }
+    /^=== Sync completed ===$/ { completed=NR }
+    /^=== Intelligence ready ===$/ { ready=NR }
+    END { exit !(started && status > started && done > status && completed > done && ready > completed) }
+' "$OUT/fresh-init.txt"; then
+    echo "FAIL: init did not show ordered sync progress before first-run guidance"
+    fail=1
+fi
+if ! awk '
+    /intelligence package add @ainova-systems\/core/ { package=NR }
+    /Ask your agent to run \/intelligence-learn-from-context/ { learn=NR }
+    END { exit !(package && learn > package) }
+' "$OUT/fresh-init.txt"; then
+    echo "FAIL: init did not recommend the starter package before repository learning"
     fail=1
 fi
 chk grep -q 'cursor: { enabled: true' "$FRESH/intelligence.yaml"

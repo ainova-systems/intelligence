@@ -33,11 +33,12 @@ print_new_project_onboarding() {
         echo "    intelligence sync"
     fi
     if [ "$bare" -eq 0 ]; then
+        echo "  Recommended starter package:"
+        echo "    intelligence package add @ainova-systems/core"
+        echo "    Install it before learning so package/project duplicates can be detected."
         echo "  Finalize repository onboarding:"
         echo "    Ask your agent to run /intelligence-learn-from-context"
         echo "    It recognizes the initial backup, recovers setup if needed, then proposes repository-specific migration after approval."
-        echo "  Recommended starter package:"
-        echo "    intelligence package add @ainova-systems/core"
     fi
     echo "  Review adapters:"
     echo "    intelligence adapter list"
@@ -309,6 +310,9 @@ echo "initialized: intelligence.yaml (targets:$(printf ' %s' $targets))"
 if [ "$no_sync" -eq 0 ]; then
     cd "$root"
     sync_rc=0
+    echo ""
+    echo "=== Sync started ==="
+    echo "  Rendering enabled adapters in compact mode..."
     bash "$CLI_DIR/commands/sync.sh" --compact || sync_rc=$?
     if [ "$sync_rc" -ne 0 ]; then
         echo "" >&2
@@ -323,6 +327,7 @@ if [ "$no_sync" -eq 0 ]; then
         fi
         exit "$sync_rc"
     fi
+    echo "=== Sync completed ==="
 fi
 
 print_new_project_onboarding

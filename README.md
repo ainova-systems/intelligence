@@ -25,11 +25,14 @@ intelligence init --targets claude,codex
 
 Use `intelligence init --preview` to inspect without writing and `intelligence init --apply` for explicit non-interactive application.
 
-After init, ask your agent to run `/intelligence-learn-from-context`. It first
+After init, add the recommended starter package with
+`intelligence package add @ainova-systems/core`, then ask your agent to run
+`/intelligence-learn-from-context`. It first
 recovers or verifies the deterministic setup, recognizes an initial-state
 backup, then follows repository learning to propose the smallest useful set of
-project-owned rules, agents and skills. Analysis is read-only; each proposed
-change requires approval.
+project-owned rules, agents and skills. Installed package content participates
+in duplicate detection. Analysis is read-only; each proposed change requires
+approval.
 
 Create project-owned content only when you need it:
 
@@ -90,10 +93,11 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 
 Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
 
-Fresh initialization runs its first sync in compact mode, then leaves the
-important next steps visible: run `/intelligence-learn-from-context`, review
-adapters, add the recommended starter package with `intelligence package add
-@ainova-systems/core`, and choose a generated-output version-control policy.
+Fresh initialization announces and confirms its first compact sync, then leaves the
+important next steps visible: add the recommended starter package with
+`intelligence package add @ainova-systems/core`, run
+`/intelligence-learn-from-context`, review adapters, and choose a
+generated-output version-control policy.
 Commit the manifest, lock, project-owned content, `AGENTS.md`, and shared
 `.github/` output. The CLI adds adapter-owned generated paths to `.gitignore`
 while keeping shared tool settings trackable; see the [artifact
