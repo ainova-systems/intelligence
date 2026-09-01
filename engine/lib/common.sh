@@ -1351,10 +1351,13 @@ read_yaml_list() {
     local section="$2"
     case "$section" in
         rules|agents|skills|ignore|submodules)
-            local cached_file cached_val
-            eval "cached_file=\"\${IS_YL_${section}_FILE:-}\""
+            # Indirect expansion, not eval: the section name is allowlisted
+            # above, but keeping manifest-derived values out of any evaluated
+            # string is the safer shape.
+            local file_var="IS_YL_${section}_FILE" val_var="IS_YL_${section}_VAL"
+            local cached_file="${!file_var:-}" cached_val
             if [ -n "$cached_file" ] && [ "$cached_file" = "$file" ]; then
-                eval "cached_val=\"\${IS_YL_${section}_VAL}\""
+                cached_val="${!val_var:-}"
                 [ -n "$cached_val" ] && printf '%s\n' "$cached_val"
                 return 0
             fi
@@ -1389,16 +1392,20 @@ read_yaml_list() {
 # iterate a section without forking; the engine warms the cache once per run.
 # Only sections whose names are identifier-safe are cached.
 load_yaml_list() {
-    local file="$1" section="$2" cached_file
+    local file="$1" section="$2"
     case "$section" in
         rules|agents|skills|ignore|submodules)
-            eval "cached_file=\"\${IS_YL_${section}_FILE:-}\""
+            # Indirect reads and printf -v writes, not eval — see the note in
+            # read_yaml_list.
+            local file_var="IS_YL_${section}_FILE" val_var="IS_YL_${section}_VAL"
+            local cached_file="${!file_var:-}"
             if [ -n "$cached_file" ] && [ "$cached_file" = "$file" ]; then
-                eval "IS_YAML_LIST=\"\${IS_YL_${section}_VAL}\""
+                IS_YAML_LIST="${!val_var:-}"
                 return 0
             fi
             IS_YAML_LIST="$(read_yaml_list "$file" "$section")"
-            eval "IS_YL_${section}_FILE=\$file; IS_YL_${section}_VAL=\$IS_YAML_LIST"
+            printf -v "$file_var" '%s' "$file"
+            printf -v "$val_var" '%s' "$IS_YAML_LIST"
             ;;
         *)
             IS_YAML_LIST="$(read_yaml_list "$file" "$section")"
