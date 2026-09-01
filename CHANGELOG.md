@@ -4,6 +4,15 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.4]
+
+### Changed
+
+- Batched the sync engine's per-file processing into one awk pass per adapter section, cutting process count from O(files × adapters) to O(adapters); a full multi-adapter sync on Windows dropped from minutes to seconds and generated output stayed byte-identical.
+- Cached manifest section and target parsing for the duration of a sync run, and memoized repeated output-path validations.
+- Shared `.agents/skills/` content is now copied once per sync; the Codex, Pi and opencode adapters replay the first population instead of re-copying every skill.
+- Pruned the unsynced-directory scan so it no longer walks `.git`, `node_modules`, `vendor`, `dist` or generated tool outputs.
+
 ## [0.11.3]
 
 ### Fixed
