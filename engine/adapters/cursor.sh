@@ -10,6 +10,9 @@
 #     same rules would cause double-loading and burn the context window.
 # Skills: copy skill directories in full (SKILL.md + bundled resources)
 # Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
+#
+# Every per-file loop batches its work into one awk process (see the batched
+# helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -34,37 +37,51 @@ sync_cursor_rules() {
     local config_file="$2"
     local output_dir="$3"
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "rules"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
-            local hp
-            hp=$(has_paths "$f")
-
-            # Skip always-on rules: AGENTS.md (canonical) carries them.
-            if [ "$hp" -eq 0 ]; then
-                continue
-            fi
-
-            local base
-            base="$(basename "$f" .md)"
-
-            # Path-scoped rule -> Auto Attached (paths -> globs)
-            awk '
-                {
-                    sub(/\r$/, "")
-                    sub(/^paths:/, "globs:")
-                }
-                NR==1 { print; print "alwaysApply: false"; next }
-                { print }
-            ' "$f" > "$output_dir/rules/$base.mdc"
-            finalize_output_file "$output_dir/rules/$base.mdc"
-            echo "  rule: $base.mdc (scoped)"
+            files+=("$f")
         done
-    done < <(read_yaml_list "$config_file" "rules")
+    done <<< "$list"
+    [ "${#files[@]}" -gt 0 ] || return 0
+
+    # Skip always-on rules: AGENTS.md (canonical) carries them.
+    local path hp base
+    local -a scoped=()
+    while IFS=$'\x1f' read -r path hp; do
+        [ -n "$path" ] || continue
+        [ "$hp" -eq 0 ] && continue
+        scoped+=("$path")
+    done < <(frontmatter_index "paths#" "${files[@]}")
+    [ "${#scoped[@]}" -gt 0 ] || return 0
+
+    # Path-scoped rule -> Auto Attached (paths -> globs)
+    is_fin_awk_vars
+    awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+        FNR == 1 {
+            if (out != "") close(out)
+            nm = base_name(FILENAME)
+            sub(/\.md$/, ".mdc", nm)
+            out = dst "/" nm
+        }
+        {
+            sub(/\r$/, "")
+            sub(/^paths:/, "globs:")
+        }
+        FNR == 1 { print fin_line($0) > out; print fin_line("alwaysApply: false") > out; next }
+        { print fin_line($0) > out }
+    ' "${scoped[@]}"
+    for f in "${scoped[@]}"; do
+        base="${f##*/}"; base="${base%.md}"
+        echo "  rule: $base.mdc (scoped)"
+    done
 }
 
 # Sync skills to Cursor format (copy as-is)
@@ -73,20 +90,26 @@ sync_cursor_skills() {
     local config_file="$2"
     local output_dir="$3"
 
+    local src d skill_name
+    local -a skill_dirs=()
+    load_yaml_list "$config_file" "skills"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for d in "$dir"/*/; do
             [ -d "$d" ] || continue
-            local skill_name
-            skill_name="$(basename "$d")"
             [ -f "$d/SKILL.md" ] || continue
-            copy_skill_bundle "$d" "$output_dir/skills/$skill_name"
-            echo "  skill: $skill_name"
+            skill_dirs+=("$d")
         done
-    done < <(read_yaml_list "$config_file" "skills")
+    done <<< "$list"
+    [ "${#skill_dirs[@]}" -gt 0 ] || return 0
+    copy_skill_bundle_dirs "$output_dir/skills" "${skill_dirs[@]}"
+    for d in "${skill_dirs[@]}"; do
+        skill_name="${d%/}"
+        echo "  skill: ${skill_name##*/}"
+    done
 }
 
 # Sync agents to Cursor format
@@ -95,47 +118,67 @@ sync_cursor_agents() {
     local config_file="$2"
     local output_dir="$3"
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "agents"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
-            local name
-            name="$(basename "$f")"
-
-            local tier access
-            tier=$(get_frontmatter_value "tier" "$f")
-            access=$(get_frontmatter_value "access" "$f")
-
-            local cursor_model cursor_readonly
-            cursor_model=$(get_model "$config_file" "cursor" "$tier")
-            cursor_readonly=""
-            [ "$access" = "readonly" ] && cursor_readonly="readonly: true"
-
-            # Always emit model: line (even when value matches Cursor's default)
-            # so config is explicit and grep-able.
-            awk -v cm="$cursor_model" -v cr="$cursor_readonly" '
-                BEGIN { count=0 }
-                /^tier:/  { next }
-                /^access:/ { next }
-                /^tools:/ { next }
-                /^disallowedTools:/ { next }
-                {
-                    sub(/\r$/, "")
-                }
-                /^---$/ { count++ }
-                count==2 && /^---$/ {
-                    print "model: " cm
-                    if (cr != "") print cr
-                }
-                { print }
-            ' "$f" > "$output_dir/agents/$name"
-            finalize_output_file "$output_dir/agents/$name"
-            echo "  agent: $name (tier=$tier -> cursor)"
+            files+=("$f")
         done
-    done < <(read_yaml_list "$config_file" "agents")
+    done <<< "$list"
+    [ "${#files[@]}" -gt 0 ] || return 0
+
+    load_model_tiers "$config_file" "cursor"
+
+    local path tier access spec="" report="" cursor_readonly
+    while IFS=$'\x1f' read -r path tier access; do
+        [ -n "$path" ] || continue
+        resolve_model_var "$tier"
+        cursor_readonly=""
+        [ "$access" = "readonly" ] && cursor_readonly="readonly: true"
+        spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$cursor_readonly"$'\n'
+        report+="  agent: ${path##*/} (tier=$tier -> cursor)"$'\n'
+    done < <(frontmatter_index "tier,access" "${files[@]}")
+
+    # Always emit model: line (even when value matches Cursor's default)
+    # so config is explicit and grep-able.
+    is_fin_awk_vars
+    IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
+        BEGIN {
+            US = sprintf("%c", 31)
+            n = split(ENVIRON["IS_MAP_SPEC"], recs, "\n")
+            for (i = 1; i <= n; i++) {
+                if (recs[i] == "") continue
+                split(recs[i], f, US)
+                MODEL[f[1]] = f[2]; RO[f[1]] = f[3]
+            }
+        }
+        FNR == 1 {
+            if (out != "") close(out)
+            out = dst "/" base_name(FILENAME)
+            count = 0
+        }
+        /^tier:/  { next }
+        /^access:/ { next }
+        /^tools:/ { next }
+        /^disallowedTools:/ { next }
+        { sub(/\r$/, "") }
+        /^---$/ { count++ }
+        count == 2 && /^---$/ {
+            print fin_line("model: " MODEL[FILENAME]) > out
+            if (RO[FILENAME] != "") print fin_line(RO[FILENAME]) > out
+        }
+        { print fin_line($0) > out }
+    ' "${files[@]}"
+    for f in "${files[@]}"; do
+        [ -s "$f" ] || : > "$output_dir/agents/${f##*/}"
+    done
+    printf '%s' "$report"
 }
 
 # Main entry point for Cursor adapter

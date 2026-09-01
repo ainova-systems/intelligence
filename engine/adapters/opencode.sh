@@ -23,6 +23,9 @@
 #   - Converted to .opencode/agents/<name>.md markdown agents
 #     (mode: subagent) with frontmatter description/model/permission. The
 #     body is the source agent's prompt, used directly as the system prompt.
+#
+# Every per-file loop batches its work into one awk process (see the batched
+# helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -36,11 +39,6 @@ adapter_contract_opencode() {
     adapter_contract_ignore ".agents/skills/"
     adapter_contract_ignore "$output/agents/"
 }
-
-# Strip frontmatter, return body only.
-# Direct call to the shared `strip_frontmatter` helper in lib/common.sh —
-# duplicating the awk block here would fork frontmatter parsing, which the
-# convention keeps in one place.
 
 sync_opencode_skills() {
     local repo_root="$1"
@@ -74,38 +72,47 @@ sync_opencode_commands() {
     local commands_dir="$output_dir/commands"
     mkdir -p "$commands_dir"
 
-    # Marker-based cleanup: leave user-authored commands alone.
+    # Marker-based cleanup: leave user-authored commands alone. One grep -l
+    # finds every generated file; one rm removes them.
     local f
-    if [ -d "$commands_dir" ]; then
-        for f in "$commands_dir"/*.md; do
-            [ -f "$f" ] || continue
-            if grep -qF "$OPENCODE_GEN_MARKER" "$f" 2>/dev/null; then
-                rm -f "$f"
-            fi
-        done
+    local -a existing=() generated=()
+    for f in "$commands_dir"/*.md; do
+        [ -f "$f" ] && existing+=("$f")
+    done
+    if [ "${#existing[@]}" -gt 0 ]; then
+        while IFS= read -r f; do
+            [ -n "$f" ] && generated+=("$f")
+        done < <(grep -lF "$OPENCODE_GEN_MARKER" "${existing[@]}" 2>/dev/null || true)
+        [ "${#generated[@]}" -gt 0 ] && rm -f "${generated[@]}"
     fi
 
-    local count=0
+    local src d skill_name
+    local -a skill_mds=()
+    load_yaml_list "$config_file" "skills"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for d in "$dir"/*/; do
             [ -d "$d" ] || continue
-            local skill_name
-            skill_name="$(basename "$d")"
-            local skill_md="$d/SKILL.md"
-            [ -f "$skill_md" ] || continue
+            [ -f "$d/SKILL.md" ] || continue
+            skill_mds+=("${d%/}/SKILL.md")
+        done
+    done <<< "$list"
 
-            local description argument_hint
-            description="$(get_frontmatter_value "description" "$skill_md")"
-            argument_hint="$(get_frontmatter_value "argument-hint" "$skill_md")"
-
-            local out_file="$commands_dir/$skill_name.md"
+    local count=0
+    if [ "${#skill_mds[@]}" -gt 0 ]; then
+        local path description argument_hint out_file
+        local -a out_files=()
+        while IFS=$'\x1f' read -r path description argument_hint; do
+            [ -n "$path" ] || continue
+            skill_name="${path%/SKILL.md}"; skill_name="${skill_name##*/}"
+            out_file="$commands_dir/$skill_name.md"
+            yaml_dq_escape_var "$description"
             {
                 echo "---"
-                echo "description: \"$(yaml_dq_escape "$description")\""
+                echo "description: \"$IS_YAML_ESCAPED\""
                 echo "---"
                 echo ""
                 echo "$OPENCODE_GEN_MARKER"
@@ -120,11 +127,12 @@ sync_opencode_commands() {
                     echo "Forward any provided arguments to the skill: \$ARGUMENTS"
                 fi
             } > "$out_file"
-            finalize_output_file "$out_file"
+            out_files+=("$out_file")
             count=$((count + 1))
             echo "  command: /$skill_name"
-        done
-    done < <(read_yaml_list "$config_file" "skills")
+        done < <(frontmatter_index "description,argument-hint" "${skill_mds[@]}")
+        [ "${#out_files[@]}" -gt 0 ] && finalize_output_files "${out_files[@]}"
+    fi
 
     echo "  -> Commands: $count"
 }
@@ -137,24 +145,29 @@ sync_opencode_agents() {
     local agents_dir="$output_dir/agents"
     mkdir -p "$agents_dir"
 
-    local count=0
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "agents"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
+            files+=("$f")
+        done
+    done <<< "$list"
 
-            local name tier access description body
-            name="$(basename "$f" .md)"
-            tier="$(get_frontmatter_value "tier" "$f")"
-            access="$(get_frontmatter_value "access" "$f")"
-            description="$(get_frontmatter_value "description" "$f")"
-            body="$(strip_frontmatter "$f")"
+    local count=0
+    if [ "${#files[@]}" -gt 0 ]; then
+        load_model_tiers "$config_file" "opencode"
 
-            local model edit_perm bash_perm
-            model="$(get_model "$config_file" "opencode" "$tier")"
+        local path tier access description name edit_perm bash_perm spec="" report="" LS=$'\x1e'
+        while IFS=$'\x1f' read -r path tier access description; do
+            [ -n "$path" ] || continue
+            name="${path##*/}"; name="${name%.md}"
+            resolve_model_var "$tier"
 
             # Map source `access:` to opencode permission keys.
             # `edit` gates write/edit/apply_patch; `bash` gates shell.
@@ -163,28 +176,31 @@ sync_opencode_agents() {
                 *)        edit_perm="allow"; bash_perm="allow" ;;
             esac
 
-            local out_file="$agents_dir/$name.md"
-            {
-                echo "---"
-                echo "description: \"$(yaml_dq_escape "$description")\""
-                echo "mode: subagent"
-                if [ -n "$model" ]; then
-                    echo "model: \"$(yaml_dq_escape "$model")\""
-                fi
-                echo "permission:"
-                echo "  edit: $edit_perm"
-                echo "  bash: $bash_perm"
-                echo "---"
-                echo ""
-                echo "<!-- Generated by intelligence-sync. Do not edit manually. -->"
-                echo ""
-                printf '%s\n' "$body"
-            } > "$out_file"
-            finalize_output_file "$out_file"
+            local header
+            yaml_dq_escape_var "$description"
+            header="${LS}---"
+            header+="${LS}description: \"$IS_YAML_ESCAPED\""
+            header+="${LS}mode: subagent"
+            if [ -n "$IS_MODEL" ]; then
+                yaml_dq_escape_var "$IS_MODEL"
+                header+="${LS}model: \"$IS_YAML_ESCAPED\""
+            fi
+            header+="${LS}permission:"
+            header+="${LS}  edit: $edit_perm"
+            header+="${LS}  bash: $bash_perm"
+            header+="${LS}---"
+            header+="${LS}"
+            header+="${LS}<!-- Generated by intelligence-sync. Do not edit manually. -->"
+            header+="${LS}"
+
+            spec+="$path"$'\x1f'"$agents_dir/$name.md"$'\x1f'"strip"$'\x1f'"1"$'\x1f'"none"$'\x1f'"$header"$'\x1f\n'
+            report+="  agent: $name.md"$'\n'
             count=$((count + 1))
-            echo "  agent: $name.md"
-        done
-    done < <(read_yaml_list "$config_file" "agents")
+        done < <(frontmatter_index "tier,access,description" "${files[@]}")
+
+        emit_wrapped_bodies "$spec"
+        printf '%s' "$report"
+    fi
 
     echo "  -> Agents: $count"
 }

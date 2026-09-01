@@ -59,6 +59,15 @@ into a source, the store, the repository root, or outside the repository. Never
 delete a whole tool root when the adapter owns only subpaths — hand-authored sibling
 files live there. A full sync is transactional across every selected adapter path.
 
+A per-file loop never spawns a process per file: on Git Bash for Windows one fork
+costs tens of milliseconds, so per-file awk/cp/mv turned large projects into
+minutes of pure process creation. Batch the loop through the helpers built for
+this — `finalize_output_files`, `finalize_copy_files`, `frontmatter_index`,
+`emit_wrapped_bodies`, `copy_skill_bundle_dirs`, `lint_frontmatter_files` — and
+read the manifest through `load_yaml_list` / the targets cache so a section is
+parsed once per run. The single-file forms remain for cold paths and project
+adapters.
+
 `engine/adapters/_template.sh` is excluded from shellcheck because its `<name>`
 placeholders parse as input redirection until they are scaffolded.
 

@@ -10,6 +10,9 @@
 #   reads from $REPO_ROOT/.agents/skills exclusively per official docs)
 # Agents: -> .codex/agents/{name}.toml (name, description, model,
 #   model_reasoning_effort, sandbox_mode, developer_instructions)
+#
+# Every per-file loop batches its work into one awk process (see the batched
+# helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -38,24 +41,29 @@ sync_codex_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    local count=0
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "agents"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
-            local name
-            name="$(basename "$f" .md)"
+            files+=("$f")
+        done
+    done <<< "$list"
 
-            local tier access description
-            tier=$(get_frontmatter_value "tier" "$f")
-            access=$(get_frontmatter_value "access" "$f")
-            description=$(get_frontmatter_value "description" "$f")
+    local count=0
+    if [ "${#files[@]}" -gt 0 ]; then
+        load_model_tiers "$config_file" "codex"
 
-            local model effort sandbox
-            model=$(get_model "$config_file" "codex" "$tier")
+        local path tier access description name effort sandbox spec="" report="" LS=$'\x1e'
+        while IFS=$'\x1f' read -r path tier access description; do
+            [ -n "$path" ] || continue
+            name="${path##*/}"; name="${name%.md}"
+            resolve_model_var "$tier"
             case "$tier" in
                 heavy)    effort="high" ;;
                 standard) effort="medium" ;;
@@ -66,43 +74,27 @@ sync_codex_agents() {
                 readonly) sandbox="read-only" ;;
                 *)        sandbox="workspace-write" ;;
             esac
-
-            local body
-            body=$(awk '
-                BEGIN { in_fm=0; past_fm=0 }
-                { sub(/\r$/, "") }
-                /^---$/ {
-                    if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm=1 }; next }
-                }
-                past_fm { print }
-            ' "$f")
-
-            # Escape backslashes used in Markdown paths, then neutralize any
-            # closing TOML triple-quote sequence in the agent body.
-            local body_safe
-            body_safe="${body//\\/\\\\}"
-            body_safe="${body_safe//\"\"\"/\"\"\\\"}"
-
             local name_escaped description_escaped
-            name_escaped=$(toml_escape "$name")
-            description_escaped=$(toml_escape "$description")
+            toml_escape_var "$name";        name_escaped="$IS_TOML_ESCAPED"
+            toml_escape_var "$description"; description_escaped="$IS_TOML_ESCAPED"
 
-            {
-                echo "name = \"$name_escaped\""
-                echo "description = \"$description_escaped\""
-                echo "model = \"$model\""
-                echo "model_reasoning_effort = \"$effort\""
-                echo "sandbox_mode = \"$sandbox\""
-                echo ""
-                echo "developer_instructions = \"\"\""
-                echo "$body_safe"
-                echo "\"\"\""
-            } > "$output_dir/$name.toml"
-            finalize_output_file "$output_dir/$name.toml"
+            local header
+            header="${LS}name = \"$name_escaped\""
+            header+="${LS}description = \"$description_escaped\""
+            header+="${LS}model = \"$IS_MODEL\""
+            header+="${LS}model_reasoning_effort = \"$effort\""
+            header+="${LS}sandbox_mode = \"$sandbox\""
+            header+="${LS}"
+            header+="${LS}developer_instructions = \"\"\""
+
+            spec+="$path"$'\x1f'"$output_dir/$name.toml"$'\x1f'"fence"$'\x1f'"1"$'\x1f'"toml"$'\x1f'"$header"$'\x1f'"${LS}\"\"\""$'\n'
+            report+="  agent: $name.toml"$'\n'
             count=$((count + 1))
-            echo "  agent: $name.toml"
-        done
-    done < <(read_yaml_list "$config_file" "agents")
+        done < <(frontmatter_index "tier,access,description" "${files[@]}")
+
+        emit_wrapped_bodies "$spec"
+        printf '%s' "$report"
+    fi
 
     echo "  -> Agents: $count"
 }

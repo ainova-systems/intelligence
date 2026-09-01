@@ -92,8 +92,8 @@ _ver_gt() {
     IFS=. read -r -a A <<< "$a"
     IFS=. read -r -a B <<< "$b"
     for i in 0 1 2; do
-        ai=$(printf '%s' "${A[$i]:-0}" | tr -cd '0-9'); ai=${ai:-0}
-        bi=$(printf '%s' "${B[$i]:-0}" | tr -cd '0-9'); bi=${bi:-0}
+        ai="${A[$i]:-0}"; ai="${ai//[!0-9]/}"; ai=${ai:-0}
+        bi="${B[$i]:-0}"; bi="${bi//[!0-9]/}"; bi=${bi:-0}
         if [ "$((10#$ai))" -gt "$((10#$bi))" ]; then return 0; fi
         if [ "$((10#$ai))" -lt "$((10#$bi))" ]; then return 1; fi
     done

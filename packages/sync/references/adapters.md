@@ -131,18 +131,26 @@ Use the engine library instead of copying parsers or file-handling logic.
 |---|---|
 | `resolve_source_dir(repo_root, source)` | Resolve a manifest source to its local directory. |
 | `read_yaml_list(config, section)` | Stream entries from `sources.<section>`. |
+| `load_yaml_list(config, section)` | Same list into `IS_YAML_LIST`, cached — no subprocess on repeat reads. |
 | `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block. |
+| `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; special key `paths#` counts `paths:` lines). |
 | `has_frontmatter(file)` / `has_paths(file)` | Inspect source shape. |
 | `strip_frontmatter(file)` | Emit the body without its first frontmatter block. |
 | `get_model(config, tool, tier)` | Resolve a `heavy`, `standard` or `light` model, including manifest overrides. |
 | `get_model_default(tool, tier)` | Read the built-in model default. |
+| `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the three standard tiers once, then map per file without subprocesses. |
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
+| `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
+| `finalize_output_files(file...)` / `finalize_copy_files(dest, src...)` | Batch forms: finalize in place, or copy-and-finalize into a directory, in one process. |
+| `emit_wrapped_bodies(spec)` | Emit many header + source-body + tail outputs in one process (see `engine/lib/common.sh` for the spec format). |
 | `get_target_field(config, target, field)` | Read another field from the target configuration. |
 | `repo_rel_link(root, path)` | Produce a stable repo-relative link for a committed output. |
 
-`lint_frontmatter` is run across all inputs by the engine before adapters execute. It warns about common YAML hazards; adapters should not duplicate that pass.
+`lint_frontmatter` is run across all inputs by the engine before adapters execute (batched as `lint_frontmatter_files`). It warns about common YAML hazards; adapters should not duplicate that pass.
+
+Prefer the batched forms inside per-file loops: a process spawn costs tens of milliseconds on Git Bash for Windows, so one-awk-per-file adapters turn large projects into minutes of process creation. The built-in adapters are the reference for the pattern.
 
 ## Rules, skills and agents
 
