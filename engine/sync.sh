@@ -86,24 +86,38 @@ echo "  Config: $CONFIG_FILE"
 echo "  Root:   $REPO_ROOT"
 echo ""
 
+# The engine never mutates the manifest, so parse its hot sections exactly
+# once: every later read_yaml_list / target lookup — in this process and in
+# adapter process substitutions — hits the in-memory copy instead of
+# spawning awk.
+load_targets_cache "$CONFIG_FILE"
+for section in rules agents skills ignore submodules; do
+    load_yaml_list "$CONFIG_FILE" "$section"
+done
+
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
+LINT_FILES=()
 for section in rules agents skills; do
+    load_yaml_list "$CONFIG_FILE" "$section"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        src_dir="$(resolve_source_dir "$REPO_ROOT" "$src")"
+        src_dir="$REPO_ROOT/$src"
         [ -d "$src_dir" ] || continue
         if [ "$section" = "skills" ]; then
             while IFS= read -r f; do
-                [ -n "$f" ] && lint_frontmatter "$f"
+                [ -n "$f" ] && LINT_FILES+=("$f")
             done < <(find "$src_dir" -mindepth 2 -maxdepth 2 -name 'SKILL.md' 2>/dev/null)
         else
             for f in "$src_dir"/*.md; do
-                [ -f "$f" ] && lint_frontmatter "$f"
+                [ -f "$f" ] && LINT_FILES+=("$f")
             done
         fi
-    done < <(read_yaml_list "$CONFIG_FILE" "$section")
+    done <<< "$IS_YAML_LIST"
 done
+if [ "${#LINT_FILES[@]}" -gt 0 ]; then
+    lint_frontmatter_files "${LINT_FILES[@]}"
+fi
 
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):
@@ -149,24 +163,27 @@ done
 # point of view.
 SYNC_TX_DIR="$(mktemp -d -t intelligence-sync-XXXXXX)"
 SYNC_TX_INDEX="$SYNC_TX_DIR/paths.tsv"
-SYNC_TX_SEEN="$SYNC_TX_DIR/seen"
 mkdir -p "$SYNC_TX_DIR/data"
 : > "$SYNC_TX_INDEX"
-: > "$SYNC_TX_SEEN"
 SYNC_TX_ACTIVE=0
+SYNC_TX_SEEN_LIST=$'\n'
+SYNC_TX_COUNT=0
 
 snapshot_sync_path() {
     local adapter_name="$1" rel="$2" src index present=0
-    grep -Fqx -- "$rel" "$SYNC_TX_SEEN" && return 0
-    printf '%s\n' "$rel" >> "$SYNC_TX_SEEN"
+    case "$SYNC_TX_SEEN_LIST" in
+        *$'\n'"$rel"$'\n'*) return 0 ;;
+    esac
+    SYNC_TX_SEEN_LIST="$SYNC_TX_SEEN_LIST$rel"$'\n'
     validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter_name" "$REPO_ROOT/$rel"
-    index="$(wc -l < "$SYNC_TX_INDEX" | tr -d ' ')"
+    index="$SYNC_TX_COUNT"
     src="$REPO_ROOT/$rel"
     if [ -e "$src" ] || [ -L "$src" ]; then
         cp -a "$src" "$SYNC_TX_DIR/data/$index"
         present=1
     fi
     printf '%s\t%s\t%s\n' "$index" "$rel" "$present" >> "$SYNC_TX_INDEX"
+    SYNC_TX_COUNT=$((SYNC_TX_COUNT + 1))
 }
 
 restore_sync_snapshot() {
@@ -204,14 +221,17 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
         continue
     fi
-    [ "$(is_target_enabled "$CONFIG_FILE" "$adapter")" = "1" ] || continue
-    output="$(get_target_output "$CONFIG_FILE" "$adapter")"
+    target_enabled_var "$CONFIG_FILE" "$adapter"
+    [ "$IS_TGT_ENABLED" = "1" ] || continue
+    target_output_var "$CONFIG_FILE" "$adapter"
+    output="$IS_TGT_OUTPUT"
     [ -n "$output" ] || output=".$adapter"
     validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$REPO_ROOT/$output"
     records="$(adapter_contract_records "$adapter" "$adapter_file" "$output")" || exit 1
     while IFS=$'\t' read -r kind value; do
         [ "$kind" = "requires" ] || continue
-        if [ "$(is_target_enabled "$CONFIG_FILE" "$value")" != "1" ]; then
+        target_enabled_var "$CONFIG_FILE" "$value"
+        if [ "$IS_TGT_ENABLED" != "1" ]; then
             echo "ERROR: targets.$adapter requires enabled target '$value'." >&2
             echo "       Enable it first: intelligence adapter enable $value" >&2
             exit 1
@@ -240,7 +260,8 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
     fi
 
     # Check if target is enabled in config
-    enabled=$(is_target_enabled "$CONFIG_FILE" "$adapter")
+    target_enabled_var "$CONFIG_FILE" "$adapter"
+    enabled="$IS_TGT_ENABLED"
     if [ "$enabled" != "1" ]; then
         if [ -n "$TARGET_FILTER" ]; then
             echo "ERROR: Adapter '$TARGET_FILTER' is disabled in $CONFIG_FILE." >&2
@@ -251,7 +272,8 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
     fi
 
     # Get output directory
-    output=$(get_target_output "$CONFIG_FILE" "$adapter")
+    target_output_var "$CONFIG_FILE" "$adapter"
+    output="$IS_TGT_OUTPUT"
     if [ -z "$output" ]; then
         output=".$adapter"
     fi

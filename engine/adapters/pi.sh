@@ -12,6 +12,9 @@
 # Agents:
 #   - Converted to .pi/prompts/intelligence-agent-<name>.md prompt templates
 #     so users can invoke a persona explicitly via `/intelligence-agent-<name>`.
+#
+# Every per-file loop batches its work into one awk process (see the batched
+# helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -29,40 +32,55 @@ adapter_contract_pi() {
     adapter_contract_ignore "$output/prompts/intelligence-agent-*.md"
 }
 
-pi_ts_escape() {
+# Fork-free TS string escape: sets IS_PI_TS_ESCAPED.
+pi_ts_escape_var() {
     local s="$1"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\r'/}"
     s="${s//$'\n'/ }"
-    printf '%s' "$s"
+    IS_PI_TS_ESCAPED="$s"
 }
 
-pi_rule_paths() {
-    local file="$1"
-    awk '
-        { sub(/\r$/, "") }
-        NR == 1 && $0 != "---" { exit }
-        NR == 1 { in_fm = 1; next }
-        in_fm && $0 == "---" { exit }
-        !in_fm { next }
+pi_ts_escape() {
+    pi_ts_escape_var "$1"
+    printf '%s' "$IS_PI_TS_ESCAPED"
+}
 
+# pi_rule_paths_rows <file>... — batch form of the old per-file `paths:`
+# reader: one row per file in argument order, the path then each pattern,
+# \x1f-separated. Patterns come from the frontmatter `paths:` block only,
+# with one leading/trailing quote character stripped, exactly like the
+# per-file reader did.
+pi_rule_paths_rows() {
+    [ "$#" -gt 0 ] || return 0
+    awk '
+        BEGIN { US = sprintf("%c", 31) }
+        function store() { if (cur != "") R[cur] = row }
+        FNR == 1 { store(); cur = FILENAME; row = cur; done_f = 0; in_fm = 0; in_paths = 0 }
+        { sub(/\r$/, "") }
+        done_f { next }
+        FNR == 1 && $0 != "---" { done_f = 1; next }
+        FNR == 1 { in_fm = 1; next }
+        in_fm && $0 == "---" { done_f = 1; next }
+        !in_fm { next }
         /^paths:[[:space:]]*$/ { in_paths = 1; next }
         in_paths && /^  - / {
             val = $0
             sub(/^  - /, "", val)
             gsub(/^["\047]|["\047]$/, "", val)
-            print val
+            row = row US val
             next
         }
-        in_paths && !/^  - / && !/^[[:space:]]*$/ { exit }
-    ' "$file"
-}
-
-pi_agent_body() {
-    # Thin alias around the shared helper in lib/common.sh; kept so older call
-    # sites (and any future adapter logic) read symmetrically with sync_pi_*.
-    strip_frontmatter "$1"
+        in_paths && !/^  - / && !/^[[:space:]]*$/ { done_f = 1 }
+        END {
+            store()
+            for (i = 1; i < ARGC; i++) {
+                if (ARGV[i] in R) print R[ARGV[i]]
+                else print ARGV[i]
+            }
+        }
+    ' "$@"
 }
 
 sync_pi_rules() {
@@ -78,43 +96,60 @@ sync_pi_rules() {
 
     mkdir -p "$rules_root" "$(dirname "$extension_file")"
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "rules"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
-            local hp
-            hp=$(has_paths "$f")
-            [ "$hp" -eq 0 ] && continue
+            files+=("$f")
+        done
+    done <<< "$list"
 
-            local base rel_rule_path patterns_js display sep display_sep
-            base="$(basename "$f")"
+    local -a scoped=()
+    if [ "${#files[@]}" -gt 0 ]; then
+        local path hp
+        while IFS=$'\x1f' read -r path hp; do
+            [ -n "$path" ] || continue
+            [ "$hp" -eq 0 ] && continue
+            scoped+=("$path")
+        done < <(frontmatter_index "paths#" "${files[@]}")
+    fi
+
+    if [ "${#scoped[@]}" -gt 0 ]; then
+        finalize_copy_files "$rules_root" "${scoped[@]}"
+
+        local -a row_arr
+        local base rel_rule_path patterns_js display sep display_sep pat i
+        while IFS=$'\x1f' read -r -a row_arr; do
+            [ "${#row_arr[@]}" -gt 0 ] || continue
+            base="${row_arr[0]##*/}"
             rel_rule_path="$output_rel/intelligence-sync/rules/$base"
             patterns_js=""
             display=""
             sep=""
             display_sep=""
-
-            cp "$f" "$rules_root/$base"
-            finalize_output_file "$rules_root/$base"
-
-            while IFS= read -r pat; do
+            i=1
+            while [ "$i" -lt "${#row_arr[@]}" ]; do
+                pat="${row_arr[$i]}"
+                i=$((i + 1))
                 [ -z "$pat" ] && continue
-                local pat_escaped
-                pat_escaped="$(pi_ts_escape "$pat")"
-                patterns_js+="$sep\"$pat_escaped\""
+                pi_ts_escape_var "$pat"
+                patterns_js+="$sep\"$IS_PI_TS_ESCAPED\""
                 display+="$display_sep$pat"
                 sep=", "
                 display_sep=", "
-            done < <(pi_rule_paths "$f")
-
-            manifest+="    { path: \"$(pi_ts_escape "$rel_rule_path")\", patterns: [$patterns_js] },"$'\n'
+            done
+            pi_ts_escape_var "$rel_rule_path"
+            manifest+="    { path: \"$IS_PI_TS_ESCAPED\", patterns: [$patterns_js] },"$'\n'
             count=$((count + 1))
             echo "  rule: $base (scoped${display:+ — $display})"
-        done
-    done < <(read_yaml_list "$config_file" "rules")
+        done < <(pi_rule_paths_rows "${scoped[@]}")
+    fi
 
     if [ "$count" -gt 0 ]; then
         {
@@ -186,64 +221,67 @@ sync_pi_agents() {
 
     mkdir -p "$prompts_dir"
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "agents"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for f in "$dir"/*.md; do
             [ -f "$f" ] || continue
+            files+=("$f")
+        done
+    done <<< "$list"
 
-            local name rel desc access template_desc body prompt_file access_note
-            name="$(basename "$f" .md)"
-            rel="$(repo_rel_link "$repo_root" "$f")"
-            desc="$(get_frontmatter_value "description" "$f")"
-            access="$(get_frontmatter_value "access" "$f")"
-            body="$(pi_agent_body "$f")"
-            prompt_file="$prompts_dir/intelligence-agent-$name.md"
+    if [ "${#files[@]}" -gt 0 ]; then
+        local path desc access name template_desc spec="" report="" LS=$'\x1e'
+        while IFS=$'\x1f' read -r path desc access; do
+            [ -n "$path" ] || continue
+            name="${path##*/}"; name="${name%.md}"
+            repo_rel_link_var "$repo_root" "$path"
 
             template_desc="Use $name persona"
             [ -n "$desc" ] && template_desc="$template_desc — $desc"
 
-            access_note=""
-            if [ "$access" = "readonly" ]; then
-                # Bash 3.2 (the macOS system shell) misparses an apostrophe in
-                # a quoted heredoc nested inside command substitution.
-                access_note="## Access Mode
-
-Default to read-only analysis. Do not change files or run mutating commands unless the user explicitly asks you to override this agent's normal restriction.
-"
+            local header
+            yaml_dq_escape_var "$template_desc"
+            header="${LS}---"
+            header+="${LS}description: \"$IS_YAML_ESCAPED\""
+            header+="${LS}argument-hint: \"[task]\""
+            header+="${LS}---"
+            header+="${LS}"
+            header+="${LS}<!-- Generated by intelligence-sync. Do not edit manually. -->"
+            header+="${LS}"
+            header+="${LS}Adopt the \`$name\` agent persona for this task."
+            header+="${LS}"
+            header+="${LS}Source: \`${IS_REPO_REL:-$name (remote pack)}\`"
+            if [ -n "$desc" ]; then
+                header+="${LS}Use this persona when: $desc"
+                header+="${LS}"
             fi
+            if [ "$access" = "readonly" ]; then
+                header+="${LS}## Access Mode"
+                header+="${LS}"
+                header+="${LS}Default to read-only analysis. Do not change files or run mutating commands unless the user explicitly asks you to override this agent's normal restriction."
+                header+="${LS}"
+            fi
+            header+="${LS}## Agent Instructions"
+            header+="${LS}"
 
-            {
-                echo "---"
-                echo "description: \"$(yaml_dq_escape "$template_desc")\""
-                echo "argument-hint: \"[task]\""
-                echo "---"
-                echo ""
-                echo "<!-- Generated by intelligence-sync. Do not edit manually. -->"
-                echo ""
-                printf 'Adopt the `%s` agent persona for this task.\n' "$name"
-                echo ""
-                printf 'Source: `%s`\n' "${rel:-$name (remote pack)}"
-                if [ -n "$desc" ]; then
-                    echo "Use this persona when: $desc"
-                    echo ""
-                fi
-                if [ -n "$access_note" ]; then
-                    printf '%s\n' "$access_note"
-                fi
-                echo "## Agent Instructions"
-                echo ""
-                printf '%s\n' "$body"
-                echo ""
-                echo "User task: \$@"
-            } > "$prompt_file"
-            finalize_output_file "$prompt_file"
+            local tail
+            tail="${LS}"
+            tail+="${LS}User task: \$@"
+
+            spec+="$path"$'\x1f'"$prompts_dir/intelligence-agent-$name.md"$'\x1f'"strip"$'\x1f'"1"$'\x1f'"none"$'\x1f'"$header"$'\x1f'"$tail"$'\n'
+            report+="  agent: intelligence-agent-$name.md"$'\n'
             count=$((count + 1))
-            echo "  agent: intelligence-agent-$name.md"
-        done
-    done < <(read_yaml_list "$config_file" "agents")
+        done < <(frontmatter_index "description,access" "${files[@]}")
+
+        emit_wrapped_bodies "$spec"
+        printf '%s' "$report"
+    fi
 
     echo "  -> Agents: $count prompt template(s)"
 }

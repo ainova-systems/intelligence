@@ -10,6 +10,9 @@
 # Unlike other adapters, the output is a single committed markdown file
 # meant to be read by both humans and LLMs. It must never be hand-edited —
 # every sync regenerates it from scratch.
+#
+# Every per-file loop batches its work into one awk process (see the batched
+# helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
@@ -55,30 +58,37 @@ agents_md_append_agents_table() {
     local rows=""
     local count=0
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "agents"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         # Byte-order (LC_ALL=C) sort so generated output is identical across
         # platforms — bash glob order follows LC_COLLATE, which differs between
         # Linux CI (UTF-8, ignores `-`) and Git Bash (C, byte order).
         while IFS= read -r f; do
             [ -f "$f" ] || continue
-            local name rel tier access desc
-            name="$(basename "$f" .md)"
-            rel="$(repo_rel_link "$repo_root" "$f")"
-            tier=$(get_frontmatter_value "tier" "$f")
-            access=$(get_frontmatter_value "access" "$f")
-            desc=$(get_frontmatter_value "description" "$f")
-            if [ -n "$rel" ]; then
-                rows+="| [$name]($rel) | ${tier:--} | ${access:--} | ${desc:--} |"$'\n'
+            files+=("$f")
+        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
+    done <<< "$list"
+
+    if [ "${#files[@]}" -gt 0 ]; then
+        local path tier access desc name
+        while IFS=$'\x1f' read -r path tier access desc; do
+            [ -n "$path" ] || continue
+            name="${path##*/}"; name="${name%.md}"
+            repo_rel_link_var "$repo_root" "$path"
+            if [ -n "$IS_REPO_REL" ]; then
+                rows+="| [$name]($IS_REPO_REL) | ${tier:--} | ${access:--} | ${desc:--} |"$'\n'
             else
                 rows+="| $name | ${tier:--} | ${access:--} | ${desc:--} |"$'\n'
             fi
             count=$((count + 1))
-        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
-    done < <(read_yaml_list "$config_file" "agents")
+        done < <(frontmatter_index "tier,access,description" "${files[@]}")
+    fi
 
     [ "$count" -eq 0 ] && return 0
 
@@ -102,31 +112,39 @@ agents_md_append_skills_table() {
     local rows=""
     local count=0
 
+    local src skill_dir dirname
+    local -a skill_files=()
+    load_yaml_list "$config_file" "skills"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         # Byte-order (LC_ALL=C) sort so generated output is identical across
         # platforms — see the note in agents_md_append_agents_table.
         while IFS= read -r skill_dir; do
             [ -d "$skill_dir" ] || continue
-            local dirname
-            dirname="$(basename "$skill_dir")"
+            dirname="${skill_dir##*/}"
             case "$dirname" in _*) continue ;; esac
-            local skill_file="${skill_dir%/}/SKILL.md"
-            [ -f "$skill_file" ] || continue
-            local rel desc
-            rel="$(repo_rel_link "$repo_root" "$skill_file")"
-            desc=$(get_frontmatter_value "description" "$skill_file")
-            if [ -n "$rel" ]; then
-                rows+="| [$dirname]($rel) | ${desc:--} |"$'\n'
+            [ -f "${skill_dir%/}/SKILL.md" ] || continue
+            skill_files+=("${skill_dir%/}/SKILL.md")
+        done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+    done <<< "$list"
+
+    if [ "${#skill_files[@]}" -gt 0 ]; then
+        local path desc
+        while IFS=$'\x1f' read -r path desc; do
+            [ -n "$path" ] || continue
+            dirname="${path%/SKILL.md}"; dirname="${dirname##*/}"
+            repo_rel_link_var "$repo_root" "$path"
+            if [ -n "$IS_REPO_REL" ]; then
+                rows+="| [$dirname]($IS_REPO_REL) | ${desc:--} |"$'\n'
             else
                 rows+="| $dirname | ${desc:--} |"$'\n'
             fi
             count=$((count + 1))
-        done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
-    done < <(read_yaml_list "$config_file" "skills")
+        done < <(frontmatter_index "description" "${skill_files[@]}")
+    fi
 
     [ "$count" -eq 0 ] && return 0
 
@@ -151,33 +169,43 @@ agents_md_append_rules_list() {
     local count=0
     local global_rule_files=()
 
+    local src f
+    local -a files=()
+    load_yaml_list "$config_file" "rules"
+    local list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         # Byte-order (LC_ALL=C) sort so generated output — and the inline order
         # of always-on rules below — is identical across platforms. See the
         # note in agents_md_append_agents_table.
         while IFS= read -r f; do
             [ -f "$f" ] || continue
-            local name rel scope
-            name="$(basename "$f" .md)"
-            rel="$(repo_rel_link "$repo_root" "$f")"
+            files+=("$f")
+        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
+    done <<< "$list"
+
+    if [ "${#files[@]}" -gt 0 ]; then
+        local path hp name scope
+        while IFS=$'\x1f' read -r path hp; do
+            [ -n "$path" ] || continue
+            name="${path##*/}"; name="${name%.md}"
             scope="global"
-            if [ "$(has_paths "$f")" != "0" ]; then
+            if [ "$hp" != "0" ]; then
                 scope="scoped"
             else
-                global_rule_files+=("$f")
+                global_rule_files+=("$path")
             fi
-            if [ -n "$rel" ]; then
-                lines+="- [$name]($rel) ($scope)"$'\n'
+            repo_rel_link_var "$repo_root" "$path"
+            if [ -n "$IS_REPO_REL" ]; then
+                lines+="- [$name]($IS_REPO_REL) ($scope)"$'\n'
             else
                 lines+="- $name ($scope)"$'\n'
             fi
             count=$((count + 1))
-        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
-    done < <(read_yaml_list "$config_file" "rules")
+        done < <(frontmatter_index "paths#" "${files[@]}")
+    fi
 
     [ "$count" -eq 0 ] && return 0
 
@@ -206,18 +234,17 @@ agents_md_append_rules_list() {
             echo "<!-- Inlined from always-on rules in $content_rel/rules/ -->"
             echo ""
         } >> "$output"
-        local rf
-        for rf in "${global_rule_files[@]}"; do
-            awk '
-                BEGIN { in_fm=0; past_fm=0 }
-                { sub(/\r$/, "") }
-                /^---$/ {
-                    if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm=1 }; next }
-                }
-                past_fm || !in_fm { print }
-            ' "$rf" >> "$output"
-            echo "" >> "$output"
-        done
+        # One awk inlines every global rule body, with a blank line after
+        # each — the same output the per-file passes produced.
+        awk '
+            FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
+            { sub(/\r$/, "") }
+            /^---$/ {
+                if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
+            }
+            past_fm || !in_fm { print }
+            END { print "" }
+        ' "${global_rule_files[@]}" >> "$output"
         echo "  rules: ${#global_rule_files[@]} global rule(s) inlined"
     fi
 }

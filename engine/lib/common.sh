@@ -29,44 +29,175 @@ normalize_file_to_lf() {
 # scoped rule reaches Claude's `paths:`, Cursor's `globs:` and Copilot's
 # `applyTo:` already carrying the project's real folder name.
 
-# finalize_output_file <file>
-# The single exit gate for every file an adapter writes: expand layout tokens,
-# then normalize CRLF -> LF. Adapters MUST call this (not normalize_file_to_lf)
-# on each output — a missed call ships a literal `<content-dir>` into an IDE.
-finalize_output_file() {
-    local target="$1"
-    local content="${IS_CONTENT_REL:-intelligence}"
-    local mod="${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
-    local sc="${IS_SYNC_CMD:-intelligence sync}"
-    local mf="${IS_MANIFEST_NAME:-intelligence.yaml}"
-    local tmp_file="$target.tmp"
-    # Literal (index-based) substitution, not gsub: a regex replacement would
-    # give `&` in a path its special meaning, and POSIX awk has no way to pass a
-    # replacement string verbatim.
-    awk -v content="$content" -v mod="$mod" -v sc="$sc" -v mf="$mf" '
-        function repl(s, from, to,   out, i) {
-            out = ""
-            while ((i = index(s, from)) > 0) {
-                out = out substr(s, 1, i - 1) to
-                s = substr(s, i + length(from))
+# Process spawns dominate sync time on Git Bash for Windows: one fork costs
+# tens of milliseconds against ~1ms on Linux, so a helper that runs awk per
+# file turns a large project into minutes of pure process creation. Every hot
+# helper therefore has a batched form that handles N files in ONE awk process,
+# and adapters MUST use the batched forms inside per-file loops. The shared
+# function library below keeps token expansion and frontmatter semantics in
+# exactly one place across those batch programs.
+#
+# fin_line() uses literal (index-based) substitution, not gsub: a regex
+# replacement would give `&` in a path its special meaning, and POSIX awk has
+# no way to pass a replacement string verbatim. Token values arrive via the
+# -v args produced by is_fin_awk_vars.
+IS_AWK_LIB='
+    function is_repl(s, from, to,   out, i) {
+        out = ""
+        while ((i = index(s, from)) > 0) {
+            out = out substr(s, 1, i - 1) to
+            s = substr(s, i + length(from))
+        }
+        return out s
+    }
+    function fin_line(s) {
+        s = is_repl(s, "<sync-cmd>", FIN_SC)
+        s = is_repl(s, "<manifest>", FIN_MF)
+        s = is_repl(s, "<module>", FIN_MOD)
+        s = is_repl(s, "<content-dir>", FIN_CONTENT)
+        return s
+    }
+    function fm_value_strip(val,   n, first, last) {
+        sub(/^[[:space:]]+/, "", val)
+        sub(/[[:space:]]+$/, "", val)
+        n = length(val)
+        if (n >= 2) {
+            first = substr(val, 1, 1)
+            last = substr(val, n, 1)
+            if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
+                val = substr(val, 2, n - 2)
             }
-            return out s
         }
+        return val
+    }
+    function base_name(p,   q, m) { m = split(p, q, "/"); return q[m] }
+'
+
+# is_fin_awk_vars — fill the global IS_FIN_V array with the -v bindings the
+# IS_AWK_LIB fin_line() function needs. Rebuilt on every call: the IS_* env
+# contract is exported after this file is sourced.
+is_fin_awk_vars() {
+    IS_FIN_V=(
+        -v "FIN_SC=${IS_SYNC_CMD:-intelligence sync}"
+        -v "FIN_MF=${IS_MANIFEST_NAME:-intelligence.yaml}"
+        -v "FIN_MOD=${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
+        -v "FIN_CONTENT=${IS_CONTENT_REL:-intelligence}"
+    )
+}
+
+# finalize_output_files <file>...
+# The single exit gate for every file an adapter writes: expand layout tokens,
+# then normalize CRLF -> LF, for any number of files in one awk process. Each
+# file is buffered in full and written back in place when the input moves to
+# the next file, so no temp files and no per-file mv are needed; a failed run
+# is covered by sync.sh's transaction restore.
+finalize_output_files() {
+    [ "$#" -gt 0 ] || return 0
+    is_fin_awk_vars
+    awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+        function flush_file(   i) {
+            if (out_file == "") return
+            for (i = 1; i <= line_n; i++) print buf[i] > out_file
+            close(out_file)
+        }
+        FNR == 1 { flush_file(); out_file = FILENAME; line_n = 0 }
+        { sub(/\r$/, ""); buf[++line_n] = fin_line($0) }
+        END { flush_file() }
+    ' "$@"
+}
+
+# finalize_output_file <file> — single-file form, kept for cold paths and
+# project adapters. A missed call ships a literal `<content-dir>` into an IDE.
+finalize_output_file() {
+    finalize_output_files "$1"
+}
+
+# finalize_copy_files <dst_dir> <src>...
+# Copy every source file to <dst_dir>/<basename> with the finalize transform
+# applied on the way, all in one awk process. Replaces per-file cp+finalize
+# in adapter rule loops.
+finalize_copy_files() {
+    local dst="$1"
+    shift
+    [ "$#" -gt 0 ] || return 0
+    local f
+    # awk never reads a record from an empty source, so pre-create those to
+    # keep the old cp behavior of producing an empty output file.
+    for f in "$@"; do
+        [ -s "$f" ] || : > "$dst/${f##*/}"
+    done
+    is_fin_awk_vars
+    awk "${IS_FIN_V[@]}" -v dst="$dst" "$IS_AWK_LIB"'
+        FNR == 1 {
+            if (out_file != "") close(out_file)
+            out_file = dst "/" base_name(FILENAME)
+        }
+        { sub(/\r$/, ""); print fin_line($0) > out_file }
+    ' "$@"
+}
+
+# frontmatter_index <keys-csv> <file>...
+# One awk pass over many files; prints one row per file, in argument order:
+# the path, then one value per requested key, all separated by \x1f (ASCII
+# unit separator — never present in frontmatter values). Value semantics are
+# get_frontmatter_value's exactly: first frontmatter block only, first key
+# occurrence wins, first-colon split, symmetric quote strip. The special key
+# `paths#` yields the has_paths count instead of a value. A file without
+# frontmatter (or an empty file) still gets a row, with empty values.
+frontmatter_index() {
+    local keys="$1"
+    shift
+    [ "$#" -gt 0 ] || return 0
+    awk -v keys="$keys" "$IS_AWK_LIB"'
+        BEGIN { US = sprintf("%c", 31); nk = split(keys, K, ",") }
+        function store(   i, row) {
+            if (cur == "") return
+            row = cur
+            for (i = 1; i <= nk; i++) row = row US V[i]
+            R[cur] = row
+        }
+        FNR == 1 {
+            store()
+            cur = FILENAME
+            for (ri = 1; ri <= nk; ri++) { V[ri] = (K[ri] == "paths#") ? 0 : ""; delete SEEN[ri] }
+            in_fm = 0; fm_done = 0
+        }
+        { sub(/\r$/, "") }
+        FNR == 1 && $0 == "---" { in_fm = 1; next }
+        FNR == 1 { fm_done = 1 }
+        in_fm && !fm_done && $0 == "---" { fm_done = 1; next }
+        fm_done || !in_fm { next }
         {
-            sub(/\r$/, "")
-            $0 = repl($0, "<sync-cmd>", sc)
-            $0 = repl($0, "<manifest>", mf)
-            $0 = repl($0, "<module>", mod)
-            $0 = repl($0, "<content-dir>", content)
-            print
+            idx = index($0, ":")
+            if (idx == 0) next
+            k = substr($0, 1, idx - 1)
+            for (ki = 1; ki <= nk; ki++) {
+                if (K[ki] == "paths#") {
+                    if (k == "paths") V[ki]++
+                } else if (k == K[ki] && !(ki in SEEN)) {
+                    SEEN[ki] = 1
+                    V[ki] = fm_value_strip(substr($0, idx + 1))
+                }
+            }
         }
-    ' "$target" > "$tmp_file"
-    mv "$tmp_file" "$target"
+        END {
+            store()
+            for (ai = 1; ai < ARGC; ai++) {
+                if (ARGV[ai] in R) print R[ARGV[ai]]
+                else {
+                    row = ARGV[ai]
+                    for (ki = 1; ki <= nk; ki++) row = row US ((K[ki] == "paths#") ? 0 : "")
+                    print row
+                }
+            }
+        }
+    ' "$@"
 }
 
 # Escape a string for safe interpolation into a TOML basic string ("..").
 # Backslash and double-quote are escaped; control chars stripped.
-toml_escape() {
+# Fork-free form: sets IS_TOML_ESCAPED; the printing form wraps it.
+toml_escape_var() {
     local s="$1"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
@@ -74,17 +205,28 @@ toml_escape() {
     # do not allow them; multi-line content belongs in `"""..."""`.
     s="${s//$'\n'/ }"
     s="${s//$'\r'/}"
-    printf '%s' "$s"
+    IS_TOML_ESCAPED="$s"
+}
+
+toml_escape() {
+    toml_escape_var "$1"
+    printf '%s' "$IS_TOML_ESCAPED"
 }
 
 # Escape a string for safe interpolation into a YAML double-quoted scalar.
-yaml_dq_escape() {
+# Fork-free form: sets IS_YAML_ESCAPED; the printing form wraps it.
+yaml_dq_escape_var() {
     local s="$1"
     s="${s//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\n'/ }"
     s="${s//$'\r'/}"
-    printf '%s' "$s"
+    IS_YAML_ESCAPED="$s"
+}
+
+yaml_dq_escape() {
+    yaml_dq_escape_var "$1"
+    printf '%s' "$IS_YAML_ESCAPED"
 }
 
 # --- Source Resolution -------------------------------------------------------
@@ -101,10 +243,20 @@ yaml_dq_escape() {
 # name, never the absolute path. The `${path#"$repo_root"/}` strip is a no-op
 # when $path is not under $repo_root, which is how that case is detected.
 repo_rel_link() {
+    repo_rel_link_var "$1" "$2"
+    printf '%s' "$IS_REPO_REL"
+}
+
+# repo_rel_link_var — fork-free form: sets IS_REPO_REL ("" when the path is
+# not under the repo root) instead of printing.
+repo_rel_link_var() {
     local repo_root="$1" path="$2" rel
     rel="${path#"$repo_root"/}"
-    [ "$rel" = "$path" ] && return 0
-    printf '%s' "$rel"
+    if [ "$rel" = "$path" ]; then
+        IS_REPO_REL=""
+    else
+        IS_REPO_REL="$rel"
+    fi
 }
 
 # Repo-root-relative path of an existing DIRECTORY — by identity, not spelling.
@@ -150,6 +302,95 @@ repo_rel_dir() {
 # Usage: dir="$(resolve_source_dir "$repo_root" "$src")"
 resolve_source_dir() {
     printf '%s' "$1/$2"
+}
+
+# emit_wrapped_bodies <spec>
+# Batch writer for adapters that wrap each source body in generated
+# header/tail lines: one awk process emits every output file. <spec> holds
+# one \n-separated record per file, fields separated by \x1f:
+#   src \x1f dst \x1f mode \x1f trim \x1f escape \x1f header \x1f tail
+# where mode selects the body extraction (`strip` = strip_frontmatter
+# semantics, `fence` = body only after a closed frontmatter fence, so a file
+# without frontmatter yields nothing, `fence_nofm` = fence, or the whole file
+# when it never opened one), trim=1 drops trailing blank body lines and emits
+# a single blank line for an empty body (the $(...)-capture-then-echo
+# semantics the per-file code had), escape=toml applies the TOML triple-quote
+# body escaping, and header/tail are literal output lines each prefixed with
+# \x1e. Every output line passes through fin_line. The spec travels through
+# the environment — awk -v would corrupt backslashes in escaped header values.
+emit_wrapped_bodies() {
+    local spec="$1"
+    [ -n "$spec" ] || return 0
+    local -a srcs=()
+    local rec
+    while IFS= read -r rec; do
+        [ -n "$rec" ] || continue
+        srcs+=("${rec%%$'\x1f'*}")
+    done <<< "$spec"
+    [ "${#srcs[@]}" -gt 0 ] || return 0
+    is_fin_awk_vars
+    IS_WRAP_SPEC="$spec" awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+        BEGIN {
+            US = sprintf("%c", 31); LS = sprintf("%c", 30)
+            n = split(ENVIRON["IS_WRAP_SPEC"], recs, "\n")
+            for (i = 1; i <= n; i++) {
+                if (recs[i] == "") continue
+                split(recs[i], f, US)
+                DST[f[1]] = f[2]; MODE[f[1]] = f[3]; TRIM[f[1]] = f[4]
+                ESC[f[1]] = f[5]; HEAD[f[1]] = f[6]; TAIL[f[1]] = f[7]
+            }
+        }
+        function emit_lines(block,   m, parts, j) {
+            m = split(block, parts, LS)
+            for (j = 2; j <= m; j++) print fin_line(parts[j]) > out_file
+        }
+        function flush_file(   j, last) {
+            if (out_file == "") return
+            emit_lines(HEAD[cur])
+            if (TRIM[cur] == "1") {
+                last = 0
+                for (j = 1; j <= body_n; j++) if (body[j] != "") last = j
+                if (last == 0) print fin_line("") > out_file
+                else for (j = 1; j <= last; j++) print fin_line(body[j]) > out_file
+            } else {
+                for (j = 1; j <= body_n; j++) print fin_line(body[j]) > out_file
+            }
+            emit_lines(TAIL[cur])
+            close(out_file)
+            out_file = ""
+        }
+        FNR == 1 {
+            flush_file()
+            cur = FILENAME; out_file = DST[cur]; SEENF[cur] = 1
+            body_n = 0; in_fm = 0; past_fm = 0
+        }
+        { sub(/\r$/, "") }
+        FNR == 1 && MODE[cur] == "strip" && $0 != "---" { past_fm = 1 }
+        /^---$/ {
+            if (!past_fm) { in_fm = !in_fm; if (!in_fm) past_fm = 1; next }
+        }
+        {
+            if (MODE[cur] == "fence_nofm") { if (!past_fm && in_fm) next }
+            else if (!past_fm) next
+            line = $0
+            if (ESC[cur] == "toml") {
+                line = is_repl(line, "\\", "\\\\")
+                line = is_repl(line, "\"\"\"", "\"\"\\\"")
+            }
+            body[++body_n] = line
+        }
+        END {
+            flush_file()
+            # An empty source never produces a record, so emit its header and
+            # tail here — the per-file code still wrote the wrapper.
+            for (i = 1; i < ARGC; i++) {
+                if (ARGV[i] in SEENF) continue
+                SEENF[ARGV[i]] = 1
+                cur = ARGV[i]; out_file = DST[cur]; body_n = 0
+                flush_file()
+            }
+        }
+    ' "${srcs[@]}"
 }
 
 # Copy a markdown file with frontmatter, ensuring free-text string fields are
@@ -221,26 +462,146 @@ copy_md_with_quoted_frontmatter() {
 # untouched.
 # Usage: copy_skill_bundle "src/skill/dir" "dest/skill/dir"
 copy_skill_bundle() {
-    local src_dir="${1%/}"
-    local dest_dir="$2"
-    mkdir -p "$dest_dir"
-    cp -R "$src_dir/." "$dest_dir/"
-    # A symlinked SKILL.md is left exactly as `cp -R` produced it — a symlink.
-    # `[ -f ]` follows links, so quoting it would read the link's TARGET and
-    # write that content into a real file, turning `skills/x/SKILL.md -> /etc/…`
-    # into a copy of a host file inside the output. That is the leak the
-    # symlink-preserving copy exists to prevent, so skip the rewrite and say so
-    # (the same reason `find -type f` below never matches a symlink).
-    if [ -L "$dest_dir/SKILL.md" ]; then
-        echo "  WARN: $(basename "$dest_dir")/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
-    elif [ -f "$dest_dir/SKILL.md" ]; then
-        copy_md_with_quoted_frontmatter "$dest_dir/SKILL.md" "$dest_dir/SKILL.md.tmp-q"
-        mv "$dest_dir/SKILL.md.tmp-q" "$dest_dir/SKILL.md"
+    _skill_bundles_reset
+    _skill_bundle_stage "$1" "$2"
+    _skill_bundles_flush
+}
+
+# copy_skill_bundle_dirs <dest_root> <src_dir>... — batch form: ONE cp -R
+# copies every source skill directory into <dest_root>/<skill-name>, then one
+# awk pass quotes and finalizes every bundled markdown file across all
+# bundles. A later source with the same skill name overwrites file-by-file in
+# order, exactly like the sequential per-bundle copies did.
+copy_skill_bundle_dirs() {
+    local dest_root="$1"
+    shift
+    [ "$#" -gt 0 ] || return 0
+    local src dest
+    local -a srcs=()
+    for src in "$@"; do
+        srcs+=("${src%/}")
+    done
+    mkdir -p "$dest_root"
+    cp -R "${srcs[@]}" "$dest_root/"
+    _skill_bundles_reset
+    for src in "${srcs[@]}"; do
+        dest="$dest_root/${src##*/}"
+        _skill_bundle_note "$dest"
+    done
+    _skill_bundles_flush
+}
+
+_skill_bundles_reset() {
+    _SB_QUOTE_LIST=""
+    _SB_SEEN=""
+    _SB_DESTS=()
+}
+
+_skill_bundle_stage() {
+    local src="${1%/}" dest="$2"
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
+    _skill_bundle_note "$dest"
+}
+
+# Record a staged bundle for the flush pass: mark its SKILL.md for
+# frontmatter quoting and deduplicate the destination.
+_skill_bundle_note() {
+    local dest="$1"
+    # A symlinked SKILL.md is left exactly as `cp -R` produced it — a
+    # symlink. `[ -f ]` follows links, so quoting it would read the link's
+    # TARGET and write that content into a real file, turning
+    # `skills/x/SKILL.md -> /etc/…` into a copy of a host file inside the
+    # output. That is the leak the symlink-preserving copy exists to
+    # prevent, so skip the rewrite and say so (the same reason
+    # `find -type f` in the flush never matches a symlink).
+    if [ -L "$dest/SKILL.md" ]; then
+        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
+    elif [ -f "$dest/SKILL.md" ]; then
+        _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
+    # The same skill name from a later source overwrites the earlier copy;
+    # keep one dest entry so the flush does not process the files twice.
+    case "${_SB_SEEN:-$'\n'}" in
+        *$'\n'"$dest"$'\n'*) ;;
+        *)
+            _SB_DESTS+=("$dest")
+            _SB_SEEN="${_SB_SEEN:-$'\n'}$dest"$'\n'
+            ;;
+    esac
+}
+
+_skill_bundles_flush() {
+    [ "${#_SB_DESTS[@]}" -gt 0 ] || return 0
+    local -a mds=()
+    local f quote_list="$_SB_QUOTE_LIST"
     while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        finalize_output_file "$f"
-    done < <(find "$dest_dir" -type f -name '*.md')
+        [ -n "$f" ] && mds+=("$f")
+    done < <(find "${_SB_DESTS[@]}" -type f -name '*.md')
+    _skill_bundles_reset
+    [ "${#mds[@]}" -gt 0 ] || return 0
+    # One awk: quote free-text frontmatter fields in each top-level SKILL.md
+    # (strict-YAML consumers reject unquoted colons; `argument-hint:
+    # [pr-number]` would otherwise arrive as a YAML flow sequence and the
+    # skill silently vanishes from the picker) and expand layout tokens in
+    # every bundled markdown file. Quoting is idempotent — already-quoted
+    # values pass through untouched. The quote list travels through the
+    # environment, like emit_wrapped_bodies specs.
+    is_fin_awk_vars
+    IS_QUOTE_LIST="$quote_list" awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+        BEGIN {
+            qn = split(ENVIRON["IS_QUOTE_LIST"], QL, "\n")
+            for (qi = 1; qi <= qn; qi++) if (QL[qi] != "") QUOTE[QL[qi]] = 1
+        }
+        function yamlq(s,    out, i, c) {
+            out = ""
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (c == "\\") out = out "\\\\"
+                else if (c == "\"") out = out "\\\""
+                else out = out c
+            }
+            return out
+        }
+        function flush_file(   i) {
+            if (out_file == "") return
+            for (i = 1; i <= line_n; i++) print buf[i] > out_file
+            close(out_file)
+        }
+        FNR == 1 {
+            flush_file()
+            out_file = FILENAME; line_n = 0
+            state = (FILENAME in QUOTE) ? "before" : ""
+        }
+        { sub(/\r$/, "") }
+        state == "before" {
+            if (FNR == 1 && $0 == "---") state = "in_fm"
+            else state = "after"
+        }
+        state == "in_fm" && FNR > 1 {
+            if ($0 == "---") state = "after"
+            else {
+                idx = index($0, ":")
+                if (idx > 0) {
+                    key = substr($0, 1, idx - 1)
+                    sub(/^[[:space:]]+/, "", key); sub(/[[:space:]]+$/, "", key)
+                    if (key == "description" || key == "argument-hint") {
+                        val = substr($0, idx + 1)
+                        sub(/^[[:space:]]+/, "", val); sub(/[[:space:]]+$/, "", val)
+                        if (val != "") {
+                            first = substr(val, 1, 1)
+                            last = substr(val, length(val), 1)
+                            if (!((first == "\"" && last == "\"") || (first == "\047" && last == "\047"))) {
+                                $0 = key ": \"" yamlq(val) "\""
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        { buf[++line_n] = fin_line($0) }
+        END { flush_file() }
+    ' "${mds[@]}"
 }
 
 # Copy skill directories into an Agent Skills open-standard location.
@@ -263,6 +624,15 @@ sync_open_skill_dirs() {
     local config_file="$2"
     local output_dir="$3"
 
+    # Several adapters share this destination in one run (Codex, Pi and
+    # opencode all feed .agents/skills/) and the contract requires them to
+    # write identical content, so the second and later calls replay the first
+    # call's output instead of pruning and re-copying every skill.
+    if [ "${IS_OPEN_SKILLS_DEST:-}" = "$output_dir" ] && [ "${IS_OPEN_SKILLS_CFG:-}" = "$config_file" ]; then
+        printf '%s' "$IS_OPEN_SKILLS_LOG"
+        return 0
+    fi
+
     if [ -d "$output_dir" ]; then
         # Prune both real subdirectories and symlinks (incl. dir-symlinks):
         # "-type d" alone would leave a stale symlinked skill in place and
@@ -271,42 +641,52 @@ sync_open_skill_dirs() {
     fi
     mkdir -p "$output_dir"
 
-    local count=0
+    local count=0 log="" d skill_name src list
+    local -a skill_dirs=()
+    load_yaml_list "$config_file" "skills"
+    list="$IS_YAML_LIST"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
+        local dir="$repo_root/$src"
         [ -d "$dir" ] || continue
         for d in "$dir"/*/; do
             [ -d "$d" ] || continue
-            local skill_name
-            skill_name="$(basename "$d")"
+            skill_name="${d%/}"; skill_name="${skill_name##*/}"
             [ -f "$d/SKILL.md" ] || continue
-            # copy_skill_bundle now owns the frontmatter-quoting pass, so every
-            # target gets it — not just this open-standard dir.
-            copy_skill_bundle "$d" "$output_dir/$skill_name"
+            skill_dirs+=("$d")
             count=$((count + 1))
-            echo "  skill: $skill_name"
+            log+="  skill: $skill_name"$'\n'
         done
-    done < <(read_yaml_list "$config_file" "skills")
+    done <<< "$list"
+    # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
+    # target gets it — not just this open-standard dir.
+    if [ "$count" -gt 0 ]; then
+        copy_skill_bundle_dirs "$output_dir" "${skill_dirs[@]}"
+    fi
 
-    echo "  -> Skills: $count"
+    log+="  -> Skills: $count"$'\n'
+    printf '%s' "$log"
+    IS_OPEN_SKILLS_DEST="$output_dir"
+    IS_OPEN_SKILLS_CFG="$config_file"
+    IS_OPEN_SKILLS_LOG="$log"
 }
 
 # Lint YAML frontmatter for common pitfalls (unquoted colons, leading tabs).
 # Print warnings to stderr; do not fail. Strict consumers (Codex CLI) reject
 # these files with cryptic messages — catching them in sync gives better DX.
-# Usage: lint_frontmatter "path/to/file.md"
-lint_frontmatter() {
-    local file="$1"
-    awk -v f="$file" '
-        BEGIN { in_fm = 0; line = 0 }
-        { sub(/\r$/, ""); line++ }
-        line == 1 && $0 != "---" { exit }
-        line == 1 { in_fm = 1; next }
-        in_fm && $0 == "---" { exit }
+# Batched: one awk process lints every file passed.
+# Usage: lint_frontmatter_files "a.md" "b.md" ...
+lint_frontmatter_files() {
+    [ "$#" -gt 0 ] || return 0
+    awk '
+        FNR == 1 { in_fm = 0; done = 0 }
+        { sub(/\r$/, "") }
+        done { next }
+        FNR == 1 && $0 != "---" { done = 1; next }
+        FNR == 1 { in_fm = 1; next }
+        in_fm && $0 == "---" { done = 1; next }
         in_fm && /^\t/ {
-            printf "  WARN: %s:%d leading tab in frontmatter (use spaces)\n", f, line > "/dev/stderr"
+            printf "  WARN: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
         }
         in_fm && /^[a-zA-Z0-9_-]+:[[:space:]]+[^"\047|>[{]/ {
             value_start = index($0, ":") + 1
@@ -314,10 +694,10 @@ lint_frontmatter() {
             sub(/^[[:space:]]+/, "", value)
             if (value ~ /:[[:space:]]/ || value ~ /:$/) {
                 col = index(value, ":") + value_start
-                printf "  WARN: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", f, line, col > "/dev/stderr"
+                printf "  WARN: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
             }
             if (value ~ /"/) {
-                printf "  WARN: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", f, line > "/dev/stderr"
+                printf "  WARN: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
             }
         }
         # Field-length limits. Both Claude Code and the Agent Skills standard
@@ -336,10 +716,15 @@ lint_frontmatter() {
             }
             limit = (key == "name") ? 64 : 1024
             if (length(val) > limit) {
-                printf "  WARN: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", f, line, key, length(val), limit > "/dev/stderr"
+                printf "  WARN: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
-    ' "$file"
+    ' "$@"
+}
+
+# lint_frontmatter <file> — single-file form for project adapters.
+lint_frontmatter() {
+    lint_frontmatter_files "$1"
 }
 
 # --- Frontmatter Parsing ---
@@ -518,6 +903,32 @@ get_model() {
     fi
 }
 
+# load_model_tiers <config_file> <ide> — resolve the three standard tiers
+# once per adapter run (IS_MODEL_HEAVY / IS_MODEL_STANDARD / IS_MODEL_LIGHT)
+# so per-file loops map tier -> model without forking. resolve_model_var
+# consumes them; a non-standard tier value still goes through get_model so a
+# `models:` override for it keeps working.
+load_model_tiers() {
+    local config_file="$1" ide="$2"
+    IS_MODEL_CFG="$config_file"
+    IS_MODEL_IDE="$ide"
+    IS_MODEL_HEAVY="$(get_model "$config_file" "$ide" "heavy")"
+    IS_MODEL_STANDARD="$(get_model "$config_file" "$ide" "standard")"
+    IS_MODEL_LIGHT="$(get_model "$config_file" "$ide" "light")"
+}
+
+# resolve_model_var <tier> — set IS_MODEL from the tiers load_model_tiers
+# resolved. An empty tier resolves to heavy, like get_model's default.
+# shellcheck disable=SC2034  # IS_MODEL is the return channel read by adapters
+resolve_model_var() {
+    case "$1" in
+        heavy|"") IS_MODEL="$IS_MODEL_HEAVY" ;;
+        standard) IS_MODEL="$IS_MODEL_STANDARD" ;;
+        light)    IS_MODEL="$IS_MODEL_LIGHT" ;;
+        *)        IS_MODEL="$(get_model "$IS_MODEL_CFG" "$IS_MODEL_IDE" "$1")" ;;
+    esac
+}
+
 # Print info message for each model override that differs from the
 # hardcoded default. Helps users notice when a script update brings new
 # defaults that their config still overrides with the old value.
@@ -568,11 +979,11 @@ report_model_drift() {
     fi
 }
 
-# Map access level to Claude tools string
-map_access_to_claude_tools() {
-    local access="$1"
-    case "$access" in
-        readonly) echo "Read, Grep, Glob, Bash" ;;
+# Map access level to Claude tools string (fork-free form: sets
+# IS_CLAUDE_TOOLS; the printing form wraps it for compatibility)
+map_access_to_claude_tools_var() {
+    case "$1" in
+        readonly) IS_CLAUDE_TOOLS="Read, Grep, Glob, Bash" ;;
         # full: emit NO tools list at all. Confirmed empirically in Copilot (VSCode,
         # reading .claude/agents): a closed tools list restricts the agent to exactly
         # those tools and loses MCP; omitting the field lets it inherit every session
@@ -583,17 +994,26 @@ map_access_to_claude_tools() {
         # intermittently hides MCP. The durable fix is an explicit allowlist that
         # NAMES the MCP servers (umbraco-mcp/*, figma/*) and stays under 128; that
         # needs the project's MCP server list, so it is tracked, not encoded here yet.
-        *)        echo "" ;;
+        *)        IS_CLAUDE_TOOLS="" ;;
     esac
 }
 
 # Map access level to Claude disallowedTools (empty if full access)
-map_access_to_claude_disallowed() {
-    local access="$1"
-    case "$access" in
-        readonly) echo "Write, Edit" ;;
-        *)        echo "" ;;
+map_access_to_claude_disallowed_var() {
+    case "$1" in
+        readonly) IS_CLAUDE_DISALLOWED="Write, Edit" ;;
+        *)        IS_CLAUDE_DISALLOWED="" ;;
     esac
+}
+
+map_access_to_claude_tools() {
+    map_access_to_claude_tools_var "$1"
+    echo "$IS_CLAUDE_TOOLS"
+}
+
+map_access_to_claude_disallowed() {
+    map_access_to_claude_disallowed_var "$1"
+    echo "$IS_CLAUDE_DISALLOWED"
 }
 
 # --- Validation ---
@@ -605,6 +1025,13 @@ map_access_to_claude_disallowed() {
 # exist.
 # Usage: canon="$(normalize_path "/repo/a/../b")"   # -> /repo/b
 normalize_path() {
+    normalize_path_var "$1"
+    printf '%s' "$IS_NORM_PATH"
+}
+
+# normalize_path_var <path> — fork-free form: sets IS_NORM_PATH instead of
+# printing, so hot validation loops avoid a command-substitution subshell.
+normalize_path_var() {
     local path="$1" p out=""
     local -a parts
     IFS='/' read -r -a parts <<< "$path"
@@ -615,7 +1042,7 @@ normalize_path() {
             *)      out="$out/$p" ;;
         esac
     done
-    printf '%s' "${out:-/}"
+    IS_NORM_PATH="${out:-/}"
 }
 
 # Refuse to operate on output paths that could clobber content.
@@ -639,10 +1066,20 @@ validate_output_path() {
     local adapter="$3"
     local output_dir="$4"
 
+    # A full sync validates the same path several times (preflight, snapshot,
+    # the adapter run itself, and shared paths like `.agents/skills` once per
+    # adapter that manages them). Success depends only on the inputs below —
+    # failures exit and are never memoized — so repeats return immediately.
+    local memo_key="$repo_root|$config_file|$output_dir"
+    case "${IS_VOP_MEMO:-$'\n'}" in
+        *$'\n'"$memo_key"$'\n'*) return 0 ;;
+    esac
+
     # Canonicalize FIRST. Every check below is a string comparison, so a `../`
     # left in the raw value would walk straight past all of them.
     local canon
-    canon="$(normalize_path "$output_dir")"
+    normalize_path_var "$output_dir"
+    canon="$IS_NORM_PATH"
 
     case "$canon" in
         ""|"/"|"$repo_root")
@@ -671,7 +1108,8 @@ validate_output_path() {
     # than stepped over.
     local probe="$canon" parent
     while [ ! -e "$probe" ] && [ ! -L "$probe" ]; do
-        parent="$(dirname "$probe")"
+        parent="${probe%/*}"
+        [ -n "$parent" ] || parent="/"
         [ "$parent" = "$probe" ] && break
         probe="$parent"
     done
@@ -689,9 +1127,15 @@ validate_output_path() {
         # inside the repo (`pwd -P` on both sides so a symlinked repo root
         # resolves consistently).
         local probe_dir phys repo_phys
-        if [ -d "$probe" ]; then probe_dir="$probe"; else probe_dir="$(dirname "$probe")"; fi
+        if [ -d "$probe" ]; then probe_dir="$probe"; else probe_dir="${probe%/*}"; [ -n "$probe_dir" ] || probe_dir="/"; fi
         phys="$(cd "$probe_dir" 2>/dev/null && pwd -P)" || phys=""
-        repo_phys="$(cd "$repo_root" && pwd -P)"
+        if [ "${IS_VOP_REPO_PHYS_ROOT:-}" = "$repo_root" ]; then
+            repo_phys="$IS_VOP_REPO_PHYS"
+        else
+            repo_phys="$(cd "$repo_root" && pwd -P)"
+            IS_VOP_REPO_PHYS_ROOT="$repo_root"
+            IS_VOP_REPO_PHYS="$repo_phys"
+        fi
         case "${phys:-/nonexistent}" in
             "$repo_phys"|"$repo_phys"/*) ;;
             *)
@@ -707,7 +1151,13 @@ validate_output_path() {
     # Reject the intelligence source directory itself (parent of config.yaml).
     # Folder name is whatever the user chose — we read it from the filesystem.
     local intel_dir intel_rel
-    intel_dir="$(cd "$(dirname "$config_file")" && pwd)"
+    if [ "${IS_VOP_INTEL_KEY:-}" = "$config_file" ]; then
+        intel_dir="$IS_VOP_INTEL_DIR"
+    else
+        intel_dir="$(cd "$(dirname "$config_file")" && pwd)"
+        IS_VOP_INTEL_KEY="$config_file"
+        IS_VOP_INTEL_DIR="$intel_dir"
+    fi
     intel_rel="${intel_dir#"$repo_root"/}"
     if [ -n "$intel_rel" ] && [ "$intel_rel" != "$intel_dir" ]; then
         case "$rel" in
@@ -740,12 +1190,14 @@ validate_output_path() {
     fi
 
     # Reject any configured source directory (rules, agents, skills).
-    local section src src_rel
+    local section src src_rel src_list
     for section in rules agents skills; do
+        load_yaml_list "$config_file" "$section"
+        src_list="$IS_YAML_LIST"
         while IFS= read -r src; do
             [ -z "$src" ] && continue
-            src_rel="$(normalize_path "$repo_root/$src")"
-            src_rel="${src_rel#"$repo_root"/}"
+            normalize_path_var "$repo_root/$src"
+            src_rel="${IS_NORM_PATH#"$repo_root"/}"
             case "$rel" in
                 "$src_rel"|"$src_rel"/*)
                     echo "ERROR: targets.$adapter.output ('$rel') overlaps a configured source ('$src')." >&2
@@ -753,8 +1205,10 @@ validate_output_path() {
                     exit 1
                     ;;
             esac
-        done < <(read_yaml_list "$config_file" "$section")
+        done <<< "$src_list"
     done
+
+    IS_VOP_MEMO="${IS_VOP_MEMO:-$'\n'}$memo_key"$'\n'
 }
 
 # Warn about prompt directories not listed in sources.
@@ -768,35 +1222,43 @@ warn_unsynced() {
     local config_file="$2"
 
     local all_sources=()
+    local src ign section
     for section in rules agents skills; do
+        load_yaml_list "$config_file" "$section"
         while IFS= read -r src; do
             [ -z "$src" ] && continue
             all_sources+=("$src")
-        done < <(read_yaml_list "$config_file" "$section")
+        done <<< "$IS_YAML_LIST"
     done
 
     # Collect ignore + submodule patterns.
     local ignores=()
-    while IFS= read -r ign; do
-        [ -z "$ign" ] && continue
-        ignores+=("$ign")
-    done < <(read_yaml_list "$config_file" "ignore")
-    while IFS= read -r sub; do
-        [ -z "$sub" ] && continue
-        ignores+=("$sub")
-    done < <(read_yaml_list "$config_file" "submodules")
+    for section in ignore submodules; do
+        load_yaml_list "$config_file" "$section"
+        while IFS= read -r ign; do
+            [ -z "$ign" ] && continue
+            ignores+=("$ign")
+        done <<< "$IS_YAML_LIST"
+    done
 
     # The manifest sits at the repo root, so the content dir cannot be derived
     # from its location — it comes from the env contract the CLI exports.
     local intel_basename
     if [ "${IS_CLI:-0}" = "1" ]; then
-        intel_basename="$(basename "${IS_CONTENT_REL:-intelligence}")"
+        intel_basename="${IS_CONTENT_REL:-intelligence}"
+        intel_basename="${intel_basename##*/}"
     else
-        intel_basename="$(basename "$(dirname "$config_file")")"
+        intel_basename="$(dirname "$config_file")"
+        intel_basename="${intel_basename##*/}"
     fi
 
     local warnings=0
 
+    # Prune instead of post-filtering: the old scan walked every directory in
+    # the repository — .git object stores and node_modules trees included —
+    # and then discarded the hits, which alone took minutes in a large
+    # monorepo. Results under these names were never actionable: generated
+    # tool outputs, the package store, dependency and build trees.
     while IFS= read -r found_dir; do
         local rel_dir="${found_dir#$repo_root/}"
 
@@ -830,13 +1292,22 @@ warn_unsynced() {
             *) continue ;;
         esac
 
-        # Check if directory has content worth syncing.
-        local has_content=false
-        if [ -n "$(find "$found_dir" -maxdepth 1 -name '*.md' 2>/dev/null | head -1)" ]; then
+        # Check if directory has content worth syncing (globs, no subprocess:
+        # any *.md directly inside, or a SKILL.md at depth one or two —
+        # `-e` because the old `find -name` matched any entry type).
+        local has_content=false f
+        for f in "$found_dir"/*.md; do
+            [ -e "$f" ] && has_content=true
+            break
+        done
+        if [ "$has_content" = false ] && [ -e "$found_dir/SKILL.md" ]; then
             has_content=true
         fi
-        if [ -n "$(find "$found_dir" -maxdepth 2 -name 'SKILL.md' 2>/dev/null | head -1)" ]; then
-            has_content=true
+        if [ "$has_content" = false ]; then
+            for f in "$found_dir"/*/SKILL.md; do
+                [ -e "$f" ] && has_content=true
+                break
+            done
         fi
         [ "$has_content" = false ] && continue
 
@@ -857,10 +1328,10 @@ warn_unsynced() {
             echo "  NOT SYNCED: $rel_dir"
             warnings=$((warnings + 1))
         fi
-    done < <(find "$repo_root" -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) 2>/dev/null)
+    done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
 
     if [ $warnings -gt 0 ]; then
-        echo "  Add these paths to sources: in $(basename "$config_file")"
+        echo "  Add these paths to sources: in ${config_file##*/}"
     fi
 }
 
@@ -869,9 +1340,29 @@ warn_unsynced() {
 # Read a simple list from config.yaml
 # Format: key:\n  - "value1"\n  - "value2"
 # Usage: readarray -t arr < <(read_yaml_list "config.yaml" "rules")
+#
+# Consults the load_yaml_list cache first: sync reads the same sections from
+# the same manifest dozens of times, and each awk spawn costs tens of
+# milliseconds on Windows. The cache is only ever populated by
+# load_yaml_list, which the engine calls for a manifest it never mutates, so
+# a CLI process that edits the manifest keeps reading the file directly.
 read_yaml_list() {
     local file="$1"
     local section="$2"
+    case "$section" in
+        rules|agents|skills|ignore|submodules)
+            # Indirect expansion, not eval: the section name is allowlisted
+            # above, but keeping manifest-derived values out of any evaluated
+            # string is the safer shape.
+            local file_var="IS_YL_${section}_FILE" val_var="IS_YL_${section}_VAL"
+            local cached_file="${!file_var:-}" cached_val
+            if [ -n "$cached_file" ] && [ "$cached_file" = "$file" ]; then
+                cached_val="${!val_var:-}"
+                [ -n "$cached_val" ] && printf '%s\n' "$cached_val"
+                return 0
+            fi
+            ;;
+    esac
     awk -v section="$section" '
         {
             sub(/\r$/, "")
@@ -895,11 +1386,145 @@ read_yaml_list() {
     ' "$file"
 }
 
+# load_yaml_list <file> <section> — fill the global IS_YAML_LIST with the
+# section's entries (newline-separated) and cache the result for
+# read_yaml_list and later load_yaml_list calls. Lets in-process loops
+# iterate a section without forking; the engine warms the cache once per run.
+# Only sections whose names are identifier-safe are cached.
+load_yaml_list() {
+    local file="$1" section="$2"
+    case "$section" in
+        rules|agents|skills|ignore|submodules)
+            # Indirect reads and printf -v writes, not eval — see the note in
+            # read_yaml_list.
+            local file_var="IS_YL_${section}_FILE" val_var="IS_YL_${section}_VAL"
+            local cached_file="${!file_var:-}"
+            if [ -n "$cached_file" ] && [ "$cached_file" = "$file" ]; then
+                IS_YAML_LIST="${!val_var:-}"
+                return 0
+            fi
+            IS_YAML_LIST="$(read_yaml_list "$file" "$section")"
+            printf -v "$file_var" '%s' "$file"
+            printf -v "$val_var" '%s' "$IS_YAML_LIST"
+            ;;
+        *)
+            IS_YAML_LIST="$(read_yaml_list "$file" "$section")"
+            ;;
+    esac
+}
+
+# load_targets_cache <file> — parse the whole targets: section once into the
+# global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
+# replicating is_target_enabled and get_target_output semantics: inline and
+# block forms, first occurrence wins, `enabled` defaults to 0 when the block
+# ends without one and to empty at end of file. The engine warms this once;
+# both readers consult it before spawning awk.
+load_targets_cache() {
+    local file="$1"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        return 0
+    fi
+    IS_TGT_TSV="$(awk '
+        function flush_target(at_sibling) {
+            if (name == "") return
+            if (enabled == "" && at_sibling) enabled = 0
+            printf "%s\t%s\t%s\n", name, enabled, output
+            name = ""
+        }
+        { sub(/\r$/, "") }
+        /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        /^[a-zA-Z]/ { in_targets = 0 }
+        # The per-target readers scanned forward for the FIRST line containing
+        # `enabled:` / `output:` after the target header, checking it before
+        # the block-end test — so a sibling header line could donate its own
+        # inline values to a block that lacked them. These two rules run
+        # before the header rule below to keep that reading.
+        name != "" && enabled == "" && /enabled:/ {
+            enabled = ($0 ~ /true/) ? 1 : 0
+        }
+        name != "" && output == "" && /output:/ {
+            val = $0
+            sub(/.*output:[[:space:]]*["\047]?/, "", val)
+            sub(/["\047]?[[:space:]]*}?$/, "", val)
+            output = val
+        }
+        in_targets && $0 ~ /^  [a-zA-Z0-9_-]+:/ {
+            flush_target(1)
+            line = $0
+            name = substr(line, 3)
+            sub(/:.*$/, "", name)
+            enabled = ""; output = ""
+            if (line ~ /enabled:[[:space:]]*true/) enabled = 1
+            else if (line ~ /enabled:[[:space:]]*false/) enabled = 0
+            if (match(line, /output:[[:space:]]*/)) {
+                rest = substr(line, RSTART + RLENGTH)
+                if (match(rest, /[,}]/)) rest = substr(rest, 1, RSTART - 1)
+                gsub(/^["\047]|["\047][[:space:]]*$/, "", rest)
+                sub(/[[:space:]]+$/, "", rest)
+                output = rest
+            }
+            next
+        }
+        name != "" && /^  [a-zA-Z]/ { flush_target(1) }
+        END { flush_target(0) }
+    ' "$file")"
+    IS_TGT_FILE="$file"
+}
+
+# _targets_cache_row <target> — scan the cached TSV; sets IS_TGT_ROW_ENABLED /
+# IS_TGT_ROW_OUTPUT. Returns 1 when the target has no row (reader falls back
+# to empty, same as the awk scan finding nothing).
+_targets_cache_row() {
+    local target="$1" n e o
+    IS_TGT_ROW_ENABLED=""
+    IS_TGT_ROW_OUTPUT=""
+    while IFS=$'\t' read -r n e o; do
+        if [ "$n" = "$target" ]; then
+            IS_TGT_ROW_ENABLED="$e"
+            IS_TGT_ROW_OUTPUT="$o"
+            return 0
+        fi
+    done <<< "$IS_TGT_TSV"
+    return 1
+}
+
+# target_enabled_var <file> <target> — fork-free is_target_enabled: sets
+# IS_TGT_ENABLED instead of printing. Falls back to the awk reader when the
+# cache does not cover the file.
+# shellcheck disable=SC2034  # IS_TGT_ENABLED is the return channel read by sync.sh
+target_enabled_var() {
+    local file="$1" target="$2"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        _targets_cache_row "$target" || true
+        IS_TGT_ENABLED="$IS_TGT_ROW_ENABLED"
+    else
+        IS_TGT_ENABLED="$(is_target_enabled "$file" "$target")"
+    fi
+}
+
+# target_output_var <file> <target> — fork-free get_target_output: sets
+# IS_TGT_OUTPUT instead of printing.
+# shellcheck disable=SC2034  # IS_TGT_OUTPUT is the return channel read by sync.sh
+target_output_var() {
+    local file="$1" target="$2"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        _targets_cache_row "$target" || true
+        IS_TGT_OUTPUT="$IS_TGT_ROW_OUTPUT"
+    else
+        IS_TGT_OUTPUT="$(get_target_output "$file" "$target")"
+    fi
+}
+
 # Check if a target is enabled in config.yaml (scoped to targets: section)
 # Usage: is_target_enabled "config.yaml" "claude"
 is_target_enabled() {
     local file="$1"
     local target="$2"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        _targets_cache_row "$target" || true
+        [ -n "$IS_TGT_ROW_ENABLED" ] && printf '%s\n' "$IS_TGT_ROW_ENABLED"
+        return 0
+    fi
     awk -v target="$target" '
         { sub(/\r$/, "") }
 
@@ -967,6 +1592,11 @@ get_target_field() {
 get_target_output() {
     local file="$1"
     local target="$2"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        _targets_cache_row "$target" || true
+        [ -n "$IS_TGT_ROW_OUTPUT" ] && printf '%s\n' "$IS_TGT_ROW_OUTPUT"
+        return 0
+    fi
     awk -v target="$target" '
         { sub(/\r$/, "") }
 
