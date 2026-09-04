@@ -200,6 +200,25 @@ grep -q 'updates available: 0 package' <<< "$pv_pin" \
     || { echo "FAIL: a commit pin was counted as an update"; fail=1; }
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/branch >/dev/null)
 
+echo "== ref pin: a deleted branch is reported, even when its name looks like a sha =="
+# The commit-pin verdict reads the locked sha, not the ref's shape: a branch
+# named like hex would otherwise pass for a pin and swallow its own deletion.
+HEXB="$OUT/hexpack"
+mkdir -p "$HEXB/rules"
+printf '# Hex rule\n\nHEX_MARKER\n' > "$HEXB/rules/hex-rule.md"
+git -C "$HEXB" init --quiet
+git -C "$HEXB" -c user.email=t@t -c user.name=t add -A
+git -C "$HEXB" -c user.email=t@t -c user.name=t commit --quiet -m h1
+git -C "$HEXB" checkout -q -B deadbeef
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+file://$HEXB@deadbeef" --name @acme/hex --no-sync)
+git -C "$HEXB" checkout -q -B keeper
+git -C "$HEXB" branch -D deadbeef >/dev/null
+pv_gone="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview @acme/hex 2>/dev/null)"
+grep -q 'deadbeef (unresolvable — gone upstream)' <<< "$pv_gone" \
+    || { echo "FAIL: a deleted branch named like a sha was not reported"; fail=1; }
+chknot grep -q 'pinned commit' <<< "$pv_gone"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/hex --no-sync >/dev/null)
+
 echo "== project file overrides a same-named package file =="
 printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync >/dev/null)

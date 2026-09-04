@@ -84,17 +84,19 @@ while IFS= read -r name; do
         # names a ref the lock never resolved is an ordinary move, and falls
         # through to the fetch below.
         if [ -z "$remote_sha" ] && [ "$ref" = "$current" ]; then
-            commit_pin=0
-            case "$ref" in
-                *[!0-9a-fA-F]*) ;;
-                ???????*) commit_pin=1 ;;
+            # The lock records the commit this ref resolved to, so a ref that
+            # prefixes it IS that commit. Asking the lock beats guessing from
+            # the ref's shape: a deleted branch named like a hex string would
+            # otherwise pass for a pin and swallow its own disappearance.
+            case "$locked_sha" in
+                "$ref"*)
+                    echo "  $name: $(short_sha "$ref") (pinned commit)"
+                    ;;
+                *)
+                    echo "  WARN: $name pins ref '$ref', which $url no longer advertises" >&2
+                    echo "  $name: $ref (unresolvable — gone upstream)"
+                    ;;
             esac
-            if [ "$commit_pin" -eq 1 ]; then
-                echo "  $name: $(short_sha "$ref") (pinned commit)"
-            else
-                echo "  WARN: $name pins ref '$ref', which $url no longer advertises" >&2
-                echo "  $name: $ref (unresolvable — gone upstream)"
-            fi
             continue
         fi
         [ -z "$remote_sha" ] || [ "$remote_sha" = "$locked_sha" ] || ref_moved=1
