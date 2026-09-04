@@ -466,9 +466,16 @@ xok "dry run" "$LEG1" init --preview
 xok "would omit the bundled sync-content package" "$EMPTY" init --preview --bare --no-sync
 xfail "unsafe content directory '.git'" "$EMPTY" init --dir .git
 mkdir -p "$OUT/outside-content"
-ln -s "$OUT/outside-content" "$EMPTY/linked-content"
-xfail "resolves outside the repository" "$EMPTY" init --dir linked-content
-rm -f "$EMPTY/linked-content"
+# Git Bash without developer mode copies instead of linking, leaving the escape
+# this case refuses with no fixture to stand on. Probe the link rather than the
+# platform, so a filesystem that CAN link still has to pass.
+if ln -s "$OUT/outside-content" "$EMPTY/linked-content" 2>/dev/null \
+    && [ -L "$EMPTY/linked-content" ]; then
+    xfail "resolves outside the repository" "$EMPTY" init --dir linked-content
+else
+    echo "  NOTE: this filesystem does not create symlinks — escaping content dir not exercised"
+fi
+rm -rf "$EMPTY/linked-content"
 xfail "invalid target name" "$EMPTY" init --targets ../escape
 xfail "adapter 'missing' not found" "$EMPTY" init --targets missing
 chknot test -f "$EMPTY/intelligence.yaml"
