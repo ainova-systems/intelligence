@@ -39,6 +39,10 @@ The `agents` target is therefore required whenever an enabled target relies on
 `AGENTS.md`. Adding an adapter means updating that list in `engine/sync.sh` in the
 same change.
 
+Tool-specific limits and diagnostics stay inside their adapter. Shared reporting
+may expose measurements, but it does not interpret adapter policy. Compact sync
+preserves generic context measurements and actionable adapter warnings.
+
 ## Adapters
 
 One file defines both sides of the versioned interface:

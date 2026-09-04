@@ -58,22 +58,11 @@ agents_md_append_agents_table() {
     local rows=""
     local count=0
 
-    local src f
+    local f
     local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        # Byte-order (LC_ALL=C) sort so generated output is identical across
-        # platforms — bash glob order follows LC_COLLATE, which differs between
-        # Linux CI (UTF-8, ignores `-`) and Git Bash (C, byte order).
-        while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
-    done <<< "$list"
+    while IFS= read -r f; do
+        [ -n "$f" ] && files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "agents")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path tier access desc name
@@ -112,24 +101,11 @@ agents_md_append_skills_table() {
     local rows=""
     local count=0
 
-    local src skill_dir dirname
+    local f dirname
     local -a skill_files=()
-    load_yaml_list "$config_file" "skills"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        # Byte-order (LC_ALL=C) sort so generated output is identical across
-        # platforms — see the note in agents_md_append_agents_table.
-        while IFS= read -r skill_dir; do
-            [ -d "$skill_dir" ] || continue
-            dirname="${skill_dir##*/}"
-            case "$dirname" in _*) continue ;; esac
-            [ -f "${skill_dir%/}/SKILL.md" ] || continue
-            skill_files+=("${skill_dir%/}/SKILL.md")
-        done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
-    done <<< "$list"
+    while IFS= read -r f; do
+        [ -n "$f" ] && skill_files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
 
     if [ "${#skill_files[@]}" -gt 0 ]; then
         local path desc
@@ -169,22 +145,11 @@ agents_md_append_rules_list() {
     local count=0
     local global_rule_files=()
 
-    local src f
+    local f
     local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        # Byte-order (LC_ALL=C) sort so generated output — and the inline order
-        # of always-on rules below — is identical across platforms. See the
-        # note in agents_md_append_agents_table.
-        while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done < <(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)
-    done <<< "$list"
+    while IFS= read -r f; do
+        [ -n "$f" ] && files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "rules")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path hp name scope
@@ -251,10 +216,8 @@ agents_md_append_rules_list() {
 
 # Main entry point for AGENTS.md adapter
 adapter_contract_agents() {
-    local output="$1"
-    if [[ "$output" == */ ]] || [[ "$output" != *.md ]]; then
-        output="${output%/}/AGENTS.md"
-    fi
+    local output
+    output="$(agents_output_path "$1")"
     adapter_contract_version 1
     adapter_contract_owned "$output"
     adapter_contract_legacy "AGENTS.md"
@@ -271,10 +234,8 @@ sync_to_agents() {
     # If it looks like a directory lexically (trailing slash or no .md
     # extension), append the default filename. The ownership contract uses the
     # same rule, so filesystem state cannot make its write-set ambiguous.
-    local output_file="$output_dir"
-    if [[ "$output_file" == */ ]] || [[ "$output_file" != *.md ]]; then
-        output_file="${output_file%/}/AGENTS.md"
-    fi
+    local output_file
+    output_file="$(agents_output_path "$output_dir")"
 
     mkdir -p "$(dirname "$output_file")"
 

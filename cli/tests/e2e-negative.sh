@@ -62,8 +62,22 @@ xok() {
     fi
     if [ -n "$frag" ] && ! printf '%s\n' "$OUTPUT" | grep -qF -- "$frag"; then
         echo "FAIL: output of '$*' lacks '$frag'"
+        printf '%s\n' "$OUTPUT" | tail -8
         fail=1
     fi
+}
+
+# Compact success may gain new one-line warnings without changing its contract.
+# Reject verbose leakage while requiring exactly one context, status and done line.
+compact_contract_ok() {
+    printf '%s\n' "$1" | awk '
+        /^WARNING:/ { next }
+        /^CONTEXT:/ { context++; next }
+        /^IS_STATUS=ok($| )/ { status++; next }
+        /^=== Done:/ { done++; next }
+        NF { bad=1 }
+        END { exit bad || context != 1 || status != 1 || done != 1 }
+    '
 }
 
 ENGINE_VER="$(tr -d ' \t\r\n' < "$REPO/engine/VERSION")"
@@ -142,6 +156,100 @@ CLAUDE.md
 !.claude/settings.json
 EOF
 git -C "$PROJ" init --quiet
+
+echo "== Codex AGENTS.md byte-budget warning =="
+CODEX_SIZE="$OUT/codex-size"
+mkdir -p "$CODEX_SIZE/intelligence/rules" \
+    "$CODEX_SIZE/intelligence/skills/visible" \
+    "$CODEX_SIZE/intelligence/skills/_draft"
+cat > "$CODEX_SIZE/intelligence.yaml" <<EOF
+project:
+  name: codex-size
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+    - "intelligence/skills"
+
+targets:
+  agents: { enabled: true }
+  codex: { enabled: true, output: ".codex", warn_project_doc_limit: true }
+EOF
+printf '# Small context\n\nsmall enough\n' > "$CODEX_SIZE/intelligence/rules/context.md"
+printf '%s\n' '---' 'name: visible' 'description: "Visible test skill"' '---' '' '# Visible' \
+    > "$CODEX_SIZE/intelligence/skills/visible/SKILL.md"
+printf '%s\n' '---' 'name: draft' 'description: "Private draft skill"' '---' '' '# Draft' \
+    > "$CODEX_SIZE/intelligence/skills/_draft/SKILL.md"
+git -C "$CODEX_SIZE" init --quiet
+xok "" "$CODEX_SIZE" sync --compact
+printf '%s\n' "$OUTPUT" | grep -qE '^CONTEXT: always-on=[0-9]+ bytes \(1 rules\); custom=[0-9]+ bytes \(0 scoped rules, 0 agents, 2 skills\); agents-md=[0-9]+ bytes; agents-md-status=generated$' \
+    || { echo "FAIL: context size summary lacks the expected source and AGENTS.md counts"; fail=1; }
+chk test -f "$CODEX_SIZE/.agents/AGENTS.md"
+chk test -f "$CODEX_SIZE/.agents/skills/visible/SKILL.md"
+chk test -f "$CODEX_SIZE/.agents/skills/_draft/SKILL.md"
+compact_contract_ok "$OUTPUT" \
+    || { echo "FAIL: compact sync output escaped its line contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+if printf '%s\n' "$OUTPUT" | grep -qF 'Codex may truncate'; then
+    echo "FAIL: Codex size warning emitted below the default byte budget"
+    fail=1
+fi
+awk 'BEGIN {
+    print "# Large context\n"
+    for (i = 0; i < 70000; i++) printf "x"
+    print ""
+}' > "$CODEX_SIZE/intelligence/rules/context.md"
+xok "WARNING: Codex may truncate .agents/AGENTS.md:" "$CODEX_SIZE" sync --compact
+printf '%s\n' "$OUTPUT" | grep -qF 'project_doc_max_bytes = 131072' \
+    || { echo "FAIL: Codex size warning lacks a sufficient config value"; fail=1; }
+compact_contract_ok "$OUTPUT" \
+    || { echo "FAIL: warned compact sync output escaped its line contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+
+awk '{ gsub(/warn_project_doc_limit: true/, "warn_project_doc_limit: 131072"); print }' \
+    "$CODEX_SIZE/intelligence.yaml" > "$CODEX_SIZE/intelligence.yaml.tmp" \
+    && mv "$CODEX_SIZE/intelligence.yaml.tmp" "$CODEX_SIZE/intelligence.yaml"
+xok "" "$CODEX_SIZE" sync --compact
+if printf '%s\n' "$OUTPUT" | grep -qF 'Codex may truncate'; then
+    echo "FAIL: Codex size warning ignored its configured numeric threshold"
+    fail=1
+fi
+compact_contract_ok "$OUTPUT" \
+    || { echo "FAIL: thresholded compact sync output escaped its line contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+
+awk '{
+    gsub(/agents: \{ enabled: true \}/, "agents: { enabled: true, output: \"docs/\" }")
+    gsub(/warn_project_doc_limit: 131072/, "warn_project_doc_limit: 32768")
+    print
+}' "$CODEX_SIZE/intelligence.yaml" > "$CODEX_SIZE/intelligence.yaml.tmp" \
+    && mv "$CODEX_SIZE/intelligence.yaml.tmp" "$CODEX_SIZE/intelligence.yaml"
+xok "WARNING: Codex may truncate docs/AGENTS.md:" "$CODEX_SIZE" sync --compact
+chk test -f "$CODEX_SIZE/docs/AGENTS.md"
+printf '%s\n' "$OUTPUT" | grep -qE 'agents-md=[0-9]+ bytes; agents-md-status=generated$' \
+    || { echo "FAIL: directory-form agents output was not measured"; fail=1; }
+
+awk '{ gsub(/warn_project_doc_limit: 32768/, "warn_project_doc_limit: false"); print }' \
+    "$CODEX_SIZE/intelligence.yaml" > "$CODEX_SIZE/intelligence.yaml.tmp" \
+    && mv "$CODEX_SIZE/intelligence.yaml.tmp" "$CODEX_SIZE/intelligence.yaml"
+xok "" "$CODEX_SIZE" sync --compact
+if printf '%s\n' "$OUTPUT" | grep -qF 'Codex may truncate'; then
+    echo "FAIL: inline warn_project_doc_limit: false did not suppress the warning"
+    fail=1
+fi
+compact_contract_ok "$OUTPUT" \
+    || { echo "FAIL: suppressed compact sync output escaped its line contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+
+rm "$CODEX_SIZE/docs/AGENTS.md"
+xok "" "$CODEX_SIZE" sync codex --compact
+printf '%s\n' "$OUTPUT" | grep -qF 'agents-md=0 bytes; agents-md-status=not-generated' \
+    || { echo "FAIL: missing agents output lacks a numeric context slot and status"; fail=1; }
+
+awk '{ gsub(/warn_project_doc_limit: false/, "warn_project_doc_limit: off"); print }' \
+    "$CODEX_SIZE/intelligence.yaml" > "$CODEX_SIZE/intelligence.yaml.tmp" \
+    && mv "$CODEX_SIZE/intelligence.yaml.tmp" "$CODEX_SIZE/intelligence.yaml"
+xfail "warn_project_doc_limit must be true, false, or a positive byte count" "$CODEX_SIZE" sync codex --compact
 
 echo "== 1. garbage spec =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.s1"

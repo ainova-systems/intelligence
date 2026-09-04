@@ -26,6 +26,44 @@ adapter_contract_codex() {
     adapter_contract_ignore "$output/agents/"
 }
 
+# Codex-specific guard for its documented project-instruction byte budget.
+# A personal/project Codex config may already raise the actual limit, so the
+# manifest exposes one warning setting: false disables it, while a positive
+# byte count matches an effective limit the adapter cannot discover itself.
+codex_warn_project_doc_size() {
+    local repo_root="$1"
+    local config_file="$2"
+    local warning_setting warning_limit=32768
+    warning_setting="$(get_target_field "$config_file" "codex" "warn_project_doc_limit")"
+    case "$warning_setting" in
+        ''|true) ;;
+        false) return 0 ;;
+        *[!0-9]*|0|0*)
+            echo "ERROR: targets.codex.warn_project_doc_limit must be true, false, or a positive byte count without leading zeros." >&2
+            return 1
+            ;;
+        *) warning_limit="$warning_setting" ;;
+    esac
+
+    target_output_var "$config_file" "agents"
+    local output
+    output="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+
+    local output_file="$repo_root/$output"
+    [ -f "$output_file" ] || return 0
+
+    local bytes
+    bytes="$(context_files_bytes "$output_file")"
+    [ "$bytes" -gt "$warning_limit" ] || return 0
+
+    local recommended="$warning_limit"
+    while [ "$recommended" -lt "$bytes" ]; do
+        recommended=$((recommended * 2))
+    done
+
+    echo "WARNING: Codex may truncate $output: $bytes bytes exceeds the $warning_limit-byte Intelligence warning threshold; set project_doc_max_bytes = $recommended in Codex config.toml and restart Codex, reduce/split the instructions, set targets.codex.warn_project_doc_limit to the effective byte limit, or set it to false to disable this warning."
+}
+
 # Sync skills to Codex format (.agents/skills/{name}/SKILL.md)
 sync_codex_skills() {
     local repo_root="$1"
@@ -117,4 +155,6 @@ sync_to_codex() {
     rm -rf "$agents_dir"
     mkdir -p "$agents_dir"
     sync_codex_agents "$repo_root" "$config_file" "$agents_dir"
+
+    codex_warn_project_doc_size "$repo_root" "$config_file"
 }

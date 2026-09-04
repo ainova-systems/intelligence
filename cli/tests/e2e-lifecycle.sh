@@ -159,8 +159,19 @@ chk grep -q 'Local machine only' "$FRESH/CLAUDE.md"
 chknot grep -q 'NOT SYNCED: intelligence/_backup/' "$OUT/fresh-resync.txt"
 
 compact_output="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)"
-compact_lines="$(printf '%s\n' "$compact_output" | awk 'NF{n++} END{print n+0}')"
-[ "$compact_lines" -eq 2 ] || { echo "FAIL: compact sync emitted $compact_lines nonblank lines"; fail=1; }
+if ! printf '%s\n' "$compact_output" | awk '
+    /^WARNING:/ { next }
+    /^CONTEXT:/ { context++; next }
+    /^IS_STATUS=ok($| )/ { status++; next }
+    /^=== Done:/ { done++; next }
+    NF { bad=1 }
+    END { exit bad || context != 1 || status != 1 || done != 1 }
+'; then
+    echo "FAIL: compact sync output escaped its line contract"
+    printf '%s\n' "$compact_output"
+    fail=1
+fi
+printf '%s\n' "$compact_output" | grep -q '^CONTEXT: ' || { echo "FAIL: compact sync lacks context summary"; fail=1; }
 printf '%s\n' "$compact_output" | grep -q '^IS_STATUS=ok ' || { echo "FAIL: compact sync lacks final status"; fail=1; }
 printf '%s\n' "$compact_output" | grep -q '^=== Done:' || { echo "FAIL: compact sync lacks completion line"; fail=1; }
 

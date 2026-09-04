@@ -311,6 +311,9 @@ trap - EXIT INT TERM
 # Warn about unsynced directories
 warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
 
+# Report adapter-agnostic source context pressure on every successful sync.
+report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
+
 # Report model overrides that drift from intelligence-sync defaults
 # (helpful when defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
 report_model_drift "$CONFIG_FILE"

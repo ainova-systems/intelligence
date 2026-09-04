@@ -279,6 +279,7 @@ targets:
     enabled: false
     # preserve this field while toggling enabled
     output: ".custom-claude"
+  codex: { enabled: true, output: ".codex", warn_project_doc_limit: false }
 
 # Package examples follow the generated target list.
 # packages:
@@ -294,10 +295,17 @@ chknot target_exists "$MT" cursor
 target_set_enabled "$MT" agents false "AGENTS.md"
 chk eq "$(is_target_enabled "$MT" agents)" "0"
 chk eq "$(get_target_output "$MT" agents)" "AGENTS.md"
+chk eq "$(agents_output_path "")" ".agents/AGENTS.md"
+chk eq "$(agents_output_path "docs/")" "docs/AGENTS.md"
+chk eq "$(agents_output_path "CUSTOM.md")" "CUSTOM.md"
 target_set_enabled "$MT" claude true ".claude"
 chk eq "$(is_target_enabled "$MT" claude)" "1"
 chk eq "$(get_target_output "$MT" claude)" ".custom-claude"
 chk grep -q 'output: ".custom-claude"' "$MT"
+chk eq "$(get_target_field "$MT" codex warn_project_doc_limit)" "false"
+chk eq "$(get_target_field "$MT" claude output)" ".custom-claude"
+target_set_enabled "$MT" codex false ".codex"
+chk grep -q '^  codex: { enabled: false, output: ".codex", warn_project_doc_limit: false }$' "$MT"
 target_set_enabled "$MT" cursor true ".cursor"
 chk target_exists "$MT" cursor
 chk eq "$(is_target_enabled "$MT" cursor)" "1"
@@ -313,6 +321,21 @@ if ! awk '
     echo "FAIL: missing target did not preserve the preceding block scalar"
     fail=1
 fi
+
+MT_DEFAULT="$OUT/targets-default.yaml"
+cat > "$MT_DEFAULT" <<'EOF'
+targets:
+  agents: { enabled: true }
+  codex: { enabled: true, output: ".codex" }
+other:
+  nested:
+    output: "must-not-leak"
+EOF
+chk eq "$(get_target_output "$MT_DEFAULT" agents)" ""
+load_targets_cache "$MT_DEFAULT"
+target_output_var "$MT_DEFAULT" agents
+chk eq "$IS_TGT_OUTPUT" ""
+chk eq "$(agents_output_path "$IS_TGT_OUTPUT")" ".agents/AGENTS.md"
 cp "$MT" "$OUT/targets.once"
 target_set_enabled "$MT" cursor true ".cursor"
 chk diff "$OUT/targets.once" "$MT"

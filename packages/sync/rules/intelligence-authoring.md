@@ -60,7 +60,7 @@ The mistakes that actually happen, in order of frequency:
 
 ### Invariants
 
-- **Never state behaviour of a tool or engine you have not verified in its documentation or source.** This invariant exists because the claim *"Claude Code does not auto-load `.claude/rules/`"* was once written into this layer as fact. It is false — rules without `paths:` load at launch, path-scoped ones activate on matching files, and custom subagents inherit both (Claude Code docs: *Memory → Organize rules with `.claude/rules/`*, and *Subagents → What loads at startup*). An unverified claim about tooling is worse than a gap: nothing in the repository contradicts it, so it silently reshapes every decision downstream.
+- **Never state behaviour of a tool or engine you have not verified in its documentation or source.** An unverified claim about tooling is worse than a gap: nothing in the repository contradicts it, so it silently reshapes every decision downstream. Verified means a page you can cite - for how rules load, the Claude Code docs *Memory → Organize rules with `.claude/rules/`* and *Subagents → What loads at startup*.
 - **Never write a current defect into a rule as if it were the design.** Known breakage belongs in one place that says so. Every other rule describes the project *as it is meant to work* — a workaround documented as procedure becomes permanent.
 - **Never link from one always-on rule to another.** Always-on rules are inlined verbatim into `AGENTS.md`, and the path-scoped channels carry only scoped rules, so a relative link is dead in at least one output. Name the rule instead; it loads on its own.
 

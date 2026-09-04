@@ -4,6 +4,19 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.5]
+
+### Fixed
+
+- Warned when a Codex-enabled `AGENTS.md` exceeds its project-instruction byte threshold, including during compact syncs, with one manifest field that accepts `false` to disable the warning or a positive byte count to change its trigger.
+- Resolved default, directory and file forms of the shared agents output through one path rule, and stopped omitted target fields from borrowing values from the next manifest target.
+
+### Added
+
+- Reported always-on and custom source-context byte totals, file counts, and the rendered `AGENTS.md` size after every successful sync, including compact mode.
+- Added a recommended 32 KiB `AGENTS.md` budget to the intelligence-layer audit.
+- Added `/intelligence-compact-context` for approval-gated semantic compaction of rules, agents, and skills using scope, ownership, and progressive disclosure before prose shortening.
+
 ## [0.11.4]
 
 ### Changed
