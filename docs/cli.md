@@ -100,9 +100,16 @@ A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
 engine until conversion.
 
-`--compact` prints only the final machine-readable status and completion line
-when sync succeeds. If lifecycle preflight, restore or rendering fails, it
-prints the complete captured diagnostics and preserves the original exit code.
+Every successful sync reports context pressure in one line: byte totals and file
+counts for always-on rules, then for custom context (scoped rules, agent prompts
+and skill entry points), followed by a numeric rendered `AGENTS.md` byte count
+and its `generated`, `not-generated`, or `disabled` status. Supporting skill
+assets are excluded because they load only when a skill reads them.
+
+`--compact` prints that context summary and actionable one-line warnings,
+followed by the final machine-readable status and completion line when sync
+succeeds. If lifecycle preflight, restore or rendering fails, it prints the
+complete captured diagnostics and preserves the original exit code.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before alignment or restoration. Restore the

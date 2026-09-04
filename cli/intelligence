@@ -47,7 +47,7 @@ Usage: intelligence <command> [args]
     --targets a,b --dir name --bare --no-sync   New-project options
     --force               Accept a dirty worktree during legacy project conversion
   sync [adapter] [--compact]  Restore locked content, then render enabled adapters
-    --compact            On success show only final status; on failure show diagnostics
+    --compact            On success show context, warnings and final status; on failure show diagnostics
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking

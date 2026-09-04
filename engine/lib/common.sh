@@ -641,23 +641,16 @@ sync_open_skill_dirs() {
     fi
     mkdir -p "$output_dir"
 
-    local count=0 log="" d skill_name src list
+    local count=0 log="" d skill_file skill_name
     local -a skill_dirs=()
-    load_yaml_list "$config_file" "skills"
-    list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for d in "$dir"/*/; do
-            [ -d "$d" ] || continue
-            skill_name="${d%/}"; skill_name="${skill_name##*/}"
-            [ -f "$d/SKILL.md" ] || continue
-            skill_dirs+=("$d")
-            count=$((count + 1))
-            log+="  skill: $skill_name"$'\n'
-        done
-    done <<< "$list"
+    while IFS= read -r skill_file; do
+        [ -n "$skill_file" ] || continue
+        d="${skill_file%/SKILL.md}"
+        skill_name="${d##*/}"
+        skill_dirs+=("$d/")
+        count=$((count + 1))
+        log+="  skill: $skill_name"$'\n'
+    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
     # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
     # target gets it — not just this open-standard dir.
     if [ "$count" -gt 0 ]; then
@@ -1335,6 +1328,109 @@ warn_unsynced() {
     fi
 }
 
+# Enumerate one manifest source kind using the same depth and ordering
+# everywhere. Source-list order is significant; entries inside each directory
+# use byte-order sorting for cross-platform determinism.
+source_artifact_files() {
+    local repo_root="$1"
+    local config_file="$2"
+    local section="$3"
+    local src f dir
+
+    load_yaml_list "$config_file" "$section"
+    while IFS= read -r src; do
+        [ -n "$src" ] || continue
+        dir="$repo_root/$src"
+        [ -d "$dir" ] || continue
+        case "$section" in
+            rules|agents)
+                find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort
+                ;;
+            skills)
+                while IFS= read -r f; do
+                    [ -n "$f" ] || continue
+                    [ -f "$f/SKILL.md" ] && printf '%s\n' "$f/SKILL.md"
+                done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+                ;;
+        esac
+    done <<< "$IS_YAML_LIST"
+}
+
+# Apply the agents adapter's lexical output rule without consulting filesystem
+# state. An omitted output uses the generic adapter default directory.
+agents_output_path() {
+    local output="${1:-.agents}"
+    if [[ "$output" == */ ]] || [[ "$output" != *.md ]]; then
+        output="${output%/}/AGENTS.md"
+    fi
+    printf '%s\n' "$output"
+}
+
+# Report source prompt pressure independently of adapter formats. "Always-on"
+# means rules without paths; "custom" means scoped rules, agent prompts and
+# skill entry points. Supporting skill assets are excluded because tools load
+# them only when a skill explicitly reads them. When the shared agents target
+# exists, also report its rendered size; policy for any tool-specific limit
+# stays in that tool's adapter.
+context_files_bytes() {
+    if [ "$#" -eq 0 ]; then
+        echo 0
+        return 0
+    fi
+    LC_ALL=C wc -c "$@" | awk 'END { print $1 + 0 }'
+}
+
+report_context_source_sizes() {
+    local repo_root="$1"
+    local config_file="$2"
+    local f path has_paths
+    local -a rule_files=() always_on_rules=() scoped_rules=() agent_files=() skill_files=()
+
+    while IFS= read -r f; do
+        [ -n "$f" ] && rule_files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "rules")
+    if [ "${#rule_files[@]}" -gt 0 ]; then
+        while IFS=$'\x1f' read -r path has_paths; do
+            [ -n "$path" ] || continue
+            if [ "$has_paths" = "0" ]; then
+                always_on_rules+=("$path")
+            else
+                scoped_rules+=("$path")
+            fi
+        done < <(frontmatter_index "paths#" "${rule_files[@]}")
+    fi
+
+    while IFS= read -r f; do
+        [ -n "$f" ] && agent_files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "agents")
+
+    while IFS= read -r f; do
+        [ -n "$f" ] && skill_files+=("$f")
+    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
+
+    local always_bytes custom_bytes agents_output agents_bytes=0 agents_status="disabled"
+    always_bytes="$(context_files_bytes "${always_on_rules[@]+"${always_on_rules[@]}"}")"
+    custom_bytes="$(context_files_bytes \
+        "${scoped_rules[@]+"${scoped_rules[@]}"}" \
+        "${agent_files[@]+"${agent_files[@]}"}" \
+        "${skill_files[@]+"${skill_files[@]}"}")"
+    target_enabled_var "$config_file" "agents"
+    if [ "$IS_TGT_ENABLED" = "1" ]; then
+        agents_status="not-generated"
+        target_output_var "$config_file" "agents"
+        agents_output="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+        if [ -f "$repo_root/$agents_output" ]; then
+            agents_bytes="$(context_files_bytes "$repo_root/$agents_output")"
+            agents_status="generated"
+        fi
+    fi
+
+    printf 'CONTEXT: always-on=%s bytes (%s rules); custom=%s bytes (%s scoped rules, %s agents, %s skills); agents-md=%s bytes; agents-md-status=%s\n' \
+        "$always_bytes" "${#always_on_rules[@]}" "$custom_bytes" \
+        "${#scoped_rules[@]}" "${#agent_files[@]}" "${#skill_files[@]}" \
+        "$agents_bytes" "$agents_status"
+}
+
 # --- Config Parsing ---
 
 # Read a simple list from config.yaml
@@ -1415,9 +1511,9 @@ load_yaml_list() {
 
 # load_targets_cache <file> — parse the whole targets: section once into the
 # global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
-# replicating is_target_enabled and get_target_output semantics: inline and
-# block forms, first occurrence wins, `enabled` defaults to 0 when the block
-# ends without one and to empty at end of file. The engine warms this once;
+# matching is_target_enabled and get_target_output semantics: inline and block
+# forms, first occurrence wins, `enabled` defaults to 0 when the block ends
+# without one and to empty at end of file. The engine warms this once;
 # both readers consult it before spawning awk.
 load_targets_cache() {
     local file="$1"
@@ -1433,20 +1529,9 @@ load_targets_cache() {
         }
         { sub(/\r$/, "") }
         /^targets:[[:space:]]*$/ { in_targets = 1; next }
-        /^[a-zA-Z]/ { in_targets = 0 }
-        # The per-target readers scanned forward for the FIRST line containing
-        # `enabled:` / `output:` after the target header, checking it before
-        # the block-end test — so a sibling header line could donate its own
-        # inline values to a block that lacked them. These two rules run
-        # before the header rule below to keep that reading.
-        name != "" && enabled == "" && /enabled:/ {
-            enabled = ($0 ~ /true/) ? 1 : 0
-        }
-        name != "" && output == "" && /output:/ {
-            val = $0
-            sub(/.*output:[[:space:]]*["\047]?/, "", val)
-            sub(/["\047]?[[:space:]]*}?$/, "", val)
-            output = val
+        /^[a-zA-Z]/ {
+            if (in_targets) flush_target(0)
+            in_targets = 0
         }
         in_targets && $0 ~ /^  [a-zA-Z0-9_-]+:/ {
             flush_target(1)
@@ -1465,7 +1550,15 @@ load_targets_cache() {
             }
             next
         }
-        name != "" && /^  [a-zA-Z]/ { flush_target(1) }
+        name != "" && enabled == "" && /^    enabled:/ {
+            enabled = ($0 ~ /true/) ? 1 : 0
+        }
+        name != "" && output == "" && /^    output:/ {
+            val = $0
+            sub(/.*output:[[:space:]]*["\047]?/, "", val)
+            sub(/["\047]?[[:space:]]*}?$/, "", val)
+            output = val
+        }
         END { flush_target(0) }
     ' "$file")"
     IS_TGT_FILE="$file"
@@ -1530,6 +1623,7 @@ is_target_enabled() {
 
         # Enter/leave the targets: section
         /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        in_target && /^[a-zA-Z]/ { exit }
         /^[a-zA-Z]/ { in_targets = 0 }
 
         in_targets && $0 ~ "^  " target ":" {
@@ -1537,11 +1631,11 @@ is_target_enabled() {
             if ($0 ~ /enabled:[[:space:]]*false/) { print 0; exit }
             in_target = 1; next
         }
-        in_target && /enabled:/ {
+        in_target && /^  [a-zA-Z0-9_-]+:/ { print 0; exit }
+        in_target && /^    enabled:/ {
             if ($0 ~ /true/) { print 1 } else { print 0 }
             exit
         }
-        in_target && /^  [a-zA-Z]/ { print 0; exit }
     ' "$file"
 }
 
@@ -1556,6 +1650,7 @@ get_target_field() {
     awk -v target="$target" -v field="$field" '
         { sub(/\r$/, "") }
         /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        in_target && /^[a-zA-Z]/ { exit }
         /^[a-zA-Z]/ { in_targets = 0 }
 
         in_targets && $0 ~ "^  " target ":" {
@@ -1601,6 +1696,7 @@ get_target_output() {
         { sub(/\r$/, "") }
 
         /^targets:[[:space:]]*$/ { in_targets = 1; next }
+        in_target && /^[a-zA-Z]/ { exit }
         /^[a-zA-Z]/ { in_targets = 0 }
 
         in_targets && $0 ~ "^  " target ":" {
@@ -1616,14 +1712,14 @@ get_target_output() {
             }
             in_target = 1; next
         }
-        in_target && /output:/ {
+        in_target && /^  [a-zA-Z0-9_-]+:/ { exit }
+        in_target && /^    output:/ {
             val = $0
             sub(/.*output:[[:space:]]*["\047]?/, "", val)
             sub(/["\047]?[[:space:]]*}?$/, "", val)
             print val
             exit
         }
-        in_target && /^  [a-zA-Z]/ { exit }
     ' "$file"
 }
 

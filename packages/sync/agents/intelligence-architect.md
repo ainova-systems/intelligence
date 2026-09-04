@@ -8,6 +8,7 @@ skills:
   - intelligence-add-agent
   - intelligence-add-skill
   - intelligence-extract-skill
+  - intelligence-compact-context
   - intelligence-review-skills
   - intelligence-learn-from-repository
   - intelligence-learn-from-context
@@ -45,6 +46,7 @@ The per-artifact checks are procedure, so they live in the meta-skills rather th
 |---|---|
 | `intelligence-add-rule` / `intelligence-add-agent` / `intelligence-add-skill` | author one artifact |
 | `intelligence-extract-skill` | turn an observed workflow into a skill |
+| `intelligence-compact-context` | reduce context without changing behavior or teaching terse output |
 | `intelligence-review-skills` | audit the layer for duplication, drift, size, hardcoded paths |
 | `intelligence-learn-from-repository` | recover and complete first-time repository onboarding |
 | `intelligence-learn-from-context` | fold one later session lesson into an established layer |

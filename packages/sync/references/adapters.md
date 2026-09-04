@@ -172,6 +172,10 @@ Intelligence routes always-on rules once through `AGENTS.md` for tools that cons
 
 If a new adapter relies on `AGENTS.md` for always-on rules, its target must require `agents`. Add that invariant to `engine/sync.sh` when contributing the adapter upstream.
 
+Every successful sync prints an adapter-agnostic `CONTEXT:` summary with source byte totals and file counts. It separates always-on rules from custom context (scoped rules, agent prompts and skill entry points), then reports a numeric `agents-md` byte count and `generated`, `not-generated`, or `disabled` status; supporting skill assets are excluded until explicitly read. Adapter-specific hard limits and suppression controls stay inside the adapter that owns them.
+
+The Codex adapter checks its `project_doc_max_bytes` default (32 KiB). When generated `AGENTS.md` exceeds it, sync prints the byte count and a sufficient Codex setting. The warning says "may truncate" because a developer can already have a larger override. `targets.codex.warn_project_doc_limit` accepts `true` or omission for the default threshold, a positive byte count to match another effective limit, or `false` to disable the Intelligence warning. Both inline and block target forms work, and the field does not change Codex configuration. The warning remains visible in `sync --compact`.
+
 ### Skills
 
 Skills follow the [Agent Skills standard](https://agentskills.io). Copy each skill directory as a complete bundle—not only `SKILL.md`—because its body may reference `references/`, `scripts/` or `assets/` beside it.

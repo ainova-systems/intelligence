@@ -57,9 +57,10 @@ if [ "$compact" -eq 0 ]; then
     exit $?
 fi
 
-# Compact mode is intentionally quiet only on success. Buffering the complete
-# combined stream means a failure still returns every diagnostic emitted by
-# lifecycle preflight, locked restore or the engine, together with its real rc.
+# Compact mode keeps actionable one-line warnings on success. Buffering the
+# complete combined stream means a failure still returns every diagnostic
+# emitted by lifecycle preflight, locked restore or the engine, together with
+# its real rc.
 compact_output="$(mktemp -t intelligence-sync-XXXXXX)"
 trap 'rm -f "$compact_output"' EXIT
 rc=0
@@ -76,5 +77,6 @@ if [ -z "$status_line" ] || [ -z "$done_line" ]; then
     echo "ERROR: sync succeeded without its final status contract" >&2
     exit 1
 fi
+grep -E '^(WARNING:|CONTEXT:)' "$compact_output" || true
 echo "$status_line"
 echo "$done_line"
