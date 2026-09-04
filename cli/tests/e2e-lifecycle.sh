@@ -28,6 +28,16 @@ echo "== init on a fresh repo =="
 FRESH="$OUT/fresh"
 SPECIAL_TRACKED='.claude/special-$-tick-`-bang-!-backslash\.md'
 APOSTROPHE_TRACKED=".claude/apostrophe's.md"
+# A backslash is a path separator on NTFS, where this name cannot exist at all.
+# Probe the filesystem instead of branching on the platform: the case then runs
+# everywhere over every other shell-special character, and keeps the backslash
+# wherever a filesystem can hold one.
+mkdir -p "$OUT/fs-probe"
+if ! : > "$OUT/fs-probe/back\\slash.md" 2>/dev/null; then
+    SPECIAL_TRACKED='.claude/special-$-tick-`-bang-!.md'
+    echo "  NOTE: this filesystem cannot hold a backslash in a filename — dropped from the fixture"
+fi
+rm -rf "$OUT/fs-probe"
 mkdir -p "$FRESH/.github/instructions" "$FRESH/.claude/skills/legacy"
 touch "$FRESH/.cursorrules"
 printf "# Claude marker

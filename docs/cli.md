@@ -126,7 +126,7 @@ One plan covers:
 
 - the globally installed CLI against its npm channel (`next` for a prerelease, otherwise `latest`);
 - project schema and engine-content alignment against the installed CLI;
-- package ranges that can move to a newer stable tag.
+- package ranges that can move to a newer stable tag, and `ref:` pins whose commit moved.
 
 Modes:
 
@@ -136,7 +136,9 @@ Modes:
 | `--preview` | Print the plan and write nothing |
 | `--apply` | Apply project/package changes without asking, then sync |
 
-The plan reports the npm command required to replace the global executable; it never mutates the global npm prefix itself. `ref:`-pinned packages and the exact engine-content pin do not move as ordinary ranges.
+The plan reports the npm command required to replace the global executable; it never mutates the global npm prefix itself. The exact engine-content pin does not move as an ordinary range.
+
+A `ref:` pin is compared by commit, not by ref name: the plan resolves the ref on the remote and reports `<ref> <old sha> -> <new sha>` when it moved, so a branch or `HEAD` pin follows its upstream and a re-cut tag is visible. A ref that is itself a commit reports `(pinned commit)` and never moves — that is how a source is frozen. A remote that cannot be reached is reported as not checked, never as up to date.
 
 ### `intelligence package`
 
@@ -229,9 +231,11 @@ Whichever top-level `rules/`, `agents/` and `skills/` directories a package prov
 
 Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ranges (`^1.2.0`, `~1.2.0`, an exact version or `latest`) match stable tags from `git ls-remote`; prerelease tags are invisible to ranges and GitHub Releases are not consulted. A branch, commit or other deliberate pin uses `ref:`.
 
+`ref:` is requested intent like a range, and its resolution is a commit. A branch or `HEAD` pin therefore follows its upstream across `intelligence update`, and only a `ref:` naming a commit is immutable.
+
 ### Lock and restore
 
-Per package, `intelligence.lock` records requested version, source URL/path, resolved tag/ref and commit SHA. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. Updates keep using that locked source; a deliberate source change is a new `package add`. This is the reproducibility contract used automatically by `sync` after a fresh clone.
+Per package, `intelligence.lock` records requested version, source URL/path, resolved tag/ref and commit SHA. For a `ref:` pin the resolved column repeats the ref name, so the SHA is the field that records which commit is installed; `package list` and `status --check` print it as `<ref>@<sha>`. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. Updates keep using that locked source; a deliberate source change is a new `package add`. This is the reproducibility contract used automatically by `sync` after a fresh clone.
 
 ## Manifest ownership
 
