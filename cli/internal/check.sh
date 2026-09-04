@@ -82,7 +82,7 @@ while IFS= read -r name; do
             warn "$name is locked but not installed — run 'intelligence sync'"
             continue
         fi
-        ok "$name @ $(qmap_field "$lock" "packages" "$name" "resolved")"
+        ok "$name @ $(pin_label "$m_ref" "$l_res" "$(qmap_field "$lock" "packages" "$name" "sha")")"
     fi
 done < <(qmap_keys "$manifest" "packages")
 

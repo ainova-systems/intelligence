@@ -177,6 +177,59 @@ eq_case "remote_tag_for_version missing" \
 eq_case "pick over remote list" \
     "$(list_remote_versions "$FIX_URL" | semver_pick_highest '^1.0.0')" "1.2.0"
 
+echo "== fixture repo: remote_sha_for_ref =="
+# Second fixture: the ref shapes a `ref:` pin can take, including the three
+# git behaviours the resolver has to mirror to answer with the commit
+# fetch_package would actually land on.
+REFX="$OUT/refpack"
+mkdir -p "$REFX"
+printf 'one\n' > "$REFX/file.txt"
+git -C "$REFX" init --quiet
+git -C "$REFX" -c user.email=t@t -c user.name=t add -A
+git -C "$REFX" -c user.email=t@t -c user.name=t commit --quiet -m c1
+git -C "$REFX" checkout -q -B trunk
+R1_SHA="$(git -C "$REFX" rev-parse HEAD)"
+git -C "$REFX" -c user.email=t@t -c user.name=t tag -a ann1 -m msg
+git -C "$REFX" checkout -q -b nested/trunk
+printf 'nested\n' > "$REFX/file.txt"
+git -C "$REFX" -c user.email=t@t -c user.name=t commit --quiet -am cn
+NESTED_SHA="$(git -C "$REFX" rev-parse HEAD)"
+git -C "$REFX" checkout -q trunk
+printf 'two\n' > "$REFX/file.txt"
+git -C "$REFX" -c user.email=t@t -c user.name=t commit --quiet -am c2
+R2_SHA="$(git -C "$REFX" rev-parse HEAD)"
+# a tag and a branch sharing one name: `git clone --branch` takes the branch,
+# so the resolver must too
+git -C "$REFX" tag collide "$R1_SHA"
+git -C "$REFX" branch collide "$R2_SHA"
+REFX_URL="file://$REFX"
+
+# a branch resolves to its current head, and moving it changes the answer
+eq_case "remote_sha_for_ref branch" "$(remote_sha_for_ref "$REFX_URL" trunk)" "$R2_SHA"
+# `git ls-remote <url> trunk` also matches refs/heads/nested/trunk — matching
+# on the full ref name is what keeps that out of the answer
+eq_case "remote_sha_for_ref ignores a slash-boundary namesake" \
+    "$([ "$(remote_sha_for_ref "$REFX_URL" trunk)" = "$NESTED_SHA" ] && echo leaked || echo clean)" "clean"
+eq_case "remote_sha_for_ref nested branch" \
+    "$(remote_sha_for_ref "$REFX_URL" nested/trunk)" "$NESTED_SHA"
+# annotated tag: the peeled COMMIT wins, because that is what the lock records
+eq_case "remote_sha_for_ref annotated tag" "$(remote_sha_for_ref "$REFX_URL" ann1)" "$R1_SHA"
+eq_case "remote_sha_for_ref annotated tag is not the tag object" \
+    "$([ "$(remote_sha_for_ref "$REFX_URL" ann1)" = "$(git -C "$REFX" rev-parse ann1)" ] && echo tagobj || echo commit)" "commit"
+# branch beats tag on a shared name, matching `git clone --branch`
+eq_case "remote_sha_for_ref branch outranks tag" \
+    "$(remote_sha_for_ref "$REFX_URL" collide)" "$R2_SHA"
+# HEAD is a pin shape package add writes for a tagless source
+eq_case "remote_sha_for_ref HEAD" "$(remote_sha_for_ref "$REFX_URL" HEAD)" "$R2_SHA"
+# a commit sha is not an advertised ref: empty, and by that token immutable
+eq_case "remote_sha_for_ref commit pin" "$(remote_sha_for_ref "$REFX_URL" "$R1_SHA")" ""
+# an absent ref is empty too, but the remote answered
+ref_rc=0; remote_sha_for_ref "$REFX_URL" no-such-ref >/dev/null || ref_rc=$?
+eq_case "remote_sha_for_ref absent ref rc" "$ref_rc" "0"
+# an unreachable remote must NOT read as "no change": rc 2, never a silent ''
+ref_rc=0; remote_sha_for_ref "file://$OUT/no-such-repo" trunk >/dev/null || ref_rc=$?
+eq_case "remote_sha_for_ref unreachable rc" "$ref_rc" "2"
+
 echo "cases: $case_count"
 [ "$fail" -eq 0 ] && echo "UNIT-SEMVER: ALL OK"
 exit "$fail"

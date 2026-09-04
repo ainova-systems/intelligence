@@ -8,7 +8,7 @@
 project:
   name: my-app
 
-schema_version: "0.11.5"
+schema_version: "0.11.6"
 
 # Package sources come first, project sources last: adapters copy in order and
 # the last write wins, so a project file overrides a same-named package file.
@@ -43,7 +43,7 @@ targets:
 # fresh clone restores exactly this state with `intelligence sync`.
 packages:
   "@ainova-systems/sync":
-    version: "0.11.5"
+    version: "0.11.6"
   # A package resolved through the trust list below — the name is all the
   # manifest needs, the registry supplies the url.
   "@org/shared-intel":

@@ -124,6 +124,82 @@ grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' <<< "$preview_req" \
 chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
 
+echo "== ref pin: a moved branch is an update, not 'up to date' =="
+# Until 0.11.6 a `ref:` pin compared the manifest's ref NAME against the lock's
+# resolved column, which holds that same name — so a branch pin reported
+# "up to date" forever while a fresh clone's frozen restore refused it as
+# moved. The pin now compares commit to commit.
+BR="$OUT/branchpack"
+mkdir -p "$BR/rules"
+printf '# Branch rule v1\n\nBRANCH_MARKER_ONE\n' > "$BR/rules/branch-rule.md"
+git -C "$BR" init --quiet
+git -C "$BR" -c user.email=t@t -c user.name=t add -A
+git -C "$BR" -c user.email=t@t -c user.name=t commit --quiet -m b1
+git -C "$BR" checkout -q -B pack-main
+BR_URL="file://$BR"
+BR_SHA1="$(git -C "$BR" rev-parse HEAD)"
+lock_sha_of() {
+    awk -v key="\"$1\":" '$1 == key { hit = 1; next }
+        hit && $1 == "sha:" { gsub(/"/, "", $2); print $2; exit }' "$PROJ/intelligence.lock"
+}
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+$BR_URL@pack-main" --name @acme/branch)
+chk grep -q 'ref: "pack-main"' "$PROJ/intelligence.yaml"
+chk grep -q 'resolved: "pack-main"' "$PROJ/intelligence.lock"
+[ "$(lock_sha_of @acme/branch)" = "$BR_SHA1" ] || { echo "FAIL: ref pin locked the wrong sha"; fail=1; }
+chk grep -q 'BRANCH_MARKER_ONE' "$PROJ/AGENTS.md"
+# an unmoved branch still reads as up to date, and now shows WHICH commit
+pv_ref0="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview @acme/branch)"
+grep -q "pack-main@${BR_SHA1:0:7} (up to date)" <<< "$pv_ref0" \
+    || { echo "FAIL: unmoved ref pin lost its commit in the plan"; fail=1; }
+# `package list` shows the same commit, so the pin is legible without a probe
+list_ref="$(cd "$PROJ" && bash "$CLI" package list)"
+grep -q "locked:pack-main@${BR_SHA1:0:7}" <<< "$list_ref" \
+    || { echo "FAIL: package list hides the ref pin's commit"; fail=1; }
+
+printf '# Branch rule v2\n\nBRANCH_MARKER_TWO\n' > "$BR/rules/branch-rule.md"
+git -C "$BR" -c user.email=t@t -c user.name=t commit --quiet -am b2
+BR_SHA2="$(git -C "$BR" rev-parse HEAD)"
+pv_ref="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview @acme/branch)"
+grep -q "pack-main ${BR_SHA1:0:7} -> ${BR_SHA2:0:7}" <<< "$pv_ref" \
+    || { echo "FAIL: preview did not report the moved branch"; fail=1; }
+grep -q 'updates available: 1 package' <<< "$pv_ref" \
+    || { echo "FAIL: moved branch was not counted as an update"; fail=1; }
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply @acme/branch)
+[ "$(lock_sha_of @acme/branch)" = "$BR_SHA2" ] || { echo "FAIL: apply did not move the locked sha"; fail=1; }
+# the intent stays the branch; only the resolution moved
+chk grep -q 'resolved: "pack-main"' "$PROJ/intelligence.lock"
+chk grep -q 'BRANCH_MARKER_TWO' "$PROJ/AGENTS.md"
+chknot grep -q 'BRANCH_MARKER_ONE' "$PROJ/AGENTS.md"
+
+echo "== ref pin: the updated lock restores on a fresh clone =="
+# The other half of the dead end: sync restores a missing store with --frozen,
+# which dies when a ref pin's branch has moved past the lock. After the update
+# above, the lock is the branch head again and the frozen restore must pass.
+RCLONE="$OUT/refclone"
+mkdir -p "$RCLONE"
+cp -r "$PROJ/intelligence" "$RCLONE/intelligence"
+cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$PROJ/.gitignore" "$RCLONE/"
+git -C "$RCLONE" init --quiet
+out_ref="$(cd "$RCLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
+grep -q '^IS_STATUS=ok' <<< "$out_ref" || { echo "FAIL: frozen restore of a ref pin"; fail=1; }
+chk grep -q 'BRANCH_MARKER_TWO' "$RCLONE/AGENTS.md"
+
+echo "== ref pin: a commit sha never moves =="
+awk '{ gsub(/ref: "pack-main"/, "ref: \"'"$BR_SHA1"'\""); print }' \
+    "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
+mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
+# the manifest now names a ref the lock never resolved: an ordinary move
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply @acme/branch >/dev/null)
+[ "$(lock_sha_of @acme/branch)" = "$BR_SHA1" ] || { echo "FAIL: commit pin was not applied"; fail=1; }
+chk grep -q 'BRANCH_MARKER_ONE' "$PROJ/AGENTS.md"
+# once resolved, it is immutable however far the branch runs ahead
+pv_pin="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview @acme/branch)"
+grep -q "${BR_SHA1:0:7} (pinned commit)" <<< "$pv_pin" \
+    || { echo "FAIL: a commit pin was not reported as pinned"; fail=1; }
+grep -q 'updates available: 0 package' <<< "$pv_pin" \
+    || { echo "FAIL: a commit pin was counted as an update"; fail=1; }
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/branch >/dev/null)
+
 echo "== project file overrides a same-named package file =="
 printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync >/dev/null)

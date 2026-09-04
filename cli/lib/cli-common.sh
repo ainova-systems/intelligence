@@ -47,6 +47,27 @@ assert_safe_ref() {
     esac
 }
 
+# --- Resolved-pin display ------------------------------------------------
+# A `ref:` pin's resolved column holds the ref NAME, which never changes: the
+# sha is the only field that says which commit is installed. Every surface
+# reporting such a pin prints both, so a branch that stopped moving is visible
+# without asking the remote.
+
+short_sha() {
+    [ -n "$1" ] || { printf '<none>'; return 0; }
+    printf '%s' "${1:0:7}"
+}
+
+# pin_label <ref-or-empty> <resolved> <sha>
+pin_label() {
+    local ref="$1" resolved="$2" sha="$3"
+    if [ -n "$ref" ]; then
+        printf '%s@%s' "${resolved:-$ref}" "$(short_sha "$sha")"
+    else
+        printf '%s' "${resolved:-<none>}"
+    fi
+}
+
 source "$CLI_DIR/lib/manifest.sh"
 source "$CLI_DIR/lib/semver.sh"
 source "$CLI_DIR/lib/registry.sh"

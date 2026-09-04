@@ -47,6 +47,12 @@ url, path, tag and SHA belong to `intelligence.lock`, including for the built-in
 package. `update` follows the locked source; changing a source is an explicit
 package re-add.
 
+A `ref:` is intent, exactly like a range, and its resolution is a commit. The lock's
+resolved column repeats the ref name, so comparing those two strings can only ever
+say "unchanged" — resolve the ref on the remote and compare SHAs. A ref naming a
+commit is the immutable pin; a remote that cannot answer is reported as unchecked,
+never as up to date.
+
 ## Initialization and mutation
 
 `init` detects absent, Intelligence and legacy Intelligence Sync states. On an

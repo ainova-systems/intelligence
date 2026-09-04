@@ -14,6 +14,7 @@ while IFS= read -r name; do
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
     resolved="$(qmap_field "$lock" "packages" "$name" "resolved")"
+    sha="$(qmap_field "$lock" "packages" "$name" "sha")"
     if [ ! -f "$lock" ]; then
         state="lock missing — restore committed intelligence.lock"
     elif [ -d "$IP_ROOT/.intelligence/packages/$name" ]; then
@@ -24,7 +25,7 @@ while IFS= read -r name; do
     printf '%s  %s  locked:%s  %s\n' \
         "$name" \
         "${ref:+ref:$ref}${ref:-${range:-*}}" \
-        "${resolved:-<none>}" \
+        "$(pin_label "$ref" "$resolved" "$sha")" \
         "$state"
 done < <(qmap_keys "$manifest" "packages")
 

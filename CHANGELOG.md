@@ -4,6 +4,17 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.6]
+
+### Fixed
+
+- Resolved a `ref:`-pinned package against its remote commit during `intelligence update`, so a branch or `HEAD` pin follows upstream instead of reporting "up to date" forever while a fresh clone's frozen restore refused it as moved.
+- Reported an unreachable remote or a ref deleted upstream as unchecked rather than up to date, and a `ref:` naming a commit as a pin that cannot move.
+
+### Changed
+
+- Printed the resolved commit beside a `ref:` pin in `intelligence package list`, `intelligence status --check` and the update plan.
+
 ## [0.11.5]
 
 ### Fixed

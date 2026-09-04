@@ -120,6 +120,39 @@ remote_tag_for_version() {
             }'
 }
 
+# remote_sha_for_ref <git-url> <ref> — the commit a branch/tag/HEAD pin points
+# at on the remote right now; empty when the remote advertises no such ref
+# (a pin that IS a commit, or a ref deleted upstream). Exit 2 means the remote
+# could not be asked at all: a check that produced no answer must never be
+# read by the caller as "nothing changed".
+#
+# Three git behaviours this mirrors deliberately, because a sha that is not the
+# one `fetch_package` would land on is worse than no answer:
+#   - `git ls-remote <url> main` also matches `refs/heads/feature/main`
+#     (patterns match at slash boundaries), so candidates are selected by full
+#     ref name, never by the pattern that fetched them;
+#   - an annotated tag advertises the tag OBJECT on `refs/tags/<t>` and the
+#     commit on the peeled `refs/tags/<t>^{}`, while the lock records the
+#     commit — so peeled wins, and the peel line only appears when its own
+#     pattern is asked for;
+#   - on a name shared by a branch and a tag, `git clone --branch <ref>` takes
+#     the branch, so `refs/heads` outranks `refs/tags` here too.
+remote_sha_for_ref() {
+    local url="$1" ref="$2" out
+    assert_safe_source_url "$url"
+    assert_safe_ref "$ref"
+    [ -n "$ref" ] || return 0
+    out="$(GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" \
+        "$ref" "$ref^{}" "refs/heads/$ref" "refs/tags/$ref" "refs/tags/$ref^{}" 2>/dev/null)" \
+        || return 2
+    printf '%s\n' "$out" | awk -v ref="$ref" '
+        { sub(/\r$/, ""); if ($2 != "") seen[$2] = $1 }
+        END {
+            split("refs/heads/" ref "\037refs/tags/" ref "^{}\037refs/tags/" ref "\037" ref "^{}\037" ref, C, "\037")
+            for (i = 1; i <= 5; i++) if (C[i] in seen) { print seen[C[i]]; exit }
+        }'
+}
+
 # semver_pick_highest <range> — reads versions on stdin, prints the highest
 # one matching the range (empty output when nothing matches).
 semver_pick_highest() {
