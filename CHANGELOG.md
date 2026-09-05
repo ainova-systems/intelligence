@@ -10,6 +10,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - Rebuilt the roadmap around safe skill imports, marketplace formats and focused adapter growth, accepted the importer/output-adapter boundary, and added official references for supported adapters.
 
+### Added
+
+- Added the repository-local `dev-run-roadmap` skill to deliver one roadmap batch through a merge-ready PR, with explicit owner approval for merge and release.
+
 ## [0.11.7]
 
 ### Changed
