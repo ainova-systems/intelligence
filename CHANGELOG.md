@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.8]
+
+### Changed
+
+- Rebuilt the roadmap around safe skill imports, marketplace formats and focused adapter growth, accepted the importer/output-adapter boundary, and added official references for supported adapters.
+
 ## [0.11.7]
 
 ### Changed

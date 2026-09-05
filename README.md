@@ -215,6 +215,23 @@ intelligence sync mytool
 
 `adapter disable` keeps generated output for explicit cleanup. `adapter remove` removes only a disabled project adapter source and also keeps generated output. See [Writing an Adapter](packages/sync/references/adapters.md) for the implementation contract.
 
+### Related links
+
+Official references for the currently supported adapters, checked September 5, 2026.
+These describe the tools' native capabilities; Intelligence's generated paths and
+supported mappings are documented in [Built-in outputs](packages/sync/references/adapters.md#built-in-outputs)
+and [Artifact conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
+
+| Adapter | Official references |
+|---|---|
+| `agents` | [AGENTS.md specification and examples](https://agents.md/) |
+| `claude` | [Project instructions and rules](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents) |
+| `cursor` | [Rules](https://cursor.com/docs/rules), [skills](https://cursor.com/docs/skills), [subagents](https://cursor.com/docs/subagents) |
+| `copilot` | [Repository instructions](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions), [skills](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills), [custom agents](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/create-custom-agents) |
+| `codex` | [AGENTS.md instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md), [skills](https://learn.chatgpt.com/docs/build-skills), [subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) |
+| `pi` | [Context files](https://github.com/earendil-works/pi/tree/main/packages/coding-agent#context-files), [skills](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/skills.md), [prompt templates](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/prompt-templates.md), [extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) |
+| `opencode` | [Rules](https://opencode.ai/docs/rules), [skills](https://opencode.ai/docs/skills), [agents](https://opencode.ai/docs/agents) |
+
 ## Moving from legacy Intelligence Sync to Intelligence
 
 The legacy Intelligence Sync product remains archived at [`ainova-systems/intelligence-sync`](https://github.com/ainova-systems/intelligence-sync). Its projects keep using their vendored engine until conversion.
