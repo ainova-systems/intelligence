@@ -49,6 +49,7 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 | [intelligence-sync](.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync/SKILL.md) | Sync intelligence to enabled adapters |
 | [intelligence-uninstall-adapter](.intelligence/packages/@ainova-systems/sync/skills/intelligence-uninstall-adapter/SKILL.md) | Disable an adapter and assess its generated output |
 | [intelligence-update](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update/SKILL.md) | Interpret an update plan and verify breaking post-conditions |
+| [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) | Implement one roadmap batch through a merge-ready PR |
 
 ### Rules
 

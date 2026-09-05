@@ -17,6 +17,18 @@ Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-sy
 5. Update user-facing documentation and the compact changelog when behavior changes.
 6. Open a pull request explaining the observable result and validation performed.
 
+## Working from the roadmap
+
+Use [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) to select and
+implement one coherent batch from [the roadmap](ROADMAP.md), or name a specific
+item when invoking it. The skill records scope and acceptance criteria, creates a
+branch, implements and verifies the change, and uses `git-finalize-pr` to prepare
+the PR for review. It asks for unresolved product decisions as they arise.
+
+Merge and release each require explicit owner approval for that PR and version;
+one clear instruction may authorize both. After approval, the skill resumes through
+the existing merge and release workflows. Reinvoke it to start the next batch.
+
 ## Public CLI contract
 
 Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
