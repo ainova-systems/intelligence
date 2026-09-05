@@ -276,7 +276,8 @@ must be 40 or 64 lowercase hexadecimal characters, apart from the bundle excepti
 above. An omitted or empty path selects the repository root; other paths must be
 safe relative subdirectories. Duplicate top-level keys, packages or fields fail.
 The generated format supports comments, CRLF, simple plain or double-quoted scalars
-and additive scalar metadata. Containers, aliases, escaped or multiline scalar
+and additive scalar metadata. Top-level and package-field keys are unquoted and
+must match `[A-Za-z_][A-Za-z0-9_]*`. Containers, aliases, escaped or multiline scalar
 forms are outside this reader's format and are refused. These are metadata checks;
 they do not establish physical path containment or verify installed package bytes.
 

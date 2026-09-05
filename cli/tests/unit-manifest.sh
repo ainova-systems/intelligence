@@ -458,6 +458,12 @@ for defect in version missing-version engine missing-engine no-packages inline-m
     ' "$VALID_LOCK" > "$OUT/$defect.lock"
     chknot lock_validate "$OUT/$defect.lock"
 done
+for defect in version engine; do
+    if validation_error="$(lock_validate "$OUT/$defect.lock" 2>&1)"; then
+        echo "FAIL: accepted invalid $defect metadata"; fail=1
+    fi
+    chk grep -qF "$OUT/$defect.lock has" <<< "$validation_error"
+done
 chknot lock_validate "$OUT/no-such.lock"
 mkdir "$OUT/directory.lock"
 chknot lock_validate "$OUT/directory.lock"

@@ -17,10 +17,10 @@ lock_validate() (
     qmap_validate_document "$lock" packages || return $?
     version="$(top_scalar "$lock" lockfile_version)"
     [ "$version" = "$LOCKFILE_VERSION" ] \
-        || die "intelligence.lock has unsupported or missing lockfile_version '${version:-<missing>}' — expected $LOCKFILE_VERSION"
+        || die "$lock has unsupported or missing lockfile_version '${version:-<missing>}' — expected $LOCKFILE_VERSION"
     engine="$(top_scalar "$lock" engine_version)"
     [[ "$engine" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-        || die "intelligence.lock has missing or invalid engine_version"
+        || die "$lock has missing or invalid engine_version"
     # Do not hide a failed reader behind process substitution.
     rows="$(lock_to_tsv "$lock")" || return $?
     while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
