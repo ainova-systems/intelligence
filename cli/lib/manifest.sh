@@ -154,6 +154,64 @@ target_set_enabled() {
     '
 }
 
+# qmap_validate_document <file> <block> — validate a generated scalar document
+# containing one quoted-key map of scalar fields (the lockfile shape). This
+# checks structure before the readers below can silently skip a malformed row;
+# field meanings belong to the caller. It deliberately accepts additive scalar
+# metadata, not arbitrary YAML containers, aliases or multiline values.
+qmap_validate_document() {
+    [ -f "$1" ] && [ -r "$1" ] || { echo "cannot read $1" >&2; return 1; }
+    LC_ALL=C awk -v block="$2" -v single_quote="'" '
+        function bad(reason) {
+            print FILENAME ":" NR ": " reason
+            failed = 1
+            exit 1
+        }
+        function scalar(s) {
+            sub(/^[ \t]+/, "", s)
+            if (s ~ /^"/) return s ~ /^"[^"\\]*"([ \t]*|[ \t]+#.*)$/
+            sub(/[ \t]+#.*$/, "", s)
+            sub(/[ \t]+$/, "", s)
+            if (s == "" || substr(s, 1, 1) == single_quote) return 0
+            if (s ~ /^[!&*\[\]{}>|%@`]/ || s ~ /["\\]/ || s ~ /:[ \t]/) return 0
+            if (s ~ /^(null|Null|NULL|~|true|True|TRUE|false|False|FALSE)$/) return 0
+            return 1
+        }
+        { sub(/\r$/, "") }
+        /^[ \t]*(#.*)?$/ { next }
+        /[[:cntrl:]]/ { bad("control characters are not supported in lock data") }
+        /^[A-Za-z_][A-Za-z0-9_]*:/ {
+            c = index($0, ":"); key = substr($0, 1, c - 1)
+            if (top[key]++) bad("duplicate top-level field " key)
+            value = substr($0, c + 1)
+            in_block = (key == block); package = ""
+            if (in_block) {
+                if (value !~ /^[ ]*$/) bad(block " must be a block map")
+            } else if (!scalar(value)) bad("expected scalar for " key)
+            next
+        }
+        in_block && /^  "[^"\\]+":([ ]*|[ ]+#.*)$/ {
+            package = substr($0, 4); sub(/".*/, "", package)
+            if (packages[package]++) bad("duplicate package " package)
+            next
+        }
+        in_block && package != "" && /^    [A-Za-z_][A-Za-z0-9_]*:/ {
+            line = substr($0, 5); c = index(line, ":")
+            key = substr(line, 1, c - 1)
+            if (fields[package SUBSEP key]++) bad("duplicate field " package "." key)
+            if (!scalar(substr(line, c + 1))) bad("expected scalar for " package "." key)
+            next
+        }
+        { bad("malformed lock structure: expected top-level scalar or quoted package field") }
+        END {
+            if (!failed && !top[block]) {
+                print FILENAME ": missing " block " block"
+                exit 1
+            }
+        }
+    ' "$1" >&2
+}
+
 # qmap_keys <file> <block> — quoted keys, one per line.
 qmap_keys() {
     [ -f "$1" ] || return 0

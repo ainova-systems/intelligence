@@ -398,6 +398,90 @@ lock_remove "$LOCK" "@acme/two"
 chknot test -f "$LOCK"                          # last removal deletes the file
 chk lock_remove "$OUT/absent.lock" "@x/y"       # missing lock: rc 0
 
+echo "== lock validation: generated shape and complete identity =="
+VALID_LOCK="$OUT/valid.lock"
+SHA40=0123456789012345678901234567890123456789
+SHA64="${SHA40}012345678901234567890123"
+lock_upsert "$VALID_LOCK" "@acme/one" "^1.0.0" "https://h/one.git" "" "v1.2.0" "$SHA40"
+lock_upsert "$VALID_LOCK" "@acme/two" "" "git@host:repo.git" "skills/team" "main" "$SHA64"
+chk lock_validate "$VALID_LOCK"
+chk lock_validate "$VALID_LOCK" --restore
+cp "$VALID_LOCK" "$OUT/valid-before.lock"
+chk lock_validate "$VALID_LOCK"
+chk cmp -s "$VALID_LOCK" "$OUT/valid-before.lock"
+# Accepted scalar metadata is additive; CRLF and comments do not change identity.
+awk '{ print } /^    url:/ { print "    note: metadata # comment" } END { print "extension: \"informational\"" }' \
+    "$VALID_LOCK" | awk '{ printf "%s\r\n", $0 }' > "$OUT/extended.lock"
+chk lock_validate "$OUT/extended.lock"
+awk '{ gsub(/"/, ""); if ($0 ~ /^  @/) sub(/^  /, "  \""); if ($0 ~ /^  "@/) sub(/:$/, "\":"); print }' \
+    "$VALID_LOCK" > "$OUT/plain.lock"
+chk lock_validate "$OUT/plain.lock"
+
+# Each malformed document must be refused, including entries the forgiving
+# field readers would otherwise skip or interpret using only the first value.
+for defect in version missing-version engine missing-engine no-packages inline-map \
+    unquoted-name empty-name duplicate-name duplicate-field duplicate-top \
+    missing-url missing-ref bad-sha missing-sha absolute-path parent-path drive-path \
+    backslash-path option-ref option-url missing-quote trailing-scalar list-scalar \
+    block-scalar null-scalar orphan-field bad-indent control; do
+    awk -v defect="$defect" '
+        defect == "version" && /^lockfile_version:/ { print "lockfile_version: 2"; next }
+        defect == "missing-version" && /^lockfile_version:/ { next }
+        defect == "engine" && /^engine_version:/ { print "engine_version: \"banana\""; next }
+        defect == "missing-engine" && /^engine_version:/ { next }
+        defect == "no-packages" && /^packages:/ { next }
+        defect == "inline-map" && /^packages:/ { print "packages: {}"; next }
+        defect == "unquoted-name" && /^  "@acme\/one"/ { print "  @acme/one:"; next }
+        defect == "empty-name" && /^  "@acme\/one"/ { print "  \"\":"; next }
+        defect == "duplicate-name" && /^  "@acme\/two"/ { print "  \"@acme/one\":"; next }
+        defect == "duplicate-field" && /^    url:/ { print }
+        defect == "duplicate-top" && /^lockfile_version:/ { print }
+        defect == "missing-url" && /^    url:/ { next }
+        defect == "missing-ref" && /^    resolved:/ { next }
+        defect == "bad-sha" && /^    sha:/ { print "    sha: \"not-a-commit\""; next }
+        defect == "missing-sha" && /^    sha:/ { next }
+        defect == "absolute-path" && /^    path:/ { print "    path: \"/tmp/outside\""; next }
+        defect == "parent-path" && /^    path:/ { print "    path: \"../outside\""; next }
+        defect == "drive-path" && /^    path:/ { print "    path: \"C:/outside\""; next }
+        defect == "backslash-path" && /^    path:/ { print "    path: \"..\\outside\""; next }
+        defect == "option-ref" && /^    resolved:/ { print "    resolved: \"--help\""; next }
+        defect == "option-url" && /^    url:/ { print "    url: \"--help\""; next }
+        defect == "missing-quote" && /^    resolved:/ { print "    resolved: \"main"; next }
+        defect == "trailing-scalar" && /^    resolved:/ { print "    resolved: \"main\" other"; next }
+        defect == "list-scalar" && /^    resolved:/ { print "    resolved: [main]"; next }
+        defect == "block-scalar" && /^    resolved:/ { print "    resolved: |"; next }
+        defect == "null-scalar" && /^    resolved:/ { print "    resolved: null"; next }
+        defect == "orphan-field" && /^packages:/ { print; print "    url: \"https://host/repo\""; next }
+        defect == "bad-indent" && /^    url:/ { sub(/^    /, "   ") }
+        defect == "control" && /^    resolved:/ { printf "    resolved: \"main%cother\"\n", 31; next }
+        { print }
+    ' "$VALID_LOCK" > "$OUT/$defect.lock"
+    chknot lock_validate "$OUT/$defect.lock"
+done
+chknot lock_validate "$OUT/no-such.lock"
+mkdir "$OUT/directory.lock"
+chknot lock_validate "$OUT/directory.lock"
+
+echo "== bundle metadata exception does not authorize a cross-version restore =="
+BUNDLE_LOCK="$OUT/bundle.lock"
+lock_upsert "$BUNDLE_LOCK" "$SYNC_PKG_NAME" "$(bundled_engine_version)" \
+    "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$(bundled_engine_version)" ""
+chk lock_validate "$BUNDLE_LOCK" --restore
+awk '/^engine_version:/ { print "engine_version: \"0.0.1\""; next }
+    /^    resolved:/ { print "    resolved: \"v0.0.1\""; next } { print }' \
+    "$BUNDLE_LOCK" > "$OUT/older-bundle.lock"
+chk lock_validate "$OUT/older-bundle.lock"
+chknot lock_validate "$OUT/older-bundle.lock" --restore
+awk '/^engine_version:/ { print "engine_version: \"0.0.2\""; next } { print }' \
+    "$OUT/older-bundle.lock" > "$OUT/rewritten-bundle.lock"
+chk lock_validate "$OUT/rewritten-bundle.lock"
+chknot lock_validate "$OUT/rewritten-bundle.lock" --restore
+for field in url path resolved; do
+    awk -v field="$field" '$0 ~ "^    " field ":" { print "    " field ": \"wrong\""; next } { print }' \
+        "$BUNDLE_LOCK" > "$OUT/mismatched-bundle.lock"
+    chknot lock_validate "$OUT/mismatched-bundle.lock"
+done
+
 echo "== pkg-name segment guards (names become rm -rf paths) =="
 for bad in "@scope/" "@/x" "@a/.." "@../x" "@a/." "@./x"; do
     if ( assert_valid_pkg_name "$bad" ) >/dev/null 2>&1; then

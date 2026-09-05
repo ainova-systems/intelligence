@@ -10,6 +10,45 @@
 LOCKFILE_VERSION=1
 LOCK_SEP=$'\x1f'
 
+# lock_validate <lock> [--restore] — read-only metadata preflight. A subshell
+# contains the fail-fast input guards so status can report a failed verdict too.
+lock_validate() (
+    local lock="$1" mode="${2:-}" version engine name _requested url path resolved sha rows
+    qmap_validate_document "$lock" packages || return $?
+    version="$(top_scalar "$lock" lockfile_version)"
+    [ "$version" = "$LOCKFILE_VERSION" ] \
+        || die "intelligence.lock has unsupported or missing lockfile_version '${version:-<missing>}' — expected $LOCKFILE_VERSION"
+    engine="$(top_scalar "$lock" engine_version)"
+    [[ "$engine" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || die "intelligence.lock has missing or invalid engine_version"
+    # Do not hide a failed reader behind process substitution.
+    rows="$(lock_to_tsv "$lock")" || return $?
+    while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
+        [ -n "$name" ] || continue
+        assert_valid_pkg_name "$name"
+        assert_safe_source_url "$url"
+        [ -n "$resolved" ] || die "locked restore: $name has a missing resolved ref"
+        assert_safe_ref "$resolved"
+        assert_safe_package_path "$path"
+        if [ -z "$sha" ]; then
+            if is_bundle_source "$url" "$resolved" "$path"; then
+                continue
+            fi
+            # engine_version records the writer CLI, which can differ from the
+            # preserved bundle pin after a same-major older CLI adds a package.
+            # Versioned bundle metadata admits alignment/installed content only;
+            # it must never authorize an unpinned cross-version acquisition.
+            if [ "$mode" != "--restore" ] && [ "$url" = "$SYNC_PKG_URL" ] \
+                && [ "$path" = "$SYNC_PKG_PATH" ] && [[ "$resolved" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "WARNING: $name at $resolved has no locked commit SHA; commit verification is unavailable for this development-bundle metadata" >&2
+                continue
+            fi
+        fi
+        [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
+            || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
+    done <<< "$rows"
+)
+
 # top_scalar <file> <key> — one top-level scalar (`key: "value"`), quotes and
 # trailing comment stripped. The declared exception to "no new parsing": the
 # engine's read_schema_version is hardwired to its own key.

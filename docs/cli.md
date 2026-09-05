@@ -84,7 +84,7 @@ intelligence sync [adapter] [--compact]
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
-1. Align tracked project schema/content with the installed CLI when safe.
+1. Validate any existing lock, then align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
 3. Validate each selected adapter's versioned ownership contract and required
    targets before writing.
@@ -106,10 +106,22 @@ requested ref and the lock unchanged. An unavailable commit fails without substi
 the current ref or HEAD. Missing or malformed required commit SHAs are refused before
 restoration writes; use `intelligence update` to deliberately advance a ref.
 
+Lock validation runs before lifecycle alignment and mutations, even when the
+package store is already installed. `init --preview`, `update --preview` and
+`status --check` use the same metadata checks. An invalid lock fails with its
+location or affected field; restore a valid committed lock before continuing.
+Validation does not silently repair, discard or reinterpret malformed entries.
+
 Matching bundled sync content remains available offline. A release bundle with a
 known SHA must match the locked SHA; otherwise restoration fetches the locked commit
 from its recorded source. Development bundles or bundle-seeded locks without a SHA
 retain the offline path with an explicit warning that commit verification is unavailable.
+Metadata validation also recognizes version-tagged development bundles at the
+built-in URL/path, so older projects can align and an installed newer same-major
+bundle remains usable. It reports that commit verification is unavailable for
+these cross-version empty-SHA entries. `engine_version` records the lock writer
+and can differ from a preserved bundle pin. A missing cross-version bundle still
+needs a valid SHA: the metadata exception never authorizes fetching an unpinned ref.
 This verifies acquisition identity, not every byte of an already installed store:
 ordinary sync and `status --check` do not rehash installed packages.
 
@@ -256,6 +268,17 @@ Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ran
 ### Lock and restore
 
 Per package, `intelligence.lock` records requested version, source URL/path, resolved tag/ref and commit SHA. For a `ref:` pin the resolved column repeats the ref name, so the SHA is the field that records which commit is installed; `package list` and `status --check` print it as `<ref>@<sha>`. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. Updates keep using that locked source; a deliberate source change is a new `package add`. This is the reproducibility contract used automatically by `sync` after a fresh clone.
+
+Lock format v1 requires `lockfile_version: 1`, a numeric `X.Y.Z` `engine_version`
+and a `packages:` block. Each quoted package key has scalar fields at four-space
+indentation. URL and resolved ref must be nonempty and safe for acquisition; SHA
+must be 40 or 64 lowercase hexadecimal characters, apart from the bundle exception
+above. An omitted or empty path selects the repository root; other paths must be
+safe relative subdirectories. Duplicate top-level keys, packages or fields fail.
+The generated format supports comments, CRLF, simple plain or double-quoted scalars
+and additive scalar metadata. Containers, aliases, escaped or multiline scalar
+forms are outside this reader's format and are refused. These are metadata checks;
+they do not establish physical path containment or verify installed package bytes.
 
 ## Manifest ownership
 

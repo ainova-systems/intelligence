@@ -31,6 +31,11 @@ esac
 echo "project: $IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
+if ! validate_project_lock "$IP_ROOT"; then
+    warn "invalid intelligence.lock — restore a valid committed lock before continuing"
+    echo "$problems problem(s)."
+    exit 1
+fi
 
 stamp="$(read_schema_version "$manifest")"
 eng="$(bundled_engine_version)"
