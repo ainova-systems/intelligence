@@ -391,7 +391,7 @@ The public lifecycle is deliberately compact:
 - `intelligence adapter list|create|enable|disable|remove` owns adapter inventory and target state.
 - `intelligence status [--check]` reports state; `--check` runs deep consistency checks.
 
-Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is newer; normal project entry points close a behind-project gap through lifecycle preflight.
+Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is a newer major; a newer minor or patch within the same major warns once and proceeds without restamping the project. Normal project entry points close a behind-project gap through lifecycle preflight.
 
 Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The update skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
 
@@ -406,7 +406,7 @@ The engine emits one machine-readable line, `IS_STATUS=<code> [IS_DETAIL=...]`, 
 | `error` | 1 | Generic failure |
 | `config-missing` | 2 | Required manifest is absent |
 | `ambiguous` | 3 | Conflicting state requiring agent/human judgment; reserved |
-| `ahead-of-engine` | 4 | Manifest schema is newer than the engine |
+| `ahead-of-engine` | 4 | Manifest schema is a newer major than the engine (a newer minor or patch warns and continues) |
 | `aborted-incomplete` | 5 | Staged replacement was incomplete; prior state remains |
 | `needs-update` | 6 | Project schema is behind the engine; rerun through a public lifecycle command |
 

@@ -31,7 +31,8 @@ fi
 # Schema version lives in the manifest (the frozen contract key).
 _cf="$CONFIG_FILE"
 
-# Stale engine vs project schema stamped NEWER (ahead-of-engine) → refuse.
+# Stale engine vs project schema stamped NEWER (ahead-of-engine): a newer
+# major refuses, a newer minor/patch warns and renders (see contract.sh).
 _vc_rc=0
 check_version_compat "$_cf" || _vc_rc=$?
 if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi

@@ -24,8 +24,10 @@ legacy_key_count="$(awk '/^sync_version:[[:space:]]*/ { n++ } END { print n + 0 
 eng="$(bundled_engine_version)"
 [ "$schema_key_count" -le 1 ] || die "manifest has duplicate schema_version keys"
 [ "$legacy_key_count" -le 1 ] || die "manifest has duplicate sync_version keys"
+# Alignment only ever moves a project UP to this engine. A project stamped
+# ahead is never restamped downward, whatever the gap.
 if [ -n "$stamp" ] && _ver_gt "$stamp" "$eng"; then
-    die "manifest schema $stamp is newer than this CLI's engine $eng — update the global CLI first"
+    die "manifest schema $stamp is newer than this CLI's engine $eng — refusing to align it downward; update the global CLI first"
 fi
 if [ -n "$legacy_stamp" ] && _ver_gt "$legacy_stamp" "$eng"; then
     die "manifest schema $legacy_stamp is newer than this CLI's engine $eng — update the global CLI first"

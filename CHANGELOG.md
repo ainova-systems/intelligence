@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.7]
+
+### Changed
+
+- Let a CLI older than the project keep working when `schema_version` is ahead by a minor or patch version: every project-aware command prints one warning naming both versions and proceeds, `status --check` reports the state as a note, and nothing restamps the project or re-pins its engine content downward. Only a newer major version is still refused with `ahead-of-engine` and exit code 4.
+
 ## [0.11.6]
 
 ### Fixed

@@ -133,6 +133,8 @@ later adapter fails, every earlier output is restored to its pre-sync state.
 
 The first project-aware mutating command run with a newer CLI automatically aligns an existing Intelligence manifest and its engine-content package before doing its own work. This keeps normal local workflows on one current schema without a separate maintenance command.
 
+A CLI older than the project keeps working while the gap is a minor or patch version: it prints one warning naming both versions, renders with the locked content and never rewrites the project's `schema_version` or engine-content pin downward. Only a newer major version is refused until the CLI is updated.
+
 CI never performs an implicit tracked alignment. If committed project state is behind the installed CLI, the command fails and asks you to run `intelligence init --apply` locally, review the diff and commit it.
 
 `update` is deliberately plan-first:

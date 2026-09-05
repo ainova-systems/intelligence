@@ -69,6 +69,14 @@ up to the bundled engine before doing its own work. CI refuses that tracked muta
 and directs the user to run `intelligence init --apply` locally, review the diff and
 commit it.
 
+The gate is asymmetric. A project stamped a newer minor or patch than the bundled
+engine is left exactly as found — no restamp, no downward re-pin of the sync content —
+and the command proceeds behind one warning; only a newer major refuses
+(`ahead-of-engine`, exit 4). Alignment moves a project up, never down: a teammate on
+an older CLI must not rewrite tracked files the current CLI would move straight back.
+The manifest is therefore additive within a major — a shape an older engine of the
+same major cannot read is a major change.
+
 `intelligence sync` is the fresh-clone path: it restores a missing `.intelligence/`
 store strictly from `intelligence.lock`, never re-resolving a version during restore.
 `intelligence update` always prints the installed-CLI, project and package plan;

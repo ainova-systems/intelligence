@@ -5,6 +5,7 @@ source "$CLI_DIR/lib/cli-common.sh"
 
 problems=0
 warn() { echo "  ✗ $*"; problems=$((problems + 1)); }
+note() { echo "  ! $*"; }
 ok()   { echo "  ✓ $*"; }
 
 echo "environment:"
@@ -36,7 +37,11 @@ eng="$(bundled_engine_version)"
 if [ -z "$stamp" ]; then
     warn "manifest has no schema_version — run 'intelligence init'"
 elif _ver_gt "$stamp" "$eng"; then
-    warn "manifest schema $stamp is newer than this CLI's engine $eng — update the CLI: npm i -g @ainova-systems/intelligence@latest"
+    if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then
+        warn "manifest schema $stamp is a newer major than this CLI's engine $eng — update the CLI: npm i -g @ainova-systems/intelligence@latest"
+    else
+        note "manifest schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: npm i -g @ainova-systems/intelligence@latest"
+    fi
 elif _ver_gt "$eng" "$stamp"; then
     warn "manifest schema $stamp behind engine $eng — run 'intelligence init'"
 else
@@ -49,6 +54,8 @@ sync_locked="$(qmap_field "$lock" "packages" "$SYNC_PKG_NAME" "resolved")"
 if [ -n "$sync_locked" ]; then
     if [ "${sync_locked#v}" = "$eng" ]; then
         ok "$SYNC_PKG_NAME at $sync_locked (matches the engine)"
+    elif [ "${sync_locked#v}" = "$stamp" ] && _ver_gt "$stamp" "$eng"; then
+        note "$SYNC_PKG_NAME at $sync_locked (matches the project schema; the engine is $eng)"
     else
         warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence init'"
     fi
