@@ -100,21 +100,41 @@ _ver_gt() {
     return 1
 }
 
-# check_version_compat <config_file> — refuse to operate on a project whose
-# config schema is stamped newer than this engine knows (a stale engine must
-# never rewrite/sync a newer schema). Emits status + returns IS_RC_AHEAD on
-# conflict, else 0.
+# _ver_major V → the leading numeric field of a version ("0.11.6" → 0).
+_ver_major() {
+    local m="${1%%.*}"
+    m="${m//[!0-9]/}"
+    printf '%s' "$((10#${m:-0}))"
+}
+
+# check_version_compat <config_file> — a stale engine on a project stamped
+# NEWER than itself. The gap decides:
+#   * a newer MAJOR is refused: the manifest may carry shapes this engine
+#     cannot read, and rendering or rewriting it would destroy them. Emits
+#     status + returns IS_RC_AHEAD;
+#   * a newer minor or patch within the same major warns once and returns 0:
+#     the schema is additive there, so an older engine renders what it
+#     understands. It never restamps the project — the CLI's preflight leaves
+#     a project stamped ahead exactly as it found it (project_needs_upgrade).
 check_version_compat() {
     local cf="$1" stamp eng
     stamp="$(read_schema_version "$cf")"
     [ -n "$stamp" ] || return 0
     eng="$(engine_version)"
     [ -n "$eng" ] || return 0
-    if _ver_gt "$stamp" "$eng"; then
+    _ver_gt "$stamp" "$eng" || return 0
+    if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then
         is_status ahead-of-engine "stamp=$stamp engine=$eng"
-        echo "  ERROR: project stamped $stamp but this engine is $eng — refusing." >&2
+        echo "  ERROR: project stamped $stamp but this engine is $eng — a newer major schema; refusing." >&2
         echo "         Update the CLI first: npm i -g @ainova-systems/intelligence@latest" >&2
         return "$IS_RC_AHEAD"
+    fi
+    # One warning per command, however many processes re-check on the way to
+    # the engine (CLI preflight first, then the engine itself). The line has
+    # no indent on purpose: `sync --compact` keeps `WARNING:` lines.
+    if [ "${IS_SCHEMA_AHEAD_WARNED:-}" != "$stamp" ]; then
+        echo "WARNING: project schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: npm i -g @ainova-systems/intelligence@latest" >&2
+        export IS_SCHEMA_AHEAD_WARNED="$stamp"
     fi
     return 0
 }

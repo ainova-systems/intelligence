@@ -209,6 +209,8 @@ A newer globally installed CLI cannot update projects at npm installation time b
 
 This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
 
+The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`npm i -g @ainova-systems/intelligence@latest`) to align the project again.
+
 CI is intentionally different. When `CI` is true and tracked alignment is pending, implicit preflight refuses and prints:
 
 ```text

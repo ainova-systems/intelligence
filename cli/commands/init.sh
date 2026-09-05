@@ -124,7 +124,9 @@ case "$IP_MODE" in
         if [ "$preview" -eq 1 ]; then
             check_version_compat "$IP_ROOT/intelligence.yaml"
             echo "project: Intelligence CLI at $IP_ROOT"
-            if project_needs_upgrade "$IP_ROOT"; then
+            if project_stamped_ahead "$IP_ROOT"; then
+                echo "  project schema $(read_schema_version "$IP_ROOT/intelligence.yaml") is ahead of engine $(bundled_engine_version) — left as is (update the CLI)"
+            elif project_needs_upgrade "$IP_ROOT"; then
                 echo "  would align project lifecycle with engine $(bundled_engine_version)"
             else
                 echo "  schema/content already match engine $(bundled_engine_version)"

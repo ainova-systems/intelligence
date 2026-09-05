@@ -48,7 +48,9 @@ fi
 
 echo ""
 echo "Project:"
-if project_needs_upgrade "$IP_ROOT"; then
+if project_stamped_ahead "$IP_ROOT"; then
+    echo "  schema $stamp is ahead of engine $eng — left as is; update the CLI to align it"
+elif project_needs_upgrade "$IP_ROOT"; then
     echo "  lifecycle alignment required (stamp ${stamp:-unstamped}, engine $eng)"
     project_change=1
 else

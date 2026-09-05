@@ -239,12 +239,24 @@ assert_safe_content_dir() {
     done
 }
 
+# project_stamped_ahead <root> — the manifest is stamped newer than this CLI's
+# engine: the state check_version_compat admits within one major.
+project_stamped_ahead() {
+    local stamp
+    stamp="$(read_schema_version "$1/intelligence.yaml")"
+    [ -n "$stamp" ] && _ver_gt "$stamp" "$(bundled_engine_version)"
+}
+
 project_needs_upgrade() {
     local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name
     [ -f "$manifest" ] || return 1
     stamp="$(read_schema_version "$manifest")"
     eng="$(bundled_engine_version)"
     [ -z "$stamp" ] && return 0
+    # A project stamped ahead belongs to a newer CLI. Aligning it here would
+    # restamp the schema and re-pin the engine content DOWNWARD, and the next
+    # teammate on the current CLI would move both back: leave it as found.
+    project_stamped_ahead "$root" && return 1
     [ -n "$(top_scalar "$manifest" "sync_version")" ] && return 0
     _ver_gt "$eng" "$stamp" && return 0
     [ -d "$root/.intelligence/engine" ] && return 0
