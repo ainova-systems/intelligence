@@ -159,6 +159,23 @@ grep -q "locked:pack-main@${BR_SHA1:0:7}" <<< "$list_ref" \
 printf '# Branch rule v2\n\nBRANCH_MARKER_TWO\n' > "$BR/rules/branch-rule.md"
 git -C "$BR" -c user.email=t@t -c user.name=t commit --quiet -am b2
 BR_SHA2="$(git -C "$BR" rev-parse HEAD)"
+
+echo "== fresh clone restores the old commit after a branch advances =="
+OLDCLONE="$OUT/old-refclone"
+mkdir -p "$OLDCLONE"
+cp -r "$PROJ/intelligence" "$OLDCLONE/intelligence"
+cp "$PROJ/intelligence.yaml" "$PROJ/intelligence.lock" "$PROJ/.gitignore" "$OLDCLONE/"
+git -C "$OLDCLONE" init --quiet
+(cd "$OLDCLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)
+chk cmp -s "$PROJ/intelligence.yaml" "$OLDCLONE/intelligence.yaml"
+chk cmp -s "$PROJ/intelligence.lock" "$OLDCLONE/intelligence.lock"
+chk grep -q 'BRANCH_MARKER_ONE' "$OLDCLONE/.intelligence/packages/@acme/branch/rules/branch-rule.md"
+chk grep -q 'BRANCH_MARKER_ONE' "$OLDCLONE/AGENTS.md"
+chknot grep -q 'BRANCH_MARKER_TWO' "$OLDCLONE/AGENTS.md"
+cp "$OLDCLONE/AGENTS.md" "$OUT/old-refclone.agents"
+(cd "$OLDCLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)
+chk cmp -s "$OUT/old-refclone.agents" "$OLDCLONE/AGENTS.md"
+
 pv_ref="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview @acme/branch)"
 grep -q "pack-main ${BR_SHA1:0:7} -> ${BR_SHA2:0:7}" <<< "$pv_ref" \
     || { echo "FAIL: preview did not report the moved branch"; fail=1; }
@@ -172,9 +189,7 @@ chk grep -q 'BRANCH_MARKER_TWO' "$PROJ/AGENTS.md"
 chknot grep -q 'BRANCH_MARKER_ONE' "$PROJ/AGENTS.md"
 
 echo "== ref pin: the updated lock restores on a fresh clone =="
-# The other half of the dead end: sync restores a missing store with --frozen,
-# which dies when a ref pin's branch has moved past the lock. After the update
-# above, the lock is the branch head again and the frozen restore must pass.
+# After an explicit update, fresh clones restore the newly locked commit.
 RCLONE="$OUT/refclone"
 mkdir -p "$RCLONE"
 cp -r "$PROJ/intelligence" "$RCLONE/intelligence"

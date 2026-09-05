@@ -6,6 +6,11 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ## [0.11.8]
 
+### Fixed
+
+- Restored packages from their exact locked commits after branches or tags move, refused unavailable or invalid commit identities without rewriting the lock, and made the offline development-bundle verification exception explicit.
+- Preserved normalized checkout bytes when acquiring explicit commit refs under inherited Git settings.
+
 ### Changed
 
 - Rebuilt the roadmap around safe skill imports, marketplace formats and focused adapter growth, accepted the importer/output-adapter boundary, and added official references for supported adapters.

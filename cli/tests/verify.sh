@@ -12,7 +12,7 @@
 #   bash cli/tests/verify.sh lint         shellcheck over cli/ and engine/
 #   bash cli/tests/verify.sh lint-cli     shellcheck over cli/ and npm/ scripts
 #   bash cli/tests/verify.sh lint-engine  shellcheck over engine/ only
-#   bash cli/tests/verify.sh tests        the seven hermetic suites
+#   bash cli/tests/verify.sh tests        the hermetic suites
 #
 # Suites take a repository root so CI can point them at its workspace; they
 # default to the tree this script lives in, which is what the local flow wants.
@@ -21,7 +21,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest unit-release e2e-packages e2e-lifecycle e2e-negative e2e-compat)
+SUITES=(unit-semver unit-manifest unit-release unit-fetch e2e-packages e2e-lifecycle e2e-negative e2e-compat)
 
 failed=0
 skipped=()
