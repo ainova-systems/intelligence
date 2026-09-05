@@ -100,6 +100,24 @@ A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
 engine until conversion.
 
+Restoration fetches each package's locked commit, even after its branch or tag
+moves. It verifies that commit before replacing the package and keeps the manifest's
+requested ref and the lock unchanged. An unavailable commit fails without substituting
+the current ref or HEAD. Missing or malformed required commit SHAs are refused before
+restoration writes; use `intelligence update` to deliberately advance a ref.
+
+Matching bundled sync content remains available offline. A release bundle with a
+known SHA must match the locked SHA; otherwise restoration fetches the locked commit
+from its recorded source. Development bundles or bundle-seeded locks without a SHA
+retain the offline path with an explicit warning that commit verification is unavailable.
+This verifies acquisition identity, not every byte of an already installed store:
+ordinary sync and `status --check` do not rehash installed packages.
+
+The output rollback in steps 4–5 covers adapter-declared paths. Package restoration
+publishes one verified package at a time before rendering; a later fetch or render
+failure can leave earlier packages restored. It is not a transaction spanning the
+package store, manifest and lock. Lifecycle alignment in step 1 is also separate.
+
 Every successful sync reports context pressure in one line: byte totals and file
 counts for always-on rules, then for custom context (scoped rules, agent prompts
 and skill entry points), followed by a numeric rendered `AGENTS.md` byte count

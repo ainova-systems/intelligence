@@ -43,6 +43,27 @@ scoped rules and custom agents remain distinct capabilities.
 | 8 | Resolve selected remote plugins through trusted marketplace registries | 1, 3–5 |
 | 9 | Optimize acquisition and consider additional transports | Measured demand after 4/8 |
 
+### Batch: exact locked restore (step 1, first slice)
+
+Scope: restore Git packages by locked commit even when the requested branch or
+tag moves. Keep requested refs for updates and retain the offline bundle seed.
+Version intent: patch fix in pending `0.11.8`.
+
+- [x] Restore retained commits after branch and tag movement without changing
+  the manifest or lock; verify the restored content and generated output.
+- [x] Refuse unavailable commits and malformed/missing required commit identities
+  before publishing that package; preserve existing output and the lock on failure.
+- [x] Verify matching release-bundle identities and explicitly report the
+  development-bundle exception when commit verification is unavailable.
+- [x] Preserve update planning, manifest/lock drift refusal and repeatable sync.
+
+Remaining step 1 work: comprehensive lock-schema/identity validation, installed
+content rehashing, transactions across package store/manifest/lock/render state,
+and bounded Git/authentication diagnostics. This batch verifies acquisition of
+each restored package; it does not make a multi-package restore transactional.
+Rollback: revert this batch; the lock format is unchanged, so older clients can
+still read it and retain their earlier moved-ref refusal behavior.
+
 ### 1. Exact restore and integrity boundaries
 
 **Problem.** Frozen restore currently fetches the locked ref, then compares its

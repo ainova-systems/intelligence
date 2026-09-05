@@ -2,8 +2,8 @@
 # Internal locked-store restore operation.
 #
 # Restore .intelligence/ from intelligence.lock — the fresh-clone command.
-# --frozen additionally refuses any manifest/lock divergence (CI mode) and
-# fails on a sha mismatch instead of re-resolving.
+# --frozen additionally refuses manifest/lock divergence (CI mode).
+# Locked packages always restore their recorded commit, never the ref's new HEAD.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -50,6 +50,20 @@ if [ "$frozen" -eq 1 ]; then
     done < <(qmap_keys "$lock" "packages")
 fi
 
+# Check every required commit identity before restoring any package. Only the
+# matching bundled content may carry the historical empty development-build SHA.
+while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
+    [ -n "$name" ] || continue
+    assert_valid_pkg_name "$name"
+    assert_safe_source_url "$url"
+    assert_safe_ref "$resolved"
+    if [ -z "$sha" ] && is_bundle_source "$url" "$resolved" "$path"; then
+        continue
+    fi
+    [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
+        || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
+done < <(lock_to_tsv "$lock")
+
 # Manifest packages missing from the lock: resolve them now (npm install
 # semantics). Under --frozen the drift gate above has already refused.
 missing=""
@@ -89,7 +103,7 @@ fi
 
 # Restore every locked package that is not already in the store.
 if [ -f "$lock" ]; then
-    while IFS="$LOCK_SEP" read -r name requested url path resolved sha; do
+    while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
         [ -n "$name" ] || continue
         # The lock arrives with a cloned repo — its keys are untrusted input
         # on their way into rm -rf paths, and its urls into git argv.
@@ -106,17 +120,7 @@ if [ -f "$lock" ]; then
         # re-run (whose dir-exists check skips verification) would sync it.
         staging="$IP_ROOT/.intelligence/.staging-$$"
         rm -rf "$staging"
-        got="$(fetch_package "$url" "$resolved" "$path" "$staging")"
-        # An empty sha (bundle-seeded content on a dev build) means unknown,
-        # not moved — only two known-and-different shas are a finding.
-        if [ -n "$sha" ] && [ -n "$got" ] && [ "$got" != "$sha" ]; then
-            if [ "$frozen" -eq 1 ]; then
-                rm -rf "$staging"
-                die "$name: fetched $got but the lock pins $sha — the ref moved; refusing under --frozen"
-            fi
-            echo "  WARN: $name resolved to $got, lock had $sha — updating the lock" >&2
-            lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$resolved" "$got"
-        fi
+        fetch_package "$url" "$resolved" "$path" "$staging" "$sha" >/dev/null
         rm -rf "${IP_ROOT:?}/$rel"
         mkdir -p "$(dirname "$IP_ROOT/$rel")"
         mv "$staging" "$IP_ROOT/$rel"

@@ -106,13 +106,20 @@ suggest_similar() {
     fi
 }
 
-# fetch_package <url> <ref> <subpath> <dest-dir>
+# is_bundle_source <url> <ref> <subpath>
+is_bundle_source() {
+    [ "$1" = "$SYNC_PKG_URL" ] && [ "$3" = "$SYNC_PKG_PATH" ] \
+        && [ "${2#v}" = "$(bundled_engine_version)" ]
+}
+
+# fetch_package <url> <ref> <subpath> <dest-dir> [locked-sha]
 # Shallow-clones url@ref (tag, branch, or SHA fallback), copies <subpath>
 # (or the repo root) into <dest-dir>, prints the resolved commit sha.
+# A locked SHA selects and verifies the commit independently of the ref name.
 # The clone pins autocrlf/eol/symlinks exactly like the engine does, so the
 # store holds the bytes the package published.
 fetch_package() {
-    local url="$1" ref="$2" subpath="$3" dest="$4"
+    local url="$1" ref="$2" subpath="$3" dest="$4" locked_sha="${5:-}" bundle_sha=""
     assert_safe_source_url "$url"
     assert_safe_ref "$ref"
     # Bundle seed: the engine-content package at the CLI's own version copies
@@ -120,24 +127,48 @@ fetch_package() {
     # archived-project conversion offline. Keyed on the
     # full (url, path, ref) triple; any other version or source falls through
     # to the normal clone.
-    if [ "$url" = "$SYNC_PKG_URL" ] && [ "$subpath" = "$SYNC_PKG_PATH" ] \
-        && [ "${ref#v}" = "$(bundled_engine_version)" ]; then
+    if is_bundle_source "$url" "$ref" "$subpath"; then
+        if [ -f "$IS_ENGINE_DIR/ENGINE_SHA" ]; then
+            bundle_sha="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/ENGINE_SHA")"
+        fi
+    fi
+    if is_bundle_source "$url" "$ref" "$subpath" \
+        && { [ -z "$locked_sha" ] || [ -z "$bundle_sha" ] || [ "$locked_sha" = "$bundle_sha" ]; }; then
         [ -n "${IS_BUNDLED_PKG_DIR:-}" ] && [ -d "$IS_BUNDLED_PKG_DIR" ] \
             || die "bundled engine content not found next to the CLI — reinstall @ainova-systems/intelligence"
         rm -rf "$dest"
         mkdir -p "$dest"
         cp -R "$IS_BUNDLED_PKG_DIR/." "$dest/"
         rm -rf "$dest/.git"
-        if [ -f "$IS_ENGINE_DIR/ENGINE_SHA" ]; then
-            tr -d ' \t\r\n' < "$IS_ENGINE_DIR/ENGINE_SHA"
+        if [ "$#" -ge 5 ] && { [ -z "$locked_sha" ] || [ -z "$bundle_sha" ]; }; then
+            echo "WARNING: bundled sync content restored without commit verification (development bundle or lock has no SHA)" >&2
         fi
+        printf '%s' "$bundle_sha"
         return 0
     fi
     local tmp sha src
     local -a branch_arg=()
     [ -n "$ref" ] && branch_arg=(--branch "$ref")
     tmp="$(mktemp -d -t intelligence-pkg-XXXXXX 2>/dev/null || mktemp -d)"
-    if ! GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
+    if [ -n "$locked_sha" ]; then
+        local -a format_arg=()
+        [ "${#locked_sha}" -ne 64 ] || format_arg=(--object-format=sha256)
+        git init --quiet "${format_arg[@]+"${format_arg[@]}"}" "$tmp/clone" \
+            || { rm -rf "$tmp"; die "cannot stage locked commit $locked_sha"; }
+        # Request the object directly, including retained commits no longer named
+        # by a branch/tag. Servers that forbid SHA wants may still advertise a
+        # descendant; fetch their history before declaring the commit unavailable.
+        if ! GIT_TERMINAL_PROMPT=0 git -C "$tmp/clone" fetch --quiet --no-tags --depth 1 -- "$url" "$locked_sha" 2>/dev/null; then
+            GIT_TERMINAL_PROMPT=0 git -C "$tmp/clone" fetch --quiet --tags -- "$url" \
+                '+refs/heads/*:refs/remotes/locked/*' 2>/dev/null \
+                || { rm -rf "$tmp"; die "cannot fetch locked commit $locked_sha from $url — check source access and commit availability"; }
+        fi
+        [ "$(git -C "$tmp/clone" cat-file -t "$locked_sha" 2>/dev/null || true)" = commit ] \
+            || { rm -rf "$tmp"; die "locked commit $locked_sha unavailable from $url — refusing to substitute '$ref' or HEAD"; }
+        git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
+            -C "$tmp/clone" checkout --quiet --detach "$locked_sha" -- \
+            || { rm -rf "$tmp"; die "cannot check out locked commit $locked_sha from $url"; }
+    elif ! GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
             clone --depth 1 "${branch_arg[@]+"${branch_arg[@]}"}" --quiet -- "$url" "$tmp/clone" 2>/dev/null; then
         # A SHA is not clonable with --branch — fall back to a full clone + checkout.
         rm -rf "$tmp/clone"
@@ -148,6 +179,10 @@ fetch_package() {
             || { rm -rf "$tmp"; die "ref '$ref' not found in $url"; }
     fi
     sha="$(git -C "$tmp/clone" rev-parse HEAD)"
+    if [ -n "$locked_sha" ] && [ "$sha" != "$locked_sha" ]; then
+        rm -rf "$tmp"
+        die "fetched $sha but the lock pins $locked_sha — refusing package replacement"
+    fi
     src="$tmp/clone"
     if [ -n "$subpath" ]; then
         case "$subpath" in

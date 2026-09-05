@@ -11,12 +11,12 @@ context: fork
    was requested). For Intelligence projects, this command first aligns project schema/content
    with the installed CLI and restores a missing package store strictly from
    `intelligence.lock`.
-2. Require final `IS_STATUS=ok`; relay per-adapter counts and any model-drift
-   or unsynced-source warnings.
+2. Require final `IS_STATUS=ok`; relay per-adapter counts and any integrity,
+   model-drift or unsynced-source warnings.
 3. In CI, a required tracked project upgrade is intentionally refused. Report
    the instruction to run `intelligence init --apply` locally, review and
    commit its diff; never bypass the gate. A frozen restore refusal means the
-   manifest and lock disagree or a pinned ref moved—report it without
+   manifest and lock disagree or the locked commit cannot be verified/restored—report it without
    hand-copying package content.
 4. On a probable Intelligence defect, first ask whether to collect a sanitized
    issue draft; collect nothing before approval and never use telemetry. Include

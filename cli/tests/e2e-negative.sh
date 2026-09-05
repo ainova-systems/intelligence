@@ -312,19 +312,64 @@ echo "== 6. sync frozen-restore after the tag moved =="
 xok "" "$PROJ" package add "git+$MOVE_URL" --name @acme/mover --no-sync
 chk test -d "$PROJ/.intelligence/packages/@acme/mover/rules"
 chk grep -q 'resolved: "v1.0.0"' "$PROJ/intelligence.lock"
-sha_before="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
-chk test -n "$sha_before"
+cp "$PROJ/intelligence.lock" "$OUT/mover.lock"
+cp "$PROJ/intelligence.yaml" "$OUT/mover.manifest"
 printf '# Mover rule\n\nMOVER_MARKER_V2\n' > "$MOVE/rules/mover-rule.md"
 git -C "$MOVE" -c user.email=t@t -c user.name=t commit --quiet -am moved
 git -C "$MOVE" tag -f v1.0.0 >/dev/null
 rm -rf "$PROJ/.intelligence/packages"
-xfail "refusing under --frozen" "$PROJ" sync --compact
-sha_frozen="$(grep 'sha:' "$PROJ/intelligence.lock" || true)"
-[ "$sha_before" = "$sha_frozen" ] || { echo "FAIL: --frozen modified the lock sha"; fail=1; }
-# The refused content must NOT be committed to the store: a second --frozen
-# would otherwise see the directory, skip verification, and sync it.
-chknot test -d "$PROJ/.intelligence/packages/@acme/mover"
-xfail "refusing under --frozen" "$PROJ" sync
+xok "IS_STATUS=ok" "$PROJ" sync --compact
+chk cmp -s "$OUT/mover.lock" "$PROJ/intelligence.lock"
+chk cmp -s "$OUT/mover.manifest" "$PROJ/intelligence.yaml"
+chk grep -q 'MOVER_MARKER_V1' "$PROJ/.intelligence/packages/@acme/mover/rules/mover-rule.md"
+chk grep -q 'MOVER_MARKER_V1' "$PROJ/AGENTS.md"
+chknot grep -q 'MOVER_MARKER_V2' "$PROJ/AGENTS.md"
+cp "$PROJ/AGENTS.md" "$OUT/mover.agents"
+xok "IS_STATUS=ok" "$PROJ" sync
+chk cmp -s "$OUT/mover.agents" "$PROJ/AGENTS.md"
+
+echo "== 6a. unavailable or invalid locked commits never substitute HEAD =="
+rm -rf "$PROJ/.intelligence/packages"
+for bad_sha in 0000000000000000000000000000000000000000 invalid ''; do
+    awk -v sha="$bad_sha" '
+        /^[[:space:]]+sha:/ { print "    sha: \"" sha "\""; next }
+        { print }
+    ' "$OUT/mover.lock" > "$PROJ/intelligence.lock"
+    cp "$PROJ/intelligence.lock" "$OUT/mover.bad-lock"
+    if [ "${#bad_sha}" -eq 40 ]; then
+        reason="locked commit $bad_sha unavailable"
+    else
+        reason="missing or invalid commit SHA"
+    fi
+    xfail "$reason" "$PROJ" sync --compact
+    chk cmp -s "$OUT/mover.bad-lock" "$PROJ/intelligence.lock"
+    chk cmp -s "$OUT/mover.manifest" "$PROJ/intelligence.yaml"
+    chk cmp -s "$OUT/mover.agents" "$PROJ/AGENTS.md"
+    chknot test -d "$PROJ/.intelligence/packages/@acme/mover"
+    xfail "$reason" "$PROJ" sync
+done
+cp "$OUT/mover.lock" "$PROJ/intelligence.lock"
+
+echo '== later invalid lock identity preserves earlier installed packages =='
+xok "IS_STATUS=ok" "$PROJ" sync
+xok "" "$PROJ" package add @acme/pkg@^1.0.0 --no-sync
+cp "$PROJ/intelligence.lock" "$OUT/two-package.lock"
+cp "$PROJ/intelligence.yaml" "$OUT/two-package.manifest"
+touch "$PROJ/.intelligence/packages/@acme/mover/preserve-on-refusal"
+rm -rf "$PROJ/.intelligence/packages/@acme/pkg"
+awk '
+    /^  "@acme\/pkg":/ { bad=1 }
+    bad && /^[[:space:]]+sha:/ { print "    sha: \"invalid\""; next }
+    { print }
+' "$OUT/two-package.lock" > "$PROJ/intelligence.lock"
+cp "$PROJ/intelligence.lock" "$OUT/two-package.bad-lock"
+xfail 'missing or invalid commit SHA' "$PROJ" sync
+chk test -f "$PROJ/.intelligence/packages/@acme/mover/preserve-on-refusal"
+chknot test -d "$PROJ/.intelligence/packages/@acme/pkg"
+chk cmp -s "$OUT/two-package.bad-lock" "$PROJ/intelligence.lock"
+chk cmp -s "$OUT/two-package.manifest" "$PROJ/intelligence.yaml"
+chk cmp -s "$OUT/mover.agents" "$PROJ/AGENTS.md"
+cp "$OUT/two-package.lock" "$PROJ/intelligence.lock"
 
 echo "== 6b. --frozen refuses manifest/lock drift =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.6b"
@@ -334,11 +379,10 @@ awk '{ gsub(/version: "\^1\.0\.0"/, "version: \"^2.0.0\""); print }' \
 xfail "requests" "$PROJ" sync
 cp "$OUT/manifest.6b" "$PROJ/intelligence.yaml"
 
-# Frozen restore deliberately has no public bypass. Remove the compromised
-# dependency from the manifest before continuing with unrelated scenarios.
+# Continue unrelated scenarios with the registry package alone.
 xok "" "$PROJ" package remove @acme/mover --no-sync
 # Keep one immutable package so the fresh-clone scenario has a lock/store to
-# restore, without accepting the force-moved tag above.
+# restore.
 xok "" "$PROJ" package add @acme/pkg@^1.0.0 --no-sync
 
 echo "== 7. status --check and sync restore on a fresh clone =="
