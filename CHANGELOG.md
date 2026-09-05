@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.11.9]
+
+### Fixed
+
+- Rejected malformed lock structure and invalid source identities before lifecycle writes or previews, including installed stores, and reported invalid locks through `status --check`.
+
 ## [0.11.8]
 
 ### Fixed

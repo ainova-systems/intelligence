@@ -30,7 +30,7 @@ assert_safe_source_url() {
     local url="$1"
     case "$url" in
         ""|-*) die "unsafe source url '$url' — option-shaped or empty" ;;
-        *[\"\'\ ]*) die "unsafe source url '$url' — quotes or spaces" ;;
+        *[\"\'\ \\]*|*[[:cntrl:]]*) die "unsafe source url '$url' — quotes, whitespace or backslashes" ;;
         https://*|http://*|ssh://*|git://*|file://*) ;;
         *@*:*) ;;
         *) die "unsafe source url '$url' — allowed: https, http, ssh, git, file, or user@host:path" ;;
@@ -43,7 +43,15 @@ assert_safe_ref() {
     [ -z "$ref" ] && return 0
     case "$ref" in
         -*) die "unsafe git ref '$ref' — option-shaped" ;;
-        *[\"\'\ \\]*) die "unsafe git ref '$ref'" ;;
+        *[\"\'\ \\]*|*[[:cntrl:]]*) die "unsafe git ref '$ref'" ;;
+    esac
+}
+
+# Lexical package-subdirectory validation shared by acquisition and lock
+# preflight. Physical containment of acquired content is a separate boundary.
+assert_safe_package_path() {
+    case "$1" in
+        *..*|/*|*\\*|[A-Za-z]:*|*[\"\']*|*[[:cntrl:]]*) die "unsafe path '$1'" ;;
     esac
 }
 
@@ -297,6 +305,7 @@ project_has_packages() {
 ensure_project_current() {
     local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
     check_version_compat "$manifest" || return $?
+    validate_project_lock "$root" || return $?
     if project_has_packages "$root" && [ ! -f "$root/intelligence.lock" ]; then
         die "manifest declares packages but intelligence.lock is absent — restore the committed lock before running project lifecycle commands"
     fi
@@ -308,6 +317,18 @@ ensure_project_current() {
     fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
     bash "$CLI_DIR/internal/align-project.sh" --no-sync
+}
+
+# A present lock is validated even when there is no missing store to restore.
+# Keep this before alignment: repairing the sync pin must not rewrite bad input.
+validate_project_lock() {
+    local lock="$1/intelligence.lock"
+    if [ -e "$lock" ] || [ -L "$lock" ]; then
+        if ! lock_validate "$lock" "${2:-}"; then
+            echo "ERROR: invalid intelligence.lock — restore a valid committed lock before continuing" >&2
+            return 1
+        fi
+    fi
 }
 
 project_store_missing() {

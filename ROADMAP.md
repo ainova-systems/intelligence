@@ -59,19 +59,40 @@ Version intent: patch fix in pending `0.11.8`.
 - [x] Preserve normalized checkout bytes for explicit commit refs under inherited
   Git settings.
 
-Remaining step 1 work: comprehensive lock-schema/identity validation, installed
+This first slice leaves lock-schema/identity validation, installed
 content rehashing, transactions across package store/manifest/lock/render state,
 and bounded Git/authentication diagnostics. This batch verifies acquisition of
 each restored package; it does not make a multi-package restore transactional.
 Rollback: revert this batch; the lock format is unchanged, so older clients can
 still read it and retain their earlier moved-ref refusal behavior.
 
+### Batch: lock validation before lifecycle writes (step 1, second slice)
+
+Scope: validate the existing v1 lock structure and required source identities
+before lifecycle alignment, restore or mutation, even with an installed store.
+Use the same validation in read-only `status --check` and lifecycle previews.
+Version intent: patch fix in pending `0.11.9`.
+
+- [x] Reject unsupported/missing lock versions, malformed package maps/scalars,
+  duplicate package/field identities and missing or unsafe required source data.
+- [x] Validate every row before any package, manifest, lock or generated-output
+  write; cover installed and missing stores and alignment from an older schema.
+- [x] Report invalid locks through `status --check` without claiming healthy state.
+- [x] Preserve generated v1 locks, CRLF, optional root paths, the explicit offline
+  bundle SHA exception and newer same-major project compatibility.
+
+Remaining step 1 work: installed-content rehashing, full manifest-intent validation,
+transactions across package store/manifest/lock/render state, and bounded
+Git/authentication diagnostics. This batch validates lock metadata; it does not
+verify existing package bytes or make package operations transactional.
+Rollback: revert this batch; the generated lock format is unchanged.
+
 ### 1. Exact restore and integrity boundaries
 
-**Problem.** Frozen restore currently fetches the locked ref, then compares its
-commit SHA. If a branch advances, restoration fails even when the old commit is
-still available. The existing store is also not fully rehashed during ordinary
-sync. Output rollback does not cover every package-store/manifest/lock mutation.
+**Problem.** Exact locked acquisition is delivered by the first batch above.
+Lock readers can still silently skip malformed structure, and the existing store
+is not fully rehashed during ordinary sync. Output rollback does not cover every
+package-store/manifest/lock mutation.
 
 **Deliver.** Fetch and verify the locked commit; keep requested refs for update
 planning. Define validation for lock schema, required identities and installed

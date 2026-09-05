@@ -69,6 +69,13 @@ up to the bundled engine before doing its own work. CI refuses that tracked muta
 and directs the user to run `intelligence init --apply` locally, review the diff and
 commit it.
 
+Validate a present lock before lifecycle alignment or mutation, including when the
+store already exists. Previews and `status --check` use the same metadata validator;
+malformed structure or required identity is a refusal, never an empty package set.
+The development-bundle metadata exception permits alignment and installed
+same-major compatibility; locked restore still requires an exact commit or the
+matching current bundle. Metadata validation does not verify installed bytes.
+
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —
 and the command proceeds behind one warning; only a newer major refuses

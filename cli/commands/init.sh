@@ -123,6 +123,7 @@ case "$IP_MODE" in
         [ "$force" -eq 0 ] || die "--force applies only when converting a legacy Intelligence Sync project"
         if [ "$preview" -eq 1 ]; then
             check_version_compat "$IP_ROOT/intelligence.yaml"
+            validate_project_lock "$IP_ROOT"
             echo "project: Intelligence CLI at $IP_ROOT"
             if project_stamped_ahead "$IP_ROOT"; then
                 echo "  project schema $(read_schema_version "$IP_ROOT/intelligence.yaml") is ahead of engine $(bundled_engine_version) — left as is (update the CLI)"
