@@ -6,7 +6,7 @@
 project:
   name: my-platform
 
-schema_version: "0.11.7"
+schema_version: "0.11.8"
 
 sources:
   rules:
@@ -50,4 +50,4 @@ ignore:
 # from the CLI bundle.
 packages:
   "@ainova-systems/sync":
-    version: "0.11.7"
+    version: "0.11.8"
