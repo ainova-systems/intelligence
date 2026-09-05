@@ -240,7 +240,9 @@ assert_safe_content_dir() {
 }
 
 # project_stamped_ahead <root> — the manifest is stamped newer than this CLI's
-# engine: the state check_version_compat admits within one major.
+# engine, at any SemVer level. Every caller runs check_version_compat first,
+# which has already refused a newer major, so what reaches this predicate is
+# the admitted minor/patch gap; the predicate itself does not re-judge the gap.
 project_stamped_ahead() {
     local stamp
     stamp="$(read_schema_version "$1/intelligence.yaml")"
