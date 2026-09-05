@@ -56,6 +56,8 @@ Version intent: patch fix in pending `0.11.8`.
 - [x] Verify matching release-bundle identities and explicitly report the
   development-bundle exception when commit verification is unavailable.
 - [x] Preserve update planning, manifest/lock drift refusal and repeatable sync.
+- [x] Preserve normalized checkout bytes for explicit commit refs under inherited
+  Git settings.
 
 Remaining step 1 work: comprehensive lock-schema/identity validation, installed
 content rehashing, transactions across package store/manifest/lock/render state,

@@ -38,6 +38,14 @@ command git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -am secon
 SECOND="$(command git -C "$PACK" rev-parse HEAD)"
 URL="file://$PACK"
 
+echo '== explicit commit acquisition preserves LF bytes under inherited Git settings =='
+command git -C "$PACK" show "$FIRST:content/rules/rule.md" > "$OUT/expected-rule"
+got="$(GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=core.autocrlf GIT_CONFIG_VALUE_0=true \
+    GIT_CONFIG_KEY_1=core.eol GIT_CONFIG_VALUE_1=crlf \
+    fetch_package "$URL" "$FIRST" content "$OUT/ref-sha")"
+chk test "$got" = "$FIRST"
+chk cmp -s "$OUT/expected-rule" "$OUT/ref-sha/rules/rule.md"
+
 echo '== retained commit and subpath after a tag is deleted =='
 command git -C "$PACK" tag -d v1 >/dev/null
 got="$(fetch_package "$URL" v1 content "$OUT/restored" "$FIRST")"

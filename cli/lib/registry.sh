@@ -175,7 +175,8 @@ fetch_package() {
         GIT_TERMINAL_PROMPT=0 git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
             clone --quiet -- "$url" "$tmp/clone" 2>/dev/null \
             || { rm -rf "$tmp"; die "cannot clone $url"; }
-        [ -z "$ref" ] || git -C "$tmp/clone" checkout --quiet "$ref" -- \
+        [ -z "$ref" ] || git -c core.symlinks=false -c core.autocrlf=false -c core.eol=lf \
+            -C "$tmp/clone" checkout --quiet "$ref" -- \
             || { rm -rf "$tmp"; die "ref '$ref' not found in $url"; }
     fi
     sha="$(git -C "$tmp/clone" rev-parse HEAD)"
