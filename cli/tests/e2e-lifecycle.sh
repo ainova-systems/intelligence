@@ -32,7 +32,7 @@ snapshot_legacy() {
 
 assert_legacy_unchanged() {
     local dir="$1" label="$2"
-    if ! diff -ruN -x .git "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
+    if ! diff -ru -x .git "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
         echo "FAIL: legacy project changed after refused conversion ($label)"
         sed -n '1,80p' "$OUT/$label.diff"
         fail=1

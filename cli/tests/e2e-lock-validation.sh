@@ -85,7 +85,7 @@ snapshot() {
 
 assert_snapshot() {
     local dir="$1" label="$2"
-    if ! diff -ruN "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
+    if ! diff -ru "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
         echo "FAIL: project changed after lock refusal ($label)"
         sed -n '1,80p' "$OUT/$label.diff"
         fail=1
