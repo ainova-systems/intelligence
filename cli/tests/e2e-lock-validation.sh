@@ -46,18 +46,23 @@ run_restore_in() {
     ) 2>&1 )" || RC=$?
 }
 
-# Structural validation owns its wording. Every rejection must name the lock,
-# but assertions below focus on its observable no-write contract.
+# A malformed lock is a user-actionable input error. Each fixture asserts the
+# exact underlying reason as well as the stable top-level diagnosis.
 lock_xfail() {
-    local dir="$1"
-    shift
+    local reason="$1" dir="$2"
+    shift 2
     run_in "$dir" "$@"
     if [ "$RC" -eq 0 ]; then
         echo "FAIL: expected invalid lock refusal: $*"
         fail=1
     fi
-    if ! printf '%s\n' "$OUTPUT" | grep -qF 'intelligence.lock'; then
-        echo "FAIL: lock refusal did not identify intelligence.lock: $*"
+    if ! printf '%s\n' "$OUTPUT" | grep -qF -- "$reason"; then
+        echo "FAIL: lock refusal lacks '$reason': $*"
+        printf '%s\n' "$OUTPUT" | head -8
+        fail=1
+    fi
+    if ! printf '%s\n' "$OUTPUT" | grep -qF 'invalid intelligence.lock'; then
+        echo "FAIL: lock refusal did not identify invalid intelligence.lock: $*"
         printf '%s\n' "$OUTPUT" | head -8
         fail=1
     fi
@@ -73,16 +78,18 @@ copy_case() {
 
 snapshot() {
     local dir="$1" label="$2"
-    cp "$dir/intelligence.yaml" "$OUT/$label.yaml"
-    cp "$dir/intelligence.lock" "$OUT/$label.lock"
-    cp "$dir/AGENTS.md" "$OUT/$label.agents"
+    rm -rf "${OUT:?}/$label.tree"
+    mkdir -p "$OUT/$label.tree"
+    cp -R "$dir/." "$OUT/$label.tree/"
 }
 
 assert_snapshot() {
     local dir="$1" label="$2"
-    chk cmp -s "$OUT/$label.yaml" "$dir/intelligence.yaml"
-    chk cmp -s "$OUT/$label.lock" "$dir/intelligence.lock"
-    chk cmp -s "$OUT/$label.agents" "$dir/AGENTS.md"
+    if ! diff -ruN "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
+        echo "FAIL: project changed after lock refusal ($label)"
+        sed -n '1,80p' "$OUT/$label.diff"
+        fail=1
+    fi
 }
 
 echo "== fixtures and generated valid lock =="
@@ -182,6 +189,21 @@ chk grep -q "^schema_version: \"$newer_engine\"" "$AHEAD/intelligence.yaml"
 chk grep -q "version: \"$newer_engine\"" "$AHEAD/intelligence.yaml"
 chk grep -q "^engine_version: \"$ENGINE_VER\"" "$AHEAD/intelligence.lock"
 chk grep -q "resolved: \"v$newer_engine\"" "$AHEAD/intelligence.lock"
+printf '# First package update\n\nFIRST_LOCK_MARKER_UPDATE\n' > "$PACK/rules/first.md"
+git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -am update
+git -C "$PACK" tag v1.1.0
+run_in "$AHEAD" update @acme/ahead --apply
+if [ "$RC" -ne 0 ]; then
+    echo "FAIL: ahead development lock update lifecycle failed"
+    printf '%s\n' "$OUTPUT" | tail -12
+    fail=1
+fi
+warning_count="$(printf '%s\n' "$OUTPUT" | grep -cF 'commit verification is unavailable' || true)"
+if [ "$warning_count" -ne 1 ]; then
+    echo "FAIL: update lifecycle emitted $warning_count verification warnings (expected 1)"
+    printf '%s\n' "$OUTPUT" | tail -20
+    fail=1
+fi
 run_in "$AHEAD" sync
 if [ "$RC" -ne 0 ]; then
     echo "FAIL: ahead development lock failed after package mutation"
@@ -206,6 +228,25 @@ chk grep -q "^schema_version: \"$newer_engine\"" "$AHEAD/intelligence.yaml"
 chk grep -q "resolved: \"v$newer_engine\"" "$AHEAD/intelligence.lock"
 chk grep -q "^engine_version: \"$ENGINE_VER\"" "$AHEAD/intelligence.lock"
 
+echo "== status --check uses strict restore metadata when store is missing =="
+AHEAD_MISSING="$OUT/ahead-development-missing"
+mkdir -p "$AHEAD_MISSING"
+cp -R "$AHEAD/." "$AHEAD_MISSING/"
+rm -rf "$AHEAD_MISSING/.intelligence/packages"
+snapshot "$AHEAD_MISSING" ahead-development-missing
+lock_xfail "missing or invalid commit SHA" "$AHEAD_MISSING" status --check
+if ! printf '%s\n' "$OUTPUT" | grep -qF "manifest schema $newer_engine is newer than this CLI's engine $ENGINE_VER"; then
+    echo "FAIL: strict missing-store status skipped its independent schema check"
+    printf '%s\n' "$OUTPUT" | tail -16
+    fail=1
+fi
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'adapter agents contract v1'; then
+    echo "FAIL: strict missing-store status skipped its independent adapter check"
+    printf '%s\n' "$OUTPUT" | tail -16
+    fail=1
+fi
+assert_snapshot "$AHEAD_MISSING" ahead-development-missing
+
 echo "== cross-version empty bundle SHA never restores =="
 CROSS_BUNDLE="$OUT/cross-version-bundle"
 mkdir -p "$CROSS_BUNDLE"
@@ -218,29 +259,33 @@ awk -v old="$old_engine" '
 ' "$CROSS_BUNDLE/intelligence.lock" > "$CROSS_BUNDLE/intelligence.lock.tmp"
 mv "$CROSS_BUNDLE/intelligence.lock.tmp" "$CROSS_BUNDLE/intelligence.lock"
 rm -rf "$CROSS_BUNDLE/.intelligence/packages"
+snapshot "$CROSS_BUNDLE" cross-version-bundle
 run_restore_in "$CROSS_BUNDLE"
 if [ "$RC" -eq 0 ]; then
     echo "FAIL: cross-version empty bundle SHA restored"
     fail=1
 fi
-if ! printf '%s\n' "$OUTPUT" | grep -qF 'intelligence.lock'; then
-    echo "FAIL: cross-version empty bundle SHA refusal did not name the lock"
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'missing or invalid commit SHA'; then
+    echo "FAIL: cross-version empty bundle SHA refusal lacks the SHA reason"
     printf '%s\n' "$OUTPUT" | head -8
     fail=1
 fi
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'invalid intelligence.lock'; then
+    echo "FAIL: cross-version empty bundle SHA refusal did not name invalid intelligence.lock"
+    printf '%s\n' "$OUTPUT" | head -8
+    fail=1
+fi
+assert_snapshot "$CROSS_BUNDLE" cross-version-bundle
 chknot test -d "$CROSS_BUNDLE/.intelligence/packages"
 
 echo "== malformed top-level structure is refused with an installed store =="
 CASE="$(copy_case malformed)"
-snapshot "$CASE" malformed
 awk 'BEGIN { done=0 } /^lockfile_version:/ && !done { print "lockfile_version: 2"; done=1; next } { print }' \
     "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
 mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
-cp "$CASE/intelligence.lock" "$OUT/malformed.input-lock"
-lock_xfail "$CASE" sync
-chk cmp -s "$OUT/malformed.input-lock" "$CASE/intelligence.lock"
-chk cmp -s "$OUT/malformed.yaml" "$CASE/intelligence.yaml"
-chk cmp -s "$OUT/malformed.agents" "$CASE/AGENTS.md"
+snapshot "$CASE" malformed
+lock_xfail "unsupported or missing lockfile_version '2'" "$CASE" sync
+assert_snapshot "$CASE" malformed
 chk test -d "$CASE/.intelligence/packages/@acme/first"
 
 echo "== malformed package map and scalar rows are refused =="
@@ -257,7 +302,8 @@ for kind in missing-url unsafe-path unquoted-package duplicate-field duplicate-p
         unsafe-path)
             awk '
                 /^  "@acme\/second":/ { second=1 }
-                second && /^    url:/ { print; print "    path: \"../escape\""; next }
+                second && /^    path:/ { print "    path: \"../escape\""; path_seen=1; next }
+                second && /^    resolved:/ && !path_seen { print "    path: \"../escape\""; path_seen=1 }
                 { print }
             ' "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
             ;;
@@ -287,7 +333,16 @@ EOF
             ;;
     esac
     mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
-    lock_xfail "$CASE" sync
+    case "$kind" in
+        missing-url) reason="unsafe source url ''" ;;
+        unsafe-path) reason="unsafe path '../escape'" ;;
+        unquoted-package) reason="malformed lock structure" ;;
+        duplicate-field) reason="duplicate field @acme/first.resolved" ;;
+        duplicate-package) reason="duplicate package @acme/first" ;;
+    esac
+    snapshot "$CASE" "$kind"
+    lock_xfail "$reason" "$CASE" sync
+    assert_snapshot "$CASE" "$kind"
 done
 
 echo "== later invalid row preserves earlier installed package =="
@@ -300,7 +355,9 @@ awk '
     { print }
 ' "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
 mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
-lock_xfail "$CASE" sync
+snapshot "$CASE" later-row
+lock_xfail "missing or invalid commit SHA" "$CASE" sync
+assert_snapshot "$CASE" later-row
 chk test -f "$CASE/.intelligence/packages/@acme/first/preserve-on-refusal"
 chknot test -d "$CASE/.intelligence/packages/@acme/second"
 
@@ -310,8 +367,23 @@ rm -rf "$CASE/.intelligence/packages"
 awk '/^engine_version:/ { print "engine_version: \"\""; next } { print }' \
     "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
 mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
-lock_xfail "$CASE" sync
+snapshot "$CASE" missing-store
+lock_xfail "missing or invalid engine_version" "$CASE" sync
+assert_snapshot "$CASE" missing-store
 chknot test -d "$CASE/.intelligence/packages"
+
+echo "== empty package map cannot stand in for a nonempty manifest =="
+CASE="$(copy_case empty-packages)"
+awk '
+    /^  "@/ { skip=1 }
+    skip && /^    / { next }
+    /^  "@/ { next }
+    { if (!/^  "@/) print }
+' "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
+mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
+snapshot "$CASE" empty-packages
+lock_xfail 'packages is empty but the manifest declares packages' "$CASE" sync
+assert_snapshot "$CASE" empty-packages
 
 echo "== validation precedes lifecycle alignment, previews, and status checks =="
 CASE="$(copy_case lifecycle)"
@@ -322,13 +394,37 @@ awk '/^lockfile_version:/ { print "lockfile_version: 9"; next } { print }' \
     "$CASE/intelligence.lock" > "$CASE/intelligence.lock.tmp"
 mv "$CASE/intelligence.lock.tmp" "$CASE/intelligence.lock"
 snapshot "$CASE" lifecycle
-lock_xfail "$CASE" init --apply
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" init --apply
 assert_snapshot "$CASE" lifecycle
-lock_xfail "$CASE" init --preview
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" init --preview
 assert_snapshot "$CASE" lifecycle
-lock_xfail "$CASE" update --preview
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" update --preview
 assert_snapshot "$CASE" lifecycle
-lock_xfail "$CASE" status --check
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" status --check
+if ! printf '%s\n' "$OUTPUT" | grep -qF "manifest schema $old_engine behind engine $ENGINE_VER"; then
+    echo "FAIL: status --check stopped before its independent schema check"
+    printf '%s\n' "$OUTPUT" | tail -12
+    fail=1
+fi
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'adapter agents contract v1'; then
+    echo "FAIL: status --check stopped before its independent adapter check"
+    printf '%s\n' "$OUTPUT" | tail -12
+    fail=1
+fi
+assert_snapshot "$CASE" lifecycle
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" status
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'Lockfile: INVALID (locked state unchecked)'; then
+    echo "FAIL: plain status did not mark the invalid lock unchecked"
+    printf '%s\n' "$OUTPUT"
+    fail=1
+fi
+if ! printf '%s\n' "$OUTPUT" | grep -qF 'Content:  unchecked'; then
+    echo "FAIL: plain status did not mark content unchecked"
+    printf '%s\n' "$OUTPUT"
+    fail=1
+fi
+assert_snapshot "$CASE" lifecycle
+lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" package list
 assert_snapshot "$CASE" lifecycle
 
 [ "$fail" -eq 0 ] && echo "E2E-LOCK-VALIDATION: ALL OK"

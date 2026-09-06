@@ -70,16 +70,23 @@ still read it and retain their earlier moved-ref refusal behavior.
 
 Scope: validate the existing v1 lock structure and required source identities
 before lifecycle alignment, restore or mutation, even with an installed store.
-Use the same validation in read-only `status --check` and lifecycle previews.
+Use the same validation in read-only status/package reports and lifecycle previews.
 Version intent: patch fix in pending `0.11.9`.
 
 - [x] Reject unsupported/missing lock versions, malformed package maps/scalars,
   duplicate package/field identities and missing or unsafe required source data.
 - [x] Validate every row before any package, manifest, lock or generated-output
   write; cover installed and missing stores and alignment from an older schema.
-- [x] Report invalid locks through `status --check` without claiming healthy state.
+- [x] Report invalid locks through `status` and `package list`; keep independent
+  `status --check` diagnostics available and diagnose missing stores strictly.
 - [x] Preserve generated v1 locks, CRLF, optional root paths, the explicit offline
   bundle SHA exception and newer same-major project compatibility.
+- [x] Share field/row tokenization with strict validation, preserve writer escapes
+  through repeated rewrites, and parse each lock once per validation.
+- [x] Refuse legacy mirrors without recorded SHAs before conversion writes;
+  preserve offline conversion of valid stamped mirrors.
+- [x] Document whole-file recovery from trusted state and explicit CLI rebuilding
+  when no valid copy exists; never fabricate missing commit identities.
 
 Remaining step 1 work: installed-content rehashing, full manifest-intent validation,
 transactions across package store/manifest/lock/render state, and bounded

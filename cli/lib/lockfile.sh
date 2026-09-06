@@ -10,36 +10,54 @@
 LOCKFILE_VERSION=1
 LOCK_SEP=$'\x1f'
 
-# lock_validate <lock> [--restore] — read-only metadata preflight. A subshell
+# lock_validate <lock> [--metadata|--restore] [manifest] — read-only preflight. A subshell
 # contains the fail-fast input guards so status can report a failed verdict too.
 lock_validate() (
-    local lock="$1" mode="${2:-}" version engine name _requested url path resolved sha rows
-    qmap_validate_document "$lock" packages || return $?
-    version="$(top_scalar "$lock" lockfile_version)"
-    [ "$version" = "$LOCKFILE_VERSION" ] \
-        || die "$lock has unsupported or missing lockfile_version '${version:-<missing>}' — expected $LOCKFILE_VERSION"
-    engine="$(top_scalar "$lock" engine_version)"
-    [[ "$engine" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
-        || die "$lock has missing or invalid engine_version"
-    # Do not hide a failed reader behind process substitution.
-    rows="$(lock_to_tsv "$lock")" || return $?
-    while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
-        [ -n "$name" ] || continue
+    local lock="$1" mode="${2---metadata}" manifest="${3:-}" count=0
+    local kind name requested url path resolved sha line rows current
+    local -x CLI_INPUT_CONTEXT=""
+    [ "$#" -le 3 ] || die "internal: too many lock validation arguments"
+    case "$mode" in
+        --metadata|--restore) ;;
+        *) die "internal: unknown lock validation mode '$mode'" ;;
+    esac
+    # The same tokenizer supplies ordinary lock rows and strict metadata. Buffer
+    # before consumption: a failed parser must never yield a partial package set.
+    rows="$(_qmap_read lock "$lock" packages '' '' "$LOCKFILE_VERSION")" || return $?
+    current="$(bundled_engine_version)"
+    while IFS="$LOCK_SEP" read -r kind name requested url path resolved sha line; do
+        case "$kind" in
+            V)
+                [[ "$requested" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+                    || die "$lock has missing or invalid engine_version"
+                continue
+                ;;
+            R) ;;
+            *) die "internal: unexpected lock record '$kind'" ;;
+        esac
+        count=$((count + 1))
+        CLI_INPUT_CONTEXT="$lock:$line: package $name, field name: "
         assert_valid_pkg_name "$name"
+        CLI_INPUT_CONTEXT="$lock:$line: package $name, field url: "
         assert_safe_source_url "$url"
+        CLI_INPUT_CONTEXT="$lock:$line: package $name, field resolved: "
         [ -n "$resolved" ] || die "locked restore: $name has a missing resolved ref"
         assert_safe_ref "$resolved"
+        CLI_INPUT_CONTEXT="$lock:$line: package $name, field path: "
         assert_safe_package_path "$path"
+        CLI_INPUT_CONTEXT="$lock:$line: package $name, field sha: "
         if [ -z "$sha" ]; then
-            if is_bundle_source "$url" "$resolved" "$path"; then
+            if [ "$url" = "$SYNC_PKG_URL" ] && [ "$path" = "$SYNC_PKG_PATH" ] \
+                && [ "$resolved" = "v$current" ]; then
                 continue
             fi
             # engine_version records the writer CLI, which can differ from the
             # preserved bundle pin after a same-major older CLI adds a package.
             # Versioned bundle metadata admits alignment/installed content only;
             # it must never authorize an unpinned cross-version acquisition.
-            if [ "$mode" != "--restore" ] && [ "$url" = "$SYNC_PKG_URL" ] \
-                && [ "$path" = "$SYNC_PKG_PATH" ] && [[ "$resolved" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            if [ "$mode" = "--metadata" ] && [ "$url" = "$SYNC_PKG_URL" ] \
+                && [ "$path" = "$SYNC_PKG_PATH" ] && [[ "$resolved" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+                && [ "${resolved%%.*}" = "v${current%%.*}" ]; then
                 echo "WARNING: $name at $resolved has no locked commit SHA; commit verification is unavailable for this development-bundle metadata" >&2
                 continue
             fi
@@ -47,40 +65,19 @@ lock_validate() (
         [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
             || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
     done <<< "$rows"
+    if [ "$count" -eq 0 ] && [ -n "$manifest" ] && [ -n "$(qmap_keys "$manifest" packages)" ]; then
+        die "$lock: packages is empty but the manifest declares packages — restore their recorded identities"
+    fi
 )
 
-# top_scalar <file> <key> — one top-level scalar (`key: "value"`), quotes and
-# trailing comment stripped. The declared exception to "no new parsing": the
-# engine's read_schema_version is hardwired to its own key.
+# top_scalar <file> <key> — one top-level scalar through the shared tokenizer.
 top_scalar() {
-    [ -f "$1" ] || return 0
-    awk -v key="$2" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" key ":" {
-            v = substr($0, length(key) + 2)
-            sub(/^[ \t]+/, "", v)
-            if (v ~ /^"/) { v = substr(v, 2); q = index(v, "\""); if (q > 0) v = substr(v, 1, q - 1) }
-            else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
-            print v
-            exit
-        }
-    ' "$1"
+    _qmap_read top "$1" '' "$2"
 }
 
 # lock_to_tsv <lock> — every locked package as one row.
 lock_to_tsv() {
-    local lock="$1" name
-    [ -f "$lock" ] || return 0
-    while IFS= read -r name; do
-        [ -n "$name" ] || continue
-        printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
-            "$name" \
-            "$(qmap_field "$lock" "packages" "$name" "requested")" \
-            "$(qmap_field "$lock" "packages" "$name" "url")" \
-            "$(qmap_field "$lock" "packages" "$name" "path")" \
-            "$(qmap_field "$lock" "packages" "$name" "resolved")" \
-            "$(qmap_field "$lock" "packages" "$name" "sha")"
-    done < <(qmap_keys "$lock" "packages")
+    _qmap_read rows "$1" packages
 }
 
 # lock_write_from_tsv <lock> <tsv-file> — rebuild the lock. Entries are
@@ -97,7 +94,15 @@ lock_write_from_tsv() {
         # them (registry-supplied url/path included) must be escaped, or it
         # would break or alias the neighbouring field.
         awk -F"$LOCK_SEP" '
-            function esc(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); return s }
+            function esc(s,    i, c, out) {
+                out = ""
+                for (i = 1; i <= length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (c == "\\" || c == "\"") out = out "\\"
+                    out = out c
+                }
+                return out
+            }
             NF >= 6 {
                 print "  \"" esc($1) "\":"
                 if ($2 != "") print "    requested: \"" esc($2) "\""

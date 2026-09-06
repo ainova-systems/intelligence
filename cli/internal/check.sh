@@ -31,10 +31,11 @@ esac
 echo "project: $IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
-if ! validate_project_lock "$IP_ROOT"; then
-    warn "invalid intelligence.lock — restore a valid committed lock before continuing"
-    echo "$problems problem(s)."
-    exit 1
+lock_valid=1
+if ! check_project_lock "$IP_ROOT"; then
+    problems=$((problems + 1))
+    lock_valid=0
+    note "locked package identities cannot be inspected; continuing independent project checks"
 fi
 
 stamp="$(read_schema_version "$manifest")"
@@ -55,7 +56,10 @@ fi
 
 # The engine-content package must sit at the bundled engine version — the
 # content documents exactly the scripts the CLI executes.
-sync_locked="$(qmap_field "$lock" "packages" "$SYNC_PKG_NAME" "resolved")"
+sync_locked=""
+if [ "$lock_valid" -eq 1 ]; then
+    sync_locked="$(qmap_field "$lock" "packages" "$SYNC_PKG_NAME" "resolved")"
+fi
 if [ -n "$sync_locked" ]; then
     if [ "${sync_locked#v}" = "$eng" ]; then
         ok "$SYNC_PKG_NAME at $sync_locked (matches the engine)"
@@ -75,6 +79,10 @@ fi
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     assert_valid_pkg_name "$name"
+    if [ "$lock_valid" -eq 0 ]; then
+        note "$name: locked state unchecked"
+        continue
+    fi
     if [ -z "$(qmap_field "$lock" "packages" "$name" "url")" ]; then
         warn "$name is in the manifest but not in intelligence.lock — run 'intelligence init'"
     else
@@ -148,7 +156,7 @@ while IFS= read -r target; do
 done < <(target_names "$manifest")
 
 # Lock orphans.
-if [ -f "$lock" ]; then
+if [ "$lock_valid" -eq 1 ] && [ -f "$lock" ]; then
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         found=0
@@ -170,7 +178,13 @@ for section in rules agents skills; do
         if [ ! -d "$IP_ROOT/$src" ]; then
             case "$src" in
                 # Store content is restorable state: absent means un-installed.
-                .intelligence/*) warn "sources.$section '$src' missing — run 'intelligence sync'" ;;
+                .intelligence/*)
+                    if [ "$lock_valid" -eq 1 ]; then
+                        warn "sources.$section '$src' missing — run 'intelligence sync'"
+                    else
+                        warn "sources.$section '$src' missing — resolve the lock problem first"
+                    fi
+                    ;;
                 # A project-owned dir that does not exist yet is a legitimate
                 # state — a project consuming only packages authors nothing of
                 # its own — and the engine simply skips it. Declared up front so

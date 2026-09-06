@@ -6,6 +6,8 @@ source "$CLI_DIR/lib/cli-common.sh"
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
+lock_valid=1
+if ! check_project_lock "$IP_ROOT"; then lock_valid=0; fi
 
 count=0
 while IFS= read -r name; do
@@ -13,9 +15,14 @@ while IFS= read -r name; do
     count=$((count + 1))
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
     ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
-    resolved="$(qmap_field "$lock" "packages" "$name" "resolved")"
-    sha="$(qmap_field "$lock" "packages" "$name" "sha")"
-    if [ ! -f "$lock" ]; then
+    resolved="" sha=""
+    if [ "$lock_valid" -eq 1 ]; then
+        resolved="$(qmap_field "$lock" "packages" "$name" "resolved")"
+        sha="$(qmap_field "$lock" "packages" "$name" "sha")"
+    fi
+    if [ "$lock_valid" -eq 0 ]; then
+        state="invalid lock — locked state unchecked"
+    elif [ ! -f "$lock" ]; then
         state="lock missing — restore committed intelligence.lock"
     elif [ -d "$IP_ROOT/.intelligence/packages/$name" ]; then
         state="installed"
@@ -30,5 +37,8 @@ while IFS= read -r name; do
 done < <(qmap_keys "$manifest" "packages")
 
 if [ "$count" -eq 0 ]; then
-    echo "No packages. Add one: intelligence package add @ainova-systems/core"
+    if [ "$lock_valid" -eq 1 ]; then
+        echo "No packages. Add one: intelligence package add @ainova-systems/core"
+    fi
 fi
+[ "$lock_valid" -eq 1 ] || exit 1

@@ -9,8 +9,49 @@ OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 CLI="$REPO/cli/intelligence"
 fail=0
+RC=0
+OUTPUT=""
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
+
+run_in() {
+    local dir="$1"
+    shift
+    RC=0
+    OUTPUT="$( (cd "$dir" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" "$@") 2>&1 )" || RC=$?
+}
+
+snapshot_legacy() {
+    local dir="$1" label="$2"
+    rm -rf "${OUT:?}/$label.tree"
+    mkdir -p "$OUT/$label.tree"
+    cp -R "$dir/." "$OUT/$label.tree/"
+    # Git's administrative data is fixture machinery, not project state.
+    rm -rf "${OUT:?}/$label.tree/.git"
+}
+
+assert_legacy_unchanged() {
+    local dir="$1" label="$2"
+    if ! diff -ruN -x .git "$OUT/$label.tree" "$dir" > "$OUT/$label.diff"; then
+        echo "FAIL: legacy project changed after refused conversion ($label)"
+        sed -n '1,80p' "$OUT/$label.diff"
+        fail=1
+    fi
+}
+
+legacy_xfail() {
+    local reason="$1" dir="$2"
+    run_in "$dir" init --apply --force
+    if [ "$RC" -eq 0 ]; then
+        echo "FAIL: expected legacy conversion refusal ($reason)"
+        fail=1
+    fi
+    if ! printf '%s\n' "$OUTPUT" | grep -qF -- "$reason"; then
+        echo "FAIL: legacy refusal lacks '$reason'"
+        printf '%s\n' "$OUTPUT" | tail -12
+        fail=1
+    fi
+}
 
 # stage_vendored <umbrella-dir> - build a legacy Intelligence Sync fixture.
 # engine (it is archived) and migrate no longer runs one, so the module is a
@@ -280,6 +321,61 @@ printf 'url=file://%s\nref=v1.1.0\nsha=%s\n' "$PACK" "$(git -C "$PACK" rev-parse
 chk test -f "$LEG/intelligence/external/shared-intel/.pack"
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A
 git -C "$LEG" -c user.email=t@t -c user.name=t commit --quiet -m base
+
+echo "== mirrored legacy pack requires a recorded commit SHA =="
+for stamp_case in missing-stamp no-sha unknown-sha malformed-sha; do
+    BAD_LEG="$OUT/legacy-$stamp_case"
+    mkdir -p "$BAD_LEG"
+    cp -R "$LEG/." "$BAD_LEG/"
+    stamp="$BAD_LEG/intelligence/external/shared-intel/.pack"
+    case "$stamp_case" in
+        missing-stamp)
+            rm "$stamp"
+            reason="has no .pack ownership stamp"
+            ;;
+        no-sha)
+            printf 'url=file://%s\nref=v1.1.0\n' "$PACK" > "$stamp"
+            reason="missing or invalid recorded commit SHA"
+            ;;
+        unknown-sha)
+            printf 'url=file://%s\nref=v1.1.0\nsha=unknown\n' "$PACK" > "$stamp"
+            reason="missing or invalid recorded commit SHA"
+            ;;
+        malformed-sha)
+            printf 'url=file://%s\nref=v1.1.0\nsha=not-a-git-id\n' "$PACK" > "$stamp"
+            reason="missing or invalid recorded commit SHA"
+            ;;
+    esac
+    snapshot_legacy "$BAD_LEG" "$stamp_case"
+    legacy_xfail "$reason" "$BAD_LEG"
+    if [ "$stamp_case" != missing-stamp ] \
+        && ! printf '%s\n' "$OUTPUT" | grep -qF 'legacy project unchanged'; then
+        echo "FAIL: malformed legacy stamp lacks unchanged-project guidance"
+        printf '%s\n' "$OUTPUT" | tail -12
+        fail=1
+    fi
+    assert_legacy_unchanged "$BAD_LEG" "$stamp_case"
+done
+
+echo "== valid stamped mirror converts with its source offline =="
+OFFLINE_LEG="$OUT/legacy-offline-stamped"
+mkdir -p "$OFFLINE_LEG"
+cp -R "$LEG/." "$OFFLINE_LEG/"
+OFFLINE_URL="file://$OUT/source-is-intentionally-unavailable"
+awk -v url="$OFFLINE_URL" '/^[[:space:]]+url:/ { print "    url: " url; next } { print }' \
+    "$OFFLINE_LEG/intelligence/config.yaml" > "$OFFLINE_LEG/intelligence/config.yaml.tmp"
+mv "$OFFLINE_LEG/intelligence/config.yaml.tmp" "$OFFLINE_LEG/intelligence/config.yaml"
+printf 'url=%s\r\nref=v1.1.0\r\nsha=%s\r\n' "$OFFLINE_URL" "$(git -C "$PACK" rev-parse HEAD)" \
+    > "$OFFLINE_LEG/intelligence/external/shared-intel/.pack"
+run_in "$OFFLINE_LEG" init --apply --force
+if [ "$RC" -ne 0 ]; then
+    echo "FAIL: valid stamped mirror required its unavailable source"
+    printf '%s\n' "$OUTPUT" | tail -12
+    fail=1
+fi
+chk grep -q "url: \"$OFFLINE_URL\"" "$OFFLINE_LEG/intelligence.lock"
+chk grep -q "sha: \"$(git -C "$PACK" rev-parse HEAD)\"" "$OFFLINE_LEG/intelligence.lock"
+chk grep -q 'LEGACY_PACK_MARKER' "$OFFLINE_LEG/AGENTS.md"
 
 echo "== init --preview (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --preview > "$OUT/dry.txt")

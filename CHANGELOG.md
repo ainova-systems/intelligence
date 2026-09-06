@@ -8,7 +8,9 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
-- Rejected malformed lock structure and invalid source identities before lifecycle writes or previews, including installed stores, and reported invalid locks through `status --check`.
+- Rejected malformed lock structure and invalid source identities before lifecycle writes or previews, including installed stores; status and package reports now mark invalid locked content as unchecked while independent diagnostics remain available.
+- Unified lock validation and reads, preserved escaped values through repeated rewrites, and removed per-field parsing processes from validation.
+- Refused legacy mirrors without valid recorded SHAs before conversion writes while preserving offline conversion of valid stamped mirrors; documented recovery for damaged locks.
 
 ## [0.11.8]
 

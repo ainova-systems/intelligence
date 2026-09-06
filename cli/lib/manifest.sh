@@ -87,7 +87,8 @@ target_set_enabled() {
     case "$enabled" in true|false) ;; *) die "internal: invalid target state '$enabled'" ;; esac
     target_exists "$file" "$target" && target_missing=0
     output="$(_yq_esc "$output")"
-    _qmap_stage "$file" -v target="$target" -v enabled="$enabled" -v output="$output" -v target_missing="$target_missing" '
+    QMAP_EDIT_VALUE="$output" _qmap_stage "$file" -v target="$target" -v enabled="$enabled" -v target_missing="$target_missing" '
+        BEGIN { output = ENVIRON["QMAP_EDIT_VALUE"] }
         function entry() { return "  " target ": { enabled: " enabled ", output: \"" output "\" }" }
         function insert_missing_target() {
             if (in_targets && target_missing && !target_seen) { print entry(); target_seen = 1 }
@@ -154,129 +155,33 @@ target_set_enabled() {
     '
 }
 
-# qmap_validate_document <file> <block> — validate a generated scalar document
-# containing one quoted-key map of scalar fields (the lockfile shape). This
-# checks structure before the readers below can silently skip a malformed row;
-# field meanings belong to the caller. It deliberately accepts additive scalar
-# metadata, not arbitrary YAML containers, aliases or multiline values.
-qmap_validate_document() {
-    [ -f "$1" ] && [ -r "$1" ] || { echo "cannot read $1" >&2; return 1; }
-    LC_ALL=C awk -v block="$2" -v single_quote="'" '
-        function bad(reason) {
-            print FILENAME ":" NR ": " reason
-            failed = 1
-            exit 1
-        }
-        function scalar(s) {
-            sub(/^[ \t]+/, "", s)
-            if (s ~ /^"/) return s ~ /^"[^"\\]*"([ \t]*|[ \t]+#.*)$/
-            sub(/[ \t]+#.*$/, "", s)
-            sub(/[ \t]+$/, "", s)
-            if (s == "" || substr(s, 1, 1) == single_quote) return 0
-            if (s ~ /^[!&*\[\]{}>|%@`]/ || s ~ /["\\]/ || s ~ /:[ \t]/) return 0
-            if (s ~ /^(null|Null|NULL|~|true|True|TRUE|false|False|FALSE)$/) return 0
-            return 1
-        }
-        { sub(/\r$/, "") }
-        /^[ \t]*(#.*)?$/ { next }
-        /[[:cntrl:]]/ { bad("control characters are not supported in lock data") }
-        /^[A-Za-z_][A-Za-z0-9_]*:/ {
-            c = index($0, ":"); key = substr($0, 1, c - 1)
-            if (top[key]++) bad("duplicate top-level field " key)
-            value = substr($0, c + 1)
-            in_block = (key == block); package = ""
-            if (in_block) {
-                if (value !~ /^[ ]*$/) bad(block " must be a block map")
-            } else if (!scalar(value)) bad("expected scalar for " key)
-            next
-        }
-        in_block && /^  "[^"\\]+":([ ]*|[ ]+#.*)$/ {
-            package = substr($0, 4); sub(/".*/, "", package)
-            if (packages[package]++) bad("duplicate package " package)
-            next
-        }
-        in_block && package != "" && /^    [A-Za-z_][A-Za-z0-9_]*:/ {
-            line = substr($0, 5); c = index(line, ":")
-            key = substr(line, 1, c - 1)
-            if (fields[package SUBSEP key]++) bad("duplicate field " package "." key)
-            if (!scalar(substr(line, c + 1))) bad("expected scalar for " package "." key)
-            next
-        }
-        { bad("malformed lock structure: expected top-level scalar or quoted package field") }
-        END {
-            if (!failed && !top[block]) {
-                print FILENAME ": missing " block " block"
-                exit 1
-            }
-        }
-    ' "$1" >&2
+# _qmap_read <mode> <file> <block> [key] [field] [expected-lock-version]
+# All scalar reads and strict lock records share one tokenizer. Environment
+# transport preserves literal backslashes that awk -v would interpret again.
+_qmap_read() {
+    local mode="$1" file="$2"
+    if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+        case "$mode" in
+            lock|validate) echo "cannot read $file" >&2; return 1 ;;
+            *) return 0 ;;
+        esac
+    fi
+    QMAP_MODE="$mode" QMAP_FILE="$file" QMAP_BLOCK="${3:-}" \
+        QMAP_KEY="${4:-}" QMAP_FIELD="${5:-}" QMAP_EXPECTED_VERSION="${6:-}" \
+        LC_ALL=C awk -f "${BASH_SOURCE[0]%/*}/qmap.awk" < "$file"
 }
 
-# qmap_keys <file> <block> — quoted keys, one per line.
-qmap_keys() {
-    [ -f "$1" ] || return 0
-    awk -v block="$2" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" block ":[ \t]*$" { inb = 1; next }
-        inb && /^[^ #]/ { inb = 0 }
-        inb {
-            if ($0 ~ /^  "/) {
-                s = substr($0, 4)
-                q = index(s, "\"")
-                if (q > 0) print substr(s, 1, q - 1)
-            }
-        }
-    ' "$1"
-}
+# qmap_validate_document <file> <block> — structural validation only.
+qmap_validate_document() { _qmap_read validate "$1" "$2"; }
 
-# qmap_field <file> <block> <key> <field> — 4-indent field value under a
-# quoted key; strips surrounding quotes and a trailing unquoted comment.
-qmap_field() {
-    [ -f "$1" ] || return 0
-    awk -v block="$2" -v key="$3" -v field="$4" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" block ":[ \t]*$" { inb = 1; next }
-        inb && /^[^ #]/ { inb = 0; ink = 0 }
-        inb && /^  "/ {
-            s = substr($0, 4); q = index(s, "\"")
-            ink = (q > 0 && substr(s, 1, q - 1) == key)
-            next
-        }
-        inb && ink && /^    [A-Za-z_]/ {
-            line = $0
-            sub(/^    /, "", line)
-            c = index(line, ":")
-            if (c == 0) next
-            if (substr(line, 1, c - 1) != field) next
-            v = substr(line, c + 1)
-            sub(/^[ \t]+/, "", v)
-            if (v ~ /^"/) { v = substr(v, 2); q2 = index(v, "\""); if (q2 > 0) v = substr(v, 1, q2 - 1) }
-            else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
-            print v
-            exit
-        }
-    ' "$1"
-}
+# qmap_keys <file> <block> — quoted keys in document order.
+qmap_keys() { _qmap_read keys "$1" "$2"; }
 
-# qmap_value <file> <block> <key> — flat form: `  "key": "value"`.
-qmap_value() {
-    [ -f "$1" ] || return 0
-    awk -v block="$2" -v key="$3" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" block ":[ \t]*$" { inb = 1; next }
-        inb && /^[^ #]/ { inb = 0 }
-        inb && /^  "/ {
-            s = substr($0, 4); q = index(s, "\"")
-            if (q == 0 || substr(s, 1, q - 1) != key) next
-            v = substr(s, q + 1)
-            sub(/^:[ \t]*/, "", v)
-            if (v ~ /^"/) { v = substr(v, 2); q2 = index(v, "\""); if (q2 > 0) v = substr(v, 1, q2 - 1) }
-            else { sub(/[ \t]+#.*$/, "", v); sub(/[ \t]+$/, "", v) }
-            if (v != "") print v
-            exit
-        }
-    ' "$1"
-}
+# qmap_field <file> <block> <key> <field> — decoded nested scalar.
+qmap_field() { _qmap_read field "$1" "$2" "$3" "$4"; }
+
+# qmap_value <file> <block> <key> — decoded flat scalar.
+qmap_value() { _qmap_read value "$1" "$2" "$3"; }
 
 # _qmap_stage <file> <awk-program> [awk args…] — run an editing pass, verify
 # it produced output, commit.
@@ -303,7 +208,8 @@ qmap_set() {
     # url/path values can carry a `"`; escape before it reaches the quoted
     # scalar the writer emits.
     value="$(_yq_esc "$value")"
-    _qmap_stage "$file" -v block="$block" -v key="$key" -v field="$field" -v value="$value" '
+    QMAP_EDIT_VALUE="$value" _qmap_stage "$file" -v block="$block" -v key="$key" -v field="$field" '
+        BEGIN { value = ENVIRON["QMAP_EDIT_VALUE"] }
         function keyline()   { return "  \"" key "\":" }
         function fieldline() { return "    " field ": \"" value "\"" }
         function flush_key() {
@@ -350,7 +256,8 @@ qmap_set_value() {
     local file="$1" block="$2" key="$3" value="$4"
     [ -f "$file" ] || die "no such file: $file"
     value="$(_yq_esc "$value")"
-    _qmap_stage "$file" -v block="$block" -v key="$key" -v value="$value" '
+    QMAP_EDIT_VALUE="$value" _qmap_stage "$file" -v block="$block" -v key="$key" '
+        BEGIN { value = ENVIRON["QMAP_EDIT_VALUE"] }
         function entry() { return "  \"" key "\": \"" value "\"" }
         { sub(/\r$/, "") }
         $0 ~ "^" block ":[ \t]*$" { blockseen = 1; inb = 1; print; next }
