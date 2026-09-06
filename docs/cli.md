@@ -56,6 +56,12 @@ verified output.
 
 Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
 
+Each mirrored package must retain its `.pack` ownership stamp with a valid recorded
+commit SHA. A valid stamped mirror converts offline; an absent or invalid SHA
+refuses conversion before changing the legacy project. Restore the trusted stamp
+from history or refresh the mirror using its archived engine before retrying.
+Resolving today's remote ref cannot prove which commit produced an older mirror.
+
 After a new setup or conversion completes, the CLI first recommends
 `intelligence package add @ainova-systems/core`, then suggests
 `/intelligence-learn-from-repository`. It repairs or verifies mechanical setup,
@@ -84,7 +90,7 @@ intelligence sync [adapter] [--compact]
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
-1. Align tracked project schema/content with the installed CLI when safe.
+1. Validate any existing lock, then align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
 3. Validate each selected adapter's versioned ownership contract and required
    targets before writing.
@@ -106,10 +112,25 @@ requested ref and the lock unchanged. An unavailable commit fails without substi
 the current ref or HEAD. Missing or malformed required commit SHAs are refused before
 restoration writes; use `intelligence update` to deliberately advance a ref.
 
+Lock validation runs before lifecycle alignment and mutations, even when the
+package store is already installed. `init --preview`, `update --preview`,
+`status` and `package list` use the same metadata checks. Read-only reports use
+restore requirements when package content is missing, so an unpinned bundle is
+not reported as restorable. An invalid lock fails with its location or affected
+field; see [Recovering a lock](#recovering-a-lock) before continuing.
+Validation does not silently repair, discard or reinterpret malformed entries.
+
 Matching bundled sync content remains available offline. A release bundle with a
 known SHA must match the locked SHA; otherwise restoration fetches the locked commit
 from its recorded source. Development bundles or bundle-seeded locks without a SHA
 retain the offline path with an explicit warning that commit verification is unavailable.
+Metadata validation also recognizes version-tagged development bundles at the
+built-in URL/path within the CLI's major version, so older projects can align and an installed newer same-major
+bundle remains usable. It reports that commit verification is unavailable for
+these cross-version empty-SHA entries. `engine_version` records the lock writer
+and can differ from a preserved bundle pin. A missing cross-version bundle still
+needs a valid SHA: the metadata exception never authorizes fetching an unpinned ref.
+Repeated validation prints each development-bundle metadata warning once per command.
 This verifies acquisition identity, not every byte of an already installed store:
 ordinary sync and `status --check` do not rehash installed packages.
 
@@ -207,6 +228,11 @@ intelligence status [--check]
 
 Without a flag, report detected project mode, manifest/schema, lockfile, engine-content package and bundled engine. For legacy Intelligence Sync, report the vendored location and point to `intelligence init`.
 
+An invalid lock makes `status` and `package list` exit nonzero and mark locked
+content as unchecked. `status --check` continues independent schema, source,
+adapter and ignore-policy checks after reporting the lock error; it skips checks
+that require trusted lock rows.
+
 `--check` performs deep consistency validation and exits nonzero for
 manifest/lock divergence, missing package content, stale schema/content or
 invalid sources. Frozen store restoration verifies the locked commit SHA.
@@ -256,6 +282,65 @@ Stable `x.y.z` Git tags, optionally prefixed with `v`, are package versions. Ran
 ### Lock and restore
 
 Per package, `intelligence.lock` records requested version, source URL/path, resolved tag/ref and commit SHA. For a `ref:` pin the resolved column repeats the ref name, so the SHA is the field that records which commit is installed; `package list` and `status --check` print it as `<ref>@<sha>`. Restoration reads only the lock and checks the resolved commit; it does not consult registries or choose a newer tag. Updates keep using that locked source; a deliberate source change is a new `package add`. This is the reproducibility contract used automatically by `sync` after a fresh clone.
+
+Lock format v1 requires `lockfile_version: 1`, a numeric `X.Y.Z` `engine_version`
+and a `packages:` block, nonempty when the project manifest declares packages.
+Each quoted package key has scalar fields at four-space
+indentation. URL and resolved ref must be nonempty and safe for acquisition; SHA
+must be 40 or 64 lowercase hexadecimal characters, apart from the bundle exception
+above. An omitted or empty path selects the repository root; other paths must be
+safe relative subdirectories. Duplicate top-level keys, packages or fields fail.
+The generated format supports comments, CRLF, simple plain or double-quoted scalars
+and additive scalar metadata. Top-level and package-field keys are unquoted and
+must match `[A-Za-z_][A-Za-z0-9_]*`. Double-quoted values support the writer's
+`\\` and `\"` escapes, decoded once; read/write cycles preserve their literal
+values. Other escapes, containers, aliases and multiline scalar forms are outside
+this reader's format and are refused. Validation and ordinary field/row reads use
+one shared tokenizer. A future lock format reports its unsupported version before
+body-shape errors, so the reader can be upgraded. These are metadata checks;
+they do not establish physical path containment or verify installed package bytes.
+
+### Recovering a lock
+
+Run `intelligence status --check` to see the damaged location and the remaining
+project checks. If the format version is newer than the CLI supports, update the
+CLI first. For damaged data, save the current project state before recovery.
+
+If a trusted commit, teammate checkout or backup contains a valid lock matching
+the manifest, restore that whole file. For Git history, `git restore --source=<trusted-commit> --
+intelligence.lock` restores a chosen version; the latest committed copy is not
+necessarily valid.
+
+Whenever replacing a lock, move any existing `.intelligence/packages` directory
+to a saved location outside the project before running `intelligence sync`.
+Keep the remaining `.intelligence` state in place. Sync then restores the package
+bytes from the replacement lock; keeping an old store could otherwise leave old
+content under new recorded identities, because installed bytes are not rehashed.
+Run `intelligence status --check` after sync and inspect the generated changes.
+
+If no valid copy exists, the old commit identities cannot be reconstructed from
+package names or version ranges. Rebuild a replacement deliberately through the
+CLI in a separate temporary directory outside any Intelligence project:
+
+1. Run `intelligence init --bare --no-sync` there.
+2. Add the trusted registries with `intelligence registry add <url>`, then run
+   `intelligence package add <spec> --no-sync` for every package in the original
+   manifest, including its sync package. For explicit Git sources, supply the
+   confirmed URL/ref/path and `--name @scope/name`. Preserve each manifest request;
+   inspect which commits the CLI selected, since a moved ref or range can now
+   select different content.
+3. Review the complete generated lock and confirm its package set and requested
+   values match the original manifest. Copy that whole lock into the original
+   project, retaining the saved previous file. Move its old package store aside as
+   described above, run `intelligence sync` and `intelligence status --check`, then
+   review and commit the resulting state.
+
+This rebuild selects a new recorded state; it does not recover unknowable old
+SHAs. If the old identities are required, obtain them from a trusted source before
+proceeding. There is no automatic repair or validation-bypass flag. Do not repair
+individual generated rows by hand. Replacing the file is reversible by restoring
+the saved project state, including the matching lock/store pair and generated
+outputs; the saved lock may still require recovery before the CLI can use it.
 
 ## Manifest ownership
 

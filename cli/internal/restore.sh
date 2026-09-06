@@ -21,6 +21,7 @@ done
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
+validate_project_lock "$IP_ROOT" --restore
 
 # --frozen is the reproducibility contract: the lock must agree with the
 # manifest on the package SET and on every requested-intent field before a
@@ -49,20 +50,6 @@ if [ "$frozen" -eq 1 ]; then
         [ "$found" -eq 1 ] || die "--frozen: $name is locked but absent from the manifest"
     done < <(qmap_keys "$lock" "packages")
 fi
-
-# Check every required commit identity before restoring any package. Only the
-# matching bundled content may carry the historical empty development-build SHA.
-while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
-    [ -n "$name" ] || continue
-    assert_valid_pkg_name "$name"
-    assert_safe_source_url "$url"
-    assert_safe_ref "$resolved"
-    if [ -z "$sha" ] && is_bundle_source "$url" "$resolved" "$path"; then
-        continue
-    fi
-    [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
-        || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
-done < <(lock_to_tsv "$lock")
 
 # Manifest packages missing from the lock: resolve them now (npm install
 # semantics). Under --frozen the drift gate above has already refused.

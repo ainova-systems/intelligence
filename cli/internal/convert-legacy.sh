@@ -183,7 +183,9 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
         mkdir -p "$dest"
         cp -R "$root/$mirror/." "$dest/"
         if [ -f "$dest/.pack" ]; then
-            sha="$(awk -F= '$1 == "sha" {print $2; exit}' "$dest/.pack")"
+            sha="$(awk -F= '{ sub(/\r$/, "") } $1 == "sha" {print $2; exit}' "$dest/.pack")"
+            [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
+                || die "pack '$pack' mirror '$mirror' has a missing or invalid recorded commit SHA in .pack — legacy project unchanged; restore its trusted ownership stamp from history or refresh the mirror with its archived engine, then rerun 'intelligence init'"
             rm -f "$dest/.pack"
         fi
         echo "  pack '$pack' -> $name (from mirror $mirror)"
@@ -191,9 +193,8 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
         sha="$(fetch_package "$url" "$ref" "" "$dest")"
         echo "  pack '$pack' -> $name (fetched)"
     fi
-    if [ -z "$sha" ] || [ "$sha" = "unknown" ]; then
-        sha="$(GIT_TERMINAL_PROMPT=0 git ls-remote -- "$url" "$ref" 2>/dev/null | awk '{print $1; exit}')"
-    fi
+    # A ref currently advertised by the remote cannot prove which commit
+    # produced an existing mirror. Only its recorded identity can do that.
     [ -n "$ref" ] || ref="HEAD"
     printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
         "$name" "" "$url" "" "$ref" "$sha" >> "$lock_rows"

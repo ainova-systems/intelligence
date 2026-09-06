@@ -122,6 +122,7 @@ fetch_package() {
     local url="$1" ref="$2" subpath="$3" dest="$4" locked_sha="${5:-}" bundle_sha=""
     assert_safe_source_url "$url"
     assert_safe_ref "$ref"
+    assert_safe_package_path "$subpath"
     # Bundle seed: the engine-content package at the CLI's own version copies
     # from the npm bundle — no network, which keeps init, sync restoration and
     # archived-project conversion offline. Keyed on the
@@ -186,9 +187,6 @@ fetch_package() {
     fi
     src="$tmp/clone"
     if [ -n "$subpath" ]; then
-        case "$subpath" in
-            *..*|/*|*[\"\']*) rm -rf "$tmp"; die "unsafe path '$subpath'" ;;
-        esac
         src="$tmp/clone/$subpath"
         [ -d "$src" ] || { rm -rf "$tmp"; die "path '$subpath' not found in $url${ref:+@$ref}" ; }
     fi

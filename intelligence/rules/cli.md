@@ -34,7 +34,9 @@ candidate.
 The engine reads ordinary local paths from `sources:` and nothing else. Registry
 resolution, Git tags, semver ranges, store installation and `intelligence.lock` are
 the CLI's. The quoted-key `packages:` and `registries:` blocks are CLI-owned: parse
-and edit them in `cli/lib/manifest.sh`, and reuse the engine readers for shapes both
+and edit them through `cli/lib/manifest.sh`. Its shared `qmap.awk` tokenizer supplies
+field reads, row streams and strict lock validation; decode the writer's escaped
+backslashes and quotes exactly once. Reuse the engine readers for shapes both
 sides share rather than growing a parallel YAML parser.
 
 Registries are an ordered trust list and the only resolver for a package name. There
@@ -63,11 +65,22 @@ the project.
 
 Legacy conversion stays transactional: stage, verify target and source equivalence,
 run a real staged sync, then commit and remove the vendored engine.
+Mirrored package identities come from valid recorded `.pack` SHAs, never today's
+remote ref; invalid ownership metadata refuses before touching the legacy project.
 
 A mutating project-aware command brings an older manifest and exact sync-content pin
 up to the bundled engine before doing its own work. CI refuses that tracked mutation
 and directs the user to run `intelligence init --apply` locally, review the diff and
 commit it.
+
+Validate a present lock before lifecycle alignment or mutation, including when the
+store already exists. Previews, `status` and `package list` use the same metadata validator;
+malformed structure or required identity is a refusal, never an empty package set.
+Read-only diagnosis applies restore requirements when content is missing, and
+`status --check` continues checks that do not depend on a valid lock.
+The development-bundle metadata exception permits alignment and installed
+same-major compatibility; locked restore still requires an exact commit or the
+matching current bundle. Metadata validation does not verify installed bytes.
 
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —

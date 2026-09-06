@@ -14,7 +14,7 @@ source "$IS_ENGINE_DIR/lib/contract.sh"
 source "$IS_ENGINE_DIR/lib/adapter-contract.sh"
 
 die() {
-    echo "ERROR: $*" >&2
+    echo "ERROR: ${CLI_INPUT_CONTEXT:-}$*" >&2
     exit 1
 }
 
@@ -30,7 +30,7 @@ assert_safe_source_url() {
     local url="$1"
     case "$url" in
         ""|-*) die "unsafe source url '$url' — option-shaped or empty" ;;
-        *[\"\'\ ]*) die "unsafe source url '$url' — quotes or spaces" ;;
+        *[\"\'\ ]*|*[[:cntrl:]]*) die "unsafe source url '$url' — quotes or whitespace" ;;
         https://*|http://*|ssh://*|git://*|file://*) ;;
         *@*:*) ;;
         *) die "unsafe source url '$url' — allowed: https, http, ssh, git, file, or user@host:path" ;;
@@ -43,7 +43,17 @@ assert_safe_ref() {
     [ -z "$ref" ] && return 0
     case "$ref" in
         -*) die "unsafe git ref '$ref' — option-shaped" ;;
-        *[\"\'\ \\]*) die "unsafe git ref '$ref'" ;;
+        *[\"\'\ \\]*|*[[:cntrl:]]*) die "unsafe git ref '$ref'" ;;
+    esac
+}
+
+# Lexical package-subdirectory validation shared by acquisition and lock
+# preflight. Physical containment of acquired content is a separate boundary.
+assert_safe_package_path() {
+    # Preserve literal Git paths, but also guard Windows separator semantics.
+    local normalized="${1//\\//}"
+    case "$normalized" in
+        *..*|/*|[A-Za-z]:*|*[\"\']*|*[[:cntrl:]]*) die "unsafe path '$1'" ;;
     esac
 }
 
@@ -160,7 +170,9 @@ default_target_output() {
 }
 
 bundled_engine_version() {
-    tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION"
+    local version
+    version="$(< "$IS_ENGINE_DIR/VERSION")"
+    printf '%s' "${version//[$' \t\r\n']/}"
 }
 
 # --- The sync package's manifest/lock plumbing ---------------------------
@@ -297,6 +309,7 @@ project_has_packages() {
 ensure_project_current() {
     local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
     check_version_compat "$manifest" || return $?
+    validate_project_lock "$root" || return $?
     if project_has_packages "$root" && [ ! -f "$root/intelligence.lock" ]; then
         die "manifest declares packages but intelligence.lock is absent — restore the committed lock before running project lifecycle commands"
     fi
@@ -308,6 +321,39 @@ ensure_project_current() {
     fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
     bash "$CLI_DIR/internal/align-project.sh" --no-sync
+}
+
+# A present lock is validated even when there is no missing store to restore.
+# Keep this before alignment: repairing the sync pin must not rewrite bad input.
+validate_project_lock() {
+    local lock="$1/intelligence.lock" output line rc=0
+    if [ -e "$lock" ] || [ -L "$lock" ]; then
+        output="$(lock_validate "$lock" "${2---metadata}" "$1/intelligence.yaml" 2>&1)" || rc=$?
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            case "$line" in
+                WARNING:*)
+                    case "${IS_LOCK_WARNINGS:-}" in *"$line"*) continue ;; esac
+                    # Suppress only duplicate messages across lifecycle children;
+                    # the lock itself is always parsed and validated again.
+                    export IS_LOCK_WARNINGS="${IS_LOCK_WARNINGS:-}$line"$'\n'
+                    ;;
+            esac
+            echo "$line" >&2
+        done <<< "$output"
+        if [ "$rc" -ne 0 ]; then
+            echo "ERROR: invalid intelligence.lock — recovery: https://github.com/ainova-systems/intelligence/blob/main/docs/cli.md#recovering-a-lock" >&2
+            return 1
+        fi
+    fi
+}
+
+# Read-only diagnosis must distinguish usable installed metadata from metadata
+# which could actually restore a missing store.
+check_project_lock() {
+    local mode=--metadata
+    if project_store_missing "$1"; then mode=--restore; fi
+    validate_project_lock "$1" "$mode"
 }
 
 project_store_missing() {

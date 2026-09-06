@@ -22,6 +22,7 @@ done
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
 check_version_compat "$manifest"
+validate_project_lock "$IP_ROOT"
 eng="$(bundled_engine_version)"
 stamp="$(read_schema_version "$manifest")"
 project_change=0

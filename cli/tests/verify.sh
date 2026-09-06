@@ -21,7 +21,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest unit-release unit-fetch e2e-packages e2e-lifecycle e2e-negative e2e-compat)
+SUITES=(unit-semver unit-manifest unit-release unit-fetch e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat)
 
 failed=0
 skipped=()

@@ -398,6 +398,173 @@ lock_remove "$LOCK" "@acme/two"
 chknot test -f "$LOCK"                          # last removal deletes the file
 chk lock_remove "$OUT/absent.lock" "@x/y"       # missing lock: rc 0
 
+echo "== lock validation: generated shape and complete identity =="
+VALID_LOCK="$OUT/valid.lock"
+SHA40=0123456789012345678901234567890123456789
+SHA64="${SHA40}012345678901234567890123"
+lock_upsert "$VALID_LOCK" "@acme/one" "^1.0.0" "https://h/one.git" "" "v1.2.0" "$SHA40"
+lock_upsert "$VALID_LOCK" "@acme/two" "" "git@host:repo.git" "skills/team" "main" "$SHA64"
+chk lock_validate "$VALID_LOCK"
+chk lock_validate "$VALID_LOCK" --restore
+cp "$VALID_LOCK" "$OUT/valid-before.lock"
+chk lock_validate "$VALID_LOCK"
+chk cmp -s "$VALID_LOCK" "$OUT/valid-before.lock"
+
+echo "== writer escapes decode once through every reader =="
+ESCAPED_LOCK="$OUT/escaped.lock"
+escaped_request='a\b "quoted" # literal'
+escaped_url='https://h/a\b.git'
+escaped_path='sub\dir'
+lock_upsert "$ESCAPED_LOCK" "@acme/escaped" "$escaped_request" "$escaped_url" "$escaped_path" "main" "$SHA40"
+chk lock_validate "$ESCAPED_LOCK"
+chk eq "$(qmap_field "$ESCAPED_LOCK" packages "@acme/escaped" requested)" "$escaped_request"
+chk eq "$(qmap_field "$ESCAPED_LOCK" packages "@acme/escaped" url)" "$escaped_url"
+chk eq "$(qmap_field "$ESCAPED_LOCK" packages "@acme/escaped" path)" "$escaped_path"
+lock_to_tsv "$ESCAPED_LOCK" > "$OUT/escaped.rows"
+IFS="$SEP" read -r _ escape_req escape_url escape_path _ _ < "$OUT/escaped.rows"
+chk eq "$escape_req" "$escaped_request"
+chk eq "$escape_url" "$escaped_url"
+chk eq "$escape_path" "$escaped_path"
+lock_write_from_tsv "$OUT/escaped-roundtrip.lock" "$OUT/escaped.rows"
+chk cmp -s "$ESCAPED_LOCK" "$OUT/escaped-roundtrip.lock"
+for iteration in 1 2 3; do
+    lock_upsert "$ESCAPED_LOCK" "@acme/other$iteration" "^1.0.0" "https://h/other.git" "" "main" "$SHA40"
+    lock_remove "$ESCAPED_LOCK" "@acme/other$iteration"
+    chk cmp -s "$ESCAPED_LOCK" "$OUT/escaped-roundtrip.lock"
+done
+EDITED_MAP="$OUT/escaped-map.yaml"
+printf 'packages:\nregistries:\n' > "$EDITED_MAP"
+qmap_set "$EDITED_MAP" packages "@acme/escaped" requested "$escaped_request"
+qmap_set_value "$EDITED_MAP" registries "@acme" "$escaped_request"
+chk eq "$(qmap_field "$EDITED_MAP" packages "@acme/escaped" requested)" "$escaped_request"
+chk eq "$(qmap_value "$EDITED_MAP" registries "@acme")" "$escaped_request"
+printf 'note: "a\\\\b \\"quoted\\" # literal"\n' > "$OUT/escaped-top.yaml"
+chk eq "$(top_scalar "$OUT/escaped-top.yaml" note)" "$escaped_request"
+
+# Accepted scalar metadata is additive; CRLF and comments do not change identity.
+awk '{ print } /^    url:/ { print "    note: metadata # comment" } END { print "extension: \"informational\"" }' \
+    "$VALID_LOCK" | awk '{ printf "%s\r\n", $0 }' > "$OUT/extended.lock"
+chk lock_validate "$OUT/extended.lock"
+awk '{ gsub(/"/, ""); if ($0 ~ /^  @/) sub(/^  /, "  \""); if ($0 ~ /^  "@/) sub(/:$/, "\":"); print }' \
+    "$VALID_LOCK" > "$OUT/plain.lock"
+chk lock_validate "$OUT/plain.lock"
+awk '/^packages:/ { print "packages:\t# comment"; next } { print }' "$VALID_LOCK" > "$OUT/tab-header.lock"
+chk lock_validate "$OUT/tab-header.lock"
+chk eq "$(qmap_keys "$OUT/tab-header.lock" packages)" "$(qmap_keys "$VALID_LOCK" packages)"
+
+for invalid_mode in '' --restroe --restore=1; do
+    chknot lock_validate "$VALID_LOCK" "$invalid_mode"
+done
+cat > "$OUT/future.lock" <<'EOF'
+packages:
+  - future-container
+lockfile_version: 2
+EOF
+future_output="$(lock_validate "$OUT/future.lock" 2>&1)" && { echo "FAIL: accepted future lock"; fail=1; }
+chk grep -qF "unsupported or missing lockfile_version '2'" <<< "$future_output"
+chknot grep -qF 'malformed lock structure' <<< "$future_output"
+
+# Token errors still identify the affected scalar and never expose partial rows.
+cp "$VALID_LOCK" "$OUT/scalar-context.lock"
+printf '    note: "invalid\\qescape"\n' >> "$OUT/scalar-context.lock"
+if _qmap_read lock "$OUT/scalar-context.lock" packages '' '' "$LOCKFILE_VERSION" \
+    > "$OUT/scalar-context.rows" 2> "$OUT/scalar-context.error"; then
+    echo "FAIL: accepted invalid escape"; fail=1
+fi
+chknot test -s "$OUT/scalar-context.rows"
+chk grep -qF "$OUT/scalar-context.lock:" "$OUT/scalar-context.error"
+chk grep -qF 'package @acme/two, field note:' "$OUT/scalar-context.error"
+cp "$VALID_LOCK" "$OUT/top-context.lock"
+printf 'note: "invalid\\qescape"\n' >> "$OUT/top-context.lock"
+top_error="$(lock_validate "$OUT/top-context.lock" 2>&1)" && { echo "FAIL: accepted invalid top escape"; fail=1; }
+chk grep -qF 'field note:' <<< "$top_error"
+
+# Empty is meaningful for a standalone generated lock, but cannot stand in for
+# the identities of packages already requested by a project.
+: > "$OUT/empty.rows"
+lock_write_from_tsv "$OUT/empty.lock" "$OUT/empty.rows"
+chk lock_validate "$OUT/empty.lock"
+chknot lock_validate "$OUT/empty.lock" --metadata "$M1"
+
+# Each malformed document must be refused, including entries the forgiving
+# field readers would otherwise skip or interpret using only the first value.
+for defect in version missing-version engine missing-engine no-packages inline-map \
+    unquoted-name empty-name duplicate-name duplicate-field duplicate-top \
+    missing-url missing-ref bad-sha missing-sha absolute-path parent-path drive-path \
+    backslash-path option-ref option-url missing-quote trailing-scalar list-scalar \
+    block-scalar null-scalar orphan-field bad-indent control; do
+    awk -v defect="$defect" '
+        defect == "version" && /^lockfile_version:/ { print "lockfile_version: 2"; next }
+        defect == "missing-version" && /^lockfile_version:/ { next }
+        defect == "engine" && /^engine_version:/ { print "engine_version: \"banana\""; next }
+        defect == "missing-engine" && /^engine_version:/ { next }
+        defect == "no-packages" && /^packages:/ { next }
+        defect == "inline-map" && /^packages:/ { print "packages: {}"; next }
+        defect == "unquoted-name" && /^  "@acme\/one"/ { print "  @acme/one:"; next }
+        defect == "empty-name" && /^  "@acme\/one"/ { print "  \"\":"; next }
+        defect == "duplicate-name" && /^  "@acme\/two"/ { print "  \"@acme/one\":"; next }
+        defect == "duplicate-field" && /^    url:/ { print }
+        defect == "duplicate-top" && /^lockfile_version:/ { print }
+        defect == "missing-url" && /^    url:/ { next }
+        defect == "missing-ref" && /^    resolved:/ { next }
+        defect == "bad-sha" && /^    sha:/ { print "    sha: \"not-a-commit\""; next }
+        defect == "missing-sha" && /^    sha:/ { next }
+        defect == "absolute-path" && /^    path:/ { print "    path: \"/tmp/outside\""; next }
+        defect == "parent-path" && /^    path:/ { print "    path: \"../outside\""; next }
+        defect == "drive-path" && /^    path:/ { print "    path: \"C:/outside\""; next }
+        defect == "backslash-path" && /^    path:/ { print "    path: \"..\\outside\""; next }
+        defect == "option-ref" && /^    resolved:/ { print "    resolved: \"--help\""; next }
+        defect == "option-url" && /^    url:/ { print "    url: \"--help\""; next }
+        defect == "missing-quote" && /^    resolved:/ { print "    resolved: \"main"; next }
+        defect == "trailing-scalar" && /^    resolved:/ { print "    resolved: \"main\" other"; next }
+        defect == "list-scalar" && /^    resolved:/ { print "    resolved: [main]"; next }
+        defect == "block-scalar" && /^    resolved:/ { print "    resolved: |"; next }
+        defect == "null-scalar" && /^    resolved:/ { print "    resolved: null"; next }
+        defect == "orphan-field" && /^packages:/ { print; print "    url: \"https://host/repo\""; next }
+        defect == "bad-indent" && /^    url:/ { sub(/^    /, "   ") }
+        defect == "control" && /^    resolved:/ { printf "    resolved: \"main%cother\"\n", 31; next }
+        { print }
+    ' "$VALID_LOCK" > "$OUT/$defect.lock"
+    chknot lock_validate "$OUT/$defect.lock"
+done
+for defect in version engine; do
+    if validation_error="$(lock_validate "$OUT/$defect.lock" 2>&1)"; then
+        echo "FAIL: accepted invalid $defect metadata"; fail=1
+    fi
+    chk grep -qF "$OUT/$defect.lock has" <<< "$validation_error"
+done
+context_error="$(lock_validate "$OUT/parent-path.lock" 2>&1)" && { echo "FAIL: accepted unsafe path"; fail=1; }
+chk grep -qF "$OUT/parent-path.lock:" <<< "$context_error"
+chk grep -qF 'package @acme/two, field path:' <<< "$context_error"
+chknot lock_validate "$OUT/no-such.lock"
+mkdir "$OUT/directory.lock"
+chknot lock_validate "$OUT/directory.lock"
+
+echo "== bundle metadata exception does not authorize a cross-version restore =="
+BUNDLE_LOCK="$OUT/bundle.lock"
+lock_upsert "$BUNDLE_LOCK" "$SYNC_PKG_NAME" "$(bundled_engine_version)" \
+    "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$(bundled_engine_version)" ""
+chk lock_validate "$BUNDLE_LOCK" --restore
+awk '/^engine_version:/ { print "engine_version: \"0.0.1\""; next }
+    /^    resolved:/ { print "    resolved: \"v0.0.1\""; next } { print }' \
+    "$BUNDLE_LOCK" > "$OUT/older-bundle.lock"
+chk lock_validate "$OUT/older-bundle.lock"
+chknot lock_validate "$OUT/older-bundle.lock" --restore
+awk '/^engine_version:/ { print "engine_version: \"0.0.2\""; next } { print }' \
+    "$OUT/older-bundle.lock" > "$OUT/rewritten-bundle.lock"
+chk lock_validate "$OUT/rewritten-bundle.lock"
+chknot lock_validate "$OUT/rewritten-bundle.lock" --restore
+major_version="$(bundled_engine_version)"
+different_major="$(( ${major_version%%.*} + 1 )).0.0"
+awk -v version="$different_major" '/^    resolved:/ { print "    resolved: \"v" version "\""; next } { print }' \
+    "$BUNDLE_LOCK" > "$OUT/other-major-bundle.lock"
+chknot lock_validate "$OUT/other-major-bundle.lock"
+for field in url path resolved; do
+    awk -v field="$field" '$0 ~ "^    " field ":" { print "    " field ": \"wrong\""; next } { print }' \
+        "$BUNDLE_LOCK" > "$OUT/mismatched-bundle.lock"
+    chknot lock_validate "$OUT/mismatched-bundle.lock"
+done
+
 echo "== pkg-name segment guards (names become rm -rf paths) =="
 for bad in "@scope/" "@/x" "@a/.." "@../x" "@a/." "@./x"; do
     if ( assert_valid_pkg_name "$bad" ) >/dev/null 2>&1; then
