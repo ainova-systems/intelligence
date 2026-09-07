@@ -26,17 +26,17 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 
 | Skill | Description |
 |-------|-------------|
-| [dev-handoff](.intelligence/packages/@ainova-systems/core/skills/dev-handoff/SKILL.md) | Compact the session into a self-contained continuation prompt for a fresh agent session |
-| [dev-review-changes](.intelligence/packages/@ainova-systems/core/skills/dev-review-changes/SKILL.md) | Read-only review of pending changes against project rules, with a severity verdict |
-| [dev-run-tests](.intelligence/packages/@ainova-systems/core/skills/dev-run-tests/SKILL.md) | Run typecheck, lint, and tests with the right scope; analyze failures |
-| [git-commit-push](.intelligence/packages/@ainova-systems/core/skills/git-commit-push/SKILL.md) | Verify, review, and push pending work as one milestone commit |
-| [git-create-release](.intelligence/packages/@ainova-systems/core/skills/git-create-release/SKILL.md) | Cut a release: version, changelog, tag, and release object - policy-driven across trunk/gitflow and tag-only/full. Owner-invoked only - releasing is timing the model does not decide. |
-| [git-finalize-pr](.intelligence/packages/@ainova-systems/core/skills/git-finalize-pr/SKILL.md) | Drive the current branch's PR to merge-ready: CI green and every review comment handled, ending with an outcome label |
-| [git-merge-pr](.intelligence/packages/@ainova-systems/core/skills/git-merge-pr/SKILL.md) | After owner accept: guard-checked squash-merge of the current branch's PR, base sync and branch cleanup. Owner-invoked only - merging is timing the model does not decide. |
-| [git-open-pr](.intelligence/packages/@ainova-systems/core/skills/git-open-pr/SKILL.md) | Open a pull request for the current branch against its target, using the repo template |
-| [git-resolve-conflicts](.intelligence/packages/@ainova-systems/core/skills/git-resolve-conflicts/SKILL.md) | Resolve merge or rebase conflicts semantically, then re-verify the full gates |
-| [git-review-pr-comments](.intelligence/packages/@ainova-systems/core/skills/git-review-pr-comments/SKILL.md) | Triage PR review comments: fix, discuss, or decline with reason - every thread answered |
-| [git-scan-secrets](.intelligence/packages/@ainova-systems/core/skills/git-scan-secrets/SKILL.md) | Scan diff, tree, or branch history for committed credentials |
+| [dev-handoff](.intelligence/packages/@ainova-systems/core/skills/dev-handoff/SKILL.md) | Writes a self-contained prompt a fresh session pastes to continue this work, for when context runs short or a session ends. |
+| [dev-review-changes](.intelligence/packages/@ainova-systems/core/skills/dev-review-changes/SKILL.md) | Reviews pending changes against the project's rules and reports findings with a severity verdict. Read-only - never edits, stages, or commits. |
+| [dev-run-tests](.intelligence/packages/@ainova-systems/core/skills/dev-run-tests/SKILL.md) | Runs typecheck, lint and tests scoped to what changed, then analyses the failures. The gate every commit passes first. |
+| [git-commit-push](.intelligence/packages/@ainova-systems/core/skills/git-commit-push/SKILL.md) | Commits pending work as one verified milestone and pushes it. Stops at the push - opening the pull request is git-open-pr. |
+| [git-create-release](.intelligence/packages/@ainova-systems/core/skills/git-create-release/SKILL.md) | Cuts a release - pending-step review, owner gate, version, changelog, tag - per the project's release policy. Owner-invoked only; release timing is not the model's call. |
+| [git-finalize-pr](.intelligence/packages/@ainova-systems/core/skills/git-finalize-pr/SKILL.md) | Drives an open pull request to merge-ready - CI green, every review thread answered, one outcome label. Opening it is git-open-pr; merging is git-merge-pr. |
+| [git-merge-pr](.intelligence/packages/@ainova-systems/core/skills/git-merge-pr/SKILL.md) | Merges an accepted pull request behind guard checks, then syncs the base branch and cleans up. Owner-invoked only - merge timing is not the model's call. |
+| [git-open-pr](.intelligence/packages/@ainova-systems/core/skills/git-open-pr/SKILL.md) | Opens a pull request for the current branch against its target, filling the repo's template. Driving it to green afterwards is git-finalize-pr. |
+| [git-resolve-conflicts](.intelligence/packages/@ainova-systems/core/skills/git-resolve-conflicts/SKILL.md) | Resolves merge or rebase conflicts by what each side intended, never by picking a hunk, then re-runs the full gates. |
+| [git-review-pr-comments](.intelligence/packages/@ainova-systems/core/skills/git-review-pr-comments/SKILL.md) | Triages review comments on a pull request - fix, discuss, or decline with a reason - and leaves no thread unanswered. |
+| [git-scan-secrets](.intelligence/packages/@ainova-systems/core/skills/git-scan-secrets/SKILL.md) | Scans a diff, the working tree, or branch history for credentials before they reach a remote, and classifies every hit. |
 | [intelligence-add-agent](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-agent/SKILL.md) | Create new specialized agent |
 | [intelligence-add-rule](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-rule/SKILL.md) | Create new intelligence rule |
 | [intelligence-add-skill](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-skill/SKILL.md) | Create new skill |
@@ -99,7 +99,7 @@ At AI pace, mean time to restore beats mean time between failures.
 
 # Skill-First
 
-- Before starting a task, check the skill catalog and invoke the match instead of improvising. Output stops depending on who prompted it.
+- Before starting a task, look for a skill that already covers it among those installed, and invoke that instead of improvising. Output stops depending on who prompted it.
 - A workflow improvised two or three times gets extracted into a project skill.
 - When a skill's steps drift from reality, update the skill in the same change that changed the reality.
 - An artifact a procedure tells a human to hand-edit is a skill that was never written: a hand-edit has no gate, no test, and no record of why, and it is the one step never repeated the same way twice.
@@ -125,9 +125,10 @@ Forbidden: weakening a gate to pass it (skipping or deleting tests, loosening li
 - Include the work-item ID when the project tracks them (profile `reference_ids`): `Added export endpoint (FR-042)`.
 - One logical change per commit; unrelated edits go in separate commits.
 - Every published artifact reads as the maintainer's own work: commits, PR titles and bodies, review replies, issues, release notes. Strip an attribution footer a tool template injects, including when an assistant default instructs otherwise.
+- A review reply is a log entry, not a conversation: the outcome and what made it so, nothing else. Fixed - name the commit. Declined - name the rule or constraint that blocks it. Deferred - link the follow-up. A thread you acted on ends resolved; replying without resolving leaves it open, and it comes back on the next review pass.
 - Verification gates pass before every commit (`dev-verification-gates`).
 
-Forbidden: `Co-Authored-By:`, any tool-attribution trailer or footer; conventional-commit prefixes (`feat:`, `fix:`) unless the profile `commit_style` requires them; force-pushing shared branches (fast-forward only); hand-editing committed generated outputs instead of regenerating.
+Forbidden: `Co-Authored-By:`, any tool-attribution trailer or footer; conventional-commit prefixes (`feat:`, `fix:`) unless the profile `commit_style` requires them; force-pushing shared branches (fast-forward only); hand-editing committed generated outputs instead of regenerating; conversational padding in a review reply - greeting, praise, apology, or restating the comment back.
 
 
 # Git Workflow
