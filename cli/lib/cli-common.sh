@@ -78,14 +78,9 @@ pin_label() {
     fi
 }
 
-# shell_single_quote <string> — the string as one single-quoted shell word,
-# for a command printed to be copied: a quote inside becomes '\''.
-shell_single_quote() {
-    printf "'%s'" "${1//\'/\'\\\'\'}"
-}
-
 source "$CLI_DIR/lib/manifest.sh"
 source "$CLI_DIR/lib/semver.sh"
+source "$CLI_DIR/lib/cli-install.sh"
 source "$CLI_DIR/lib/registry.sh"
 source "$CLI_DIR/lib/lockfile.sh"
 source "$CLI_DIR/lib/adapter-lifecycle.sh"

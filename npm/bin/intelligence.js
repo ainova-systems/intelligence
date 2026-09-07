@@ -47,14 +47,18 @@ function findBash() {
 
 const cli = path.join(__dirname, '..', 'cli', 'intelligence').replace(/\\/g, '/');
 const pkg = require(path.join(__dirname, '..', 'package.json'));
+const binName = Object.keys(pkg.bin)[0];
 
 const result = spawnSync(findBash(), [cli].concat(process.argv.slice(2)), {
   stdio: 'inherit',
-  // Version and name of the installed package: `update` checks the npm
-  // channel with them and `upgrade` replaces exactly this package.
+  // What npm installed, for `update` (channel check) and `upgrade` (replace
+  // exactly this package): its version and name, the command npm linked as
+  // its shim, and this launcher's path inside the package.
   env: Object.assign({}, process.env, {
     INTELLIGENCE_NPM_VERSION: pkg.version,
     INTELLIGENCE_NPM_PACKAGE: pkg.name,
+    INTELLIGENCE_NPM_BIN: binName,
+    INTELLIGENCE_NPM_LAUNCHER: pkg.bin[binName],
   }),
 });
 if (result.error) {

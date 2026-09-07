@@ -8,12 +8,12 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- Added `intelligence upgrade [--preview|--apply]`: it checks the CLI's npm channel (`next` for a prerelease, otherwise `latest`), prints `installed -> available` with the exact install command, and on approval replaces the installation it runs from at exactly that version, passing npm the prefix derived from its own location; a source checkout, an `npx` run, a linked checkout, another package manager's store or any other layout is refused with the command that upgrades it where it lives.
+- Added `intelligence upgrade [--next] [--preview|--apply]`: it checks the CLI's npm channel (`next` for a prerelease or with `--next`, otherwise `latest`), prints `installed -> available` with the exact install command, and on approval replaces the installation it runs from at exactly that version, passing npm the prefix its own location and npm's shim prove, then confirms the result through the new launcher; a source checkout, an `npx` run, a linked checkout, a project dependency, another package manager's store or any other layout is refused before any network call, with the command that upgrades it where it lives.
 
 ### Changed
 
-- The `update` plan and the newer-schema messages now name `intelligence upgrade` instead of a raw `npm install -g` command, and the plan no longer proposes a downgrade when the installed CLI is ahead of its channel; the update meta-skill runs `upgrade` after approval.
-- The npm launcher exports the installed package name beside its version, so `update` and `upgrade` address the package that is actually installed.
+- The `update` plan and the newer-schema messages now name `intelligence upgrade` (with `--next` for a prerelease line) instead of a raw `npm install -g` command, the plan asks the registry in the same global configuration the install will use, and it no longer proposes a downgrade when the installed CLI is ahead of its channel; the update meta-skill runs `upgrade` after approval.
+- The npm launcher exports the installed package name, shim name and launcher path beside its version, so `update` and `upgrade` address the package that is actually installed and nothing in `cli/` names it.
 
 ## [0.12.1]
 

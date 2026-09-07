@@ -21,18 +21,23 @@ name was free but retired.
 1. `upgrade` joins the public surface as the one command that replaces the installed CLI. It
    takes the `--preview` / `--apply` modes of `init` and `update` and no project arguments: it
    never reads or writes a project.
-2. The channel follows the running version — `next` for a prerelease, `latest` otherwise — and
-   the version installed is exactly the one the plan showed, never a dist-tag.
+2. The channel follows the running version — `next` for a prerelease, `latest` otherwise — or
+   `--next` when a stable install must follow the prerelease line (a project stamped by a
+   prerelease CLI). The version installed is exactly the one the plan showed, never a dist-tag,
+   and the freshly installed launcher, not npm's exit status, decides whether it succeeded.
 3. `upgrade` replaces the installation it runs from: it derives the npm prefix from its own
    location (`<prefix>/lib/node_modules/<pkg>` on POSIX, `<prefix>/node_modules/<pkg>` on
-   Windows) and passes it to npm explicitly. A source checkout, an `npx` run, a checkout linked
-   with `npm link`, another package manager's store or any other layout is refused with the
-   command that upgrades that installation where it lives.
+   Windows), accepts it only when the shim npm linked at that prefix points at this tree, passes
+   it to npm explicitly, and asks the registry in that same global configuration. A source
+   checkout, an `npx` run, a checkout linked with `npm link`, a project's own dependency,
+   another package manager's store or any other layout is refused before any network call, with
+   the command that upgrades that installation where it lives.
 4. `update` keeps planning the CLI step and names `intelligence upgrade` instead of an npm
    command; the update meta-skill runs it after approval. Version-gate messages that told the
    user to reinstall the CLI point at `upgrade` too.
-5. The npm launcher exports the installed package name beside its version, so `update` and
-   `upgrade` address the package that is actually installed and nothing in `cli/` names it.
+5. The npm launcher exports the installed package name, shim name and launcher path beside its
+   version, so `update` and `upgrade` address the package that is actually installed and nothing
+   in `cli/` names it.
 6. `upgrade` now means the executable and nothing else. Item 7 of 0002 is amended, not reversed:
    `install`, `migrate`, `outdated`, `target`, `doctor` and the bare package verbs stay unknown.
 
@@ -63,9 +68,14 @@ name was free but retired.
   UUID-like path segments from everything it prints, so such a root can never match. The
   package's own location already says where it was installed, and passing that prefix costs no
   extra process.
-- **Deriving a prefix for every layout.** Volta's package images look like an npm prefix
-  (`…/packages/<pkg>/lib/node_modules/<pkg>`) but are not one; known non-npm stores are named
-  before the layout rule applies, and an unrecognized layout is refused rather than guessed.
+- **Trusting the layout alone.** Volta's package images look like an npm prefix
+  (`…/packages/<pkg>/lib/node_modules/<pkg>`) but are not one, and a project's own
+  `node_modules/<pkg>` is laid out exactly like the Windows prefix; known non-npm stores are
+  named first, the shim npm links at the prefix root is required as proof, and an unrecognized
+  layout is refused rather than guessed.
+- **Downgrading when the channel moved back.** A dist-tag moved to an older version is an
+  incident response someone took deliberately; `upgrade` reports it and names the pinned
+  `npm install -g` that follows it, and never writes an older version on its own.
 - **Restarting the new CLI to finish an `update` plan in one go.** Re-executing a freshly
   installed executable from the old one hides which version applied a tracked change; two
   explicit commands keep each write attributable.

@@ -28,13 +28,19 @@ semver_cmp() {
 # line.
 semver_cmp_full() {
     awk -v a="${1#v}" -v b="${2#v}" '
-        # Numeric identifiers compare as numbers and sort before alphanumeric ones.
+        # Numeric identifiers compare as numbers (no leading zeros, so length
+        # then digits — exact beyond what a double holds) and sort before
+        # alphanumeric ones; those compare as ASCII strings, never as numbers
+        # awk might read into them (1e5).
         function idcmp(x, y,    xn, yn) {
             xn = (x ~ /^[0-9]+$/); yn = (y ~ /^[0-9]+$/)
-            if (xn && yn) return (x + 0 < y + 0) ? -1 : (x + 0 > y + 0) ? 1 : 0
+            if (xn && yn) {
+                if (length(x) != length(y)) return (length(x) < length(y)) ? -1 : 1
+                return (x "" < y "") ? -1 : (x "" > y "") ? 1 : 0
+            }
             if (xn) return -1
             if (yn) return 1
-            return (x < y) ? -1 : (x > y) ? 1 : 0
+            return (x "" < y "") ? -1 : (x "" > y "") ? 1 : 0
         }
         BEGIN {
             sub(/\+.*$/, "", a); sub(/\+.*$/, "", b)

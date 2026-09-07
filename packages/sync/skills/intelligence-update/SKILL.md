@@ -30,9 +30,11 @@ result.
 
 4. If the plan reports a newer global CLI, run `intelligence upgrade --apply`
    after approval — it installs exactly the version the plan showed — then
-   rerun `intelligence update --preview` with the new executable. If `upgrade`
-   refuses because npm did not make this installation, run the command its
-   message names instead. Apply the resulting plan with
+   rerun `intelligence update --preview` with the new executable. When the
+   project section reports a schema stamped ahead of the stable line, the CLI
+   that stamped it was a prerelease: use `intelligence upgrade --next --apply`.
+   If `upgrade` refuses because npm did not make this installation, run the
+   command its message names instead. Apply the resulting plan with
    `intelligence update --apply`, or `intelligence update $ARGUMENTS --apply`
    when one package was requested.
 

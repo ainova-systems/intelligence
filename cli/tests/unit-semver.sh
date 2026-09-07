@@ -106,6 +106,10 @@ cmpfull|0.13.0-1|0.13.0-alpha|-1
 cmpfull|0.13.1-rc.1|0.13.0|1
 cmpfull|0.13.0+build.7|0.13.0|0
 cmpfull|0.12.1|0.0.0-dev|1
+cmpfull|1.0.0-1e5|1.0.0-9e4|-1
+cmpfull|1.0.0-1e5|1.0.0-1e05|1
+cmpfull|1.0.0-9007199254740993|1.0.0-9007199254740992|1
+cmpfull|1.0.0-10|1.0.0-9|1
 # --- npm_channel_for: prerelease -> next, otherwise latest
 channel|0.13.0||latest
 channel|0.13.0-rc.1||next

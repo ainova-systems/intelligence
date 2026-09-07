@@ -77,6 +77,12 @@ jobs:
           npm install -g --prefix "$PREFIX" npm/dist/ainova-systems-intelligence-0.0.0-ci.tgz
           export PATH="$PREFIX/bin:$PATH"
           intelligence version
+          # The self-upgrade plan runs the real layout check (npm's own shim
+          # at this prefix) and the registry lookup; it writes nothing.
+          plan="$(intelligence upgrade --preview)"
+          echo "$plan"
+          grep -q "npm install -g --prefix '.*np spaced' @ainova-systems/intelligence@" <<< "$plan" \
+            || { echo "upgrade plan lacks the spaced prefix"; exit 1; }
           PROJ="$RUNNER_TEMP/shim-proj"
           mkdir -p "$PROJ" && cd "$PROJ" && git init -q .
           intelligence init --targets claude
@@ -110,6 +116,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & "$prefix\intelligence.cmd" version
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # The self-upgrade plan through the cmd shim: Windows layout, the
+          # .cmd shim as proof of the prefix, and the double-quoted spelling.
+          $plan = @(& "$prefix\intelligence.cmd" upgrade --preview)
+          if ($LASTEXITCODE -ne 0) { Write-Error "upgrade --preview failed: $plan" }
+          $plan
+          if (-not ($plan -match 'npm install -g --prefix ".*np spaced" @ainova-systems/intelligence@')) { Write-Error "upgrade plan lacks the spaced prefix" }
           $proj = Join-Path $env:RUNNER_TEMP "shim-proj"
           New-Item -ItemType Directory -Force $proj | Out-Null
           Set-Location $proj
@@ -127,6 +139,15 @@ jobs:
           }
           if (-not (Select-String -Path AGENTS.md -Pattern 'intelligence sync' -Quiet)) { Write-Error "AGENTS.md lacks the CLI sync command" }
           if (-not (Test-Path "intelligence.yaml") -or -not (Test-Path ".claude")) { Write-Error "outputs missing" }
+      # Git Bash is the shell the CLI runs in on Windows: the hermetic upgrade
+      # suites prove the Windows layout, shim proof and path spelling there.
+      - name: Windows — upgrade suites under Git Bash
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash cli/tests/unit-semver.sh
+          bash cli/tests/unit-upgrade.sh
 
   repo-purity:
     name: repo-purity (one layout, stamps in lockstep)

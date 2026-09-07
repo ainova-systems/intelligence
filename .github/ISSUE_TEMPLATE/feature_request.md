@@ -15,7 +15,7 @@ labels: enhancement
 
 ## Public surface
 
-<!-- Which existing group owns this: init, sync, update, package, adapter, status, or registry? Avoid proposing a new top-level command when an existing group fits. -->
+<!-- Which existing group owns this: init, sync, update, upgrade, package, adapter, status, or registry? Avoid proposing a new top-level command when an existing group fits. -->
 
 ## Alternatives considered
 

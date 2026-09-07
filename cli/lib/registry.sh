@@ -136,7 +136,7 @@ fetch_package() {
     if is_bundle_source "$url" "$ref" "$subpath" \
         && { [ -z "$locked_sha" ] || [ -z "$bundle_sha" ] || [ "$locked_sha" = "$bundle_sha" ]; }; then
         [ -n "${IS_BUNDLED_PKG_DIR:-}" ] && [ -d "$IS_BUNDLED_PKG_DIR" ] \
-            || die "bundled engine content not found next to the CLI — reinstall @ainova-systems/intelligence"
+            || die "bundled engine content not found next to the CLI — reinstall ${INTELLIGENCE_NPM_PACKAGE:-the CLI package}"
         rm -rf "$dest"
         mkdir -p "$dest"
         cp -R "$IS_BUNDLED_PKG_DIR/." "$dest/"

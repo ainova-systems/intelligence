@@ -925,7 +925,7 @@ printf '%s\n' "$OUTPUT" | grep -qF -- "--targets a,b --dir name --bare --no-sync
     || { echo "FAIL: init options missing from help"; fail=1; }
 printf '%s\n' "$OUTPUT" | grep -qF -- "sync [adapter] [--compact]" \
     || { echo "FAIL: compact sync missing from help"; fail=1; }
-printf '%s\n' "$OUTPUT" | grep -qF -- "upgrade [--preview|--apply]" \
+printf '%s\n' "$OUTPUT" | grep -qF -- "upgrade [--next] [--preview|--apply]" \
     || { echo "FAIL: upgrade missing from help"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"

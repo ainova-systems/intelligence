@@ -34,12 +34,13 @@ echo "CLI:"
 if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ -n "${INTELLIGENCE_NPM_PACKAGE:-}" ] \
     && [ "${IS_SKIP_NPM_CHECK:-0}" != "1" ] && command -v npm >/dev/null 2>&1; then
     channel="$(npm_channel_for "$INTELLIGENCE_NPM_VERSION")"
-    available="$(npm view "$INTELLIGENCE_NPM_PACKAGE" "dist-tags.$channel" 2>/dev/null || true)"
-    available="${available//[$' \t\r\n']/}"
+    # Ask the way `upgrade` will install: in global mode at this tree's own
+    # prefix when npm made it, so the plan and the install read one config.
+    cli_install_classify "$(cd "$CLI_DIR/.." && pwd -P)" "$INTELLIGENCE_NPM_PACKAGE" "${INTELLIGENCE_NPM_BIN:-}"
+    npm_prefix=""
+    [ "$CLI_INSTALL_KIND" != "npm" ] || npm_prefix="$(native_path "$CLI_INSTALL_PREFIX")"
     # An empty or non-version answer is "not checked", never a comparison.
-    if ! is_npm_version "$available"; then
-        echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
-    else
+    if available="$(cli_registry_version "$INTELLIGENCE_NPM_PACKAGE" "$channel" "$npm_prefix")"; then
         case "$(semver_cmp_full "$available" "$INTELLIGENCE_NPM_VERSION")" in
             1)
                 echo "  $INTELLIGENCE_NPM_VERSION -> $available (npm $channel)"
@@ -49,6 +50,8 @@ if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ -n "${INTELLIGENCE_NPM_PACKAGE:-}
             0) echo "  $INTELLIGENCE_NPM_VERSION (up to date on npm $channel)" ;;
             *) echo "  $INTELLIGENCE_NPM_VERSION (ahead of npm $channel $available)" ;;
         esac
+    else
+        echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
     fi
 else
     echo "  source checkout/registry check skipped; engine $eng"
@@ -57,7 +60,7 @@ fi
 echo ""
 echo "Project:"
 if project_stamped_ahead "$IP_ROOT"; then
-    echo "  schema $stamp is ahead of engine $eng — left as is; update the CLI to align it"
+    echo "  schema $stamp is ahead of engine $eng — left as is; update the CLI to align it: intelligence upgrade (--next when the stamp came from a prerelease line)"
 elif project_needs_upgrade "$IP_ROOT"; then
     echo "  lifecycle alignment required (stamp ${stamp:-unstamped}, engine $eng)"
     project_change=1
