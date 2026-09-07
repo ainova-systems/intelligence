@@ -199,7 +199,8 @@ jobs:
             fi
           done
           for example in go-api dotnet-api-with-react-frontend platform-with-submodules \
-            go-api-with-opencode go-api-with-pi-and-codex; do
+            go-api-with-opencode go-api-with-pi-and-codex \
+            go-api-with-antigravity; do
             test -f "examples/$example/intelligence.lock" \
               || { echo "LOCK MISSING: runnable example $example"; fail=1; }
           done
@@ -219,6 +220,7 @@ jobs:
           - platform-with-submodules
           - go-api-with-opencode
           - go-api-with-pi-and-codex
+          - go-api-with-antigravity
     steps:
       - uses: actions/checkout@v6
       - name: Stage and align the example as an Intelligence project
@@ -399,6 +401,24 @@ jobs:
             test -f "$PROJ/.opencode/agents/backend-developer.md"
             test -f "$PROJ/.opencode/commands/backend-add-endpoint.md"
             test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
+          fi
+          if [ -d "$PROJ/.agents/rules" ]; then
+            # Antigravity: always-on rules stay in AGENTS.md, scoped rules
+            # become glob-triggered .agents/rules entries, and every subagent
+            # carries the required `name` plus a documented model tier.
+            ! test -e "$PROJ/.agents/rules/context.md"
+            test -f "$PROJ/.agents/rules/backend.md"
+            grep -q '^trigger: glob$' "$PROJ/.agents/rules/backend.md"
+            grep -q '^globs:' "$PROJ/.agents/rules/backend.md"
+            test -f "$PROJ/.agents/agents/backend-developer.md"
+            grep -q '^name: "backend-developer"$' "$PROJ/.agents/agents/backend-developer.md"
+            grep -q '^description: "Implements backend features: APIs, services"$' \
+              "$PROJ/.agents/agents/backend-developer.md"
+            grep -q '^model: "pro"$' "$PROJ/.agents/agents/backend-developer.md"
+            grep -q '^subagent: true$' "$PROJ/.agents/agents/backend-developer.md"
+            test -f "$PROJ/.agents/skills/backend-add-endpoint/SKILL.md"
+            grep -q "REFERENCE_MARKER" \
+              "$PROJ/.agents/skills/backend-add-endpoint/references/endpoint-template.md"
           fi
 
       - name: A second sync changes nothing

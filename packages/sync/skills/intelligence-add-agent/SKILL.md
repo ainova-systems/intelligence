@@ -52,7 +52,7 @@ argument-hint: <domain> [description]
 
 6. **Write body** with sections: **Expertise** -> **Boundaries** -> **Build & Verify**
    - An agent is **thin**: who it is, where it stops, how it verifies. Everything else already reaches it.
-   - **Do not tell the agent to read the rules.** Rules load on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor / Copilot / Codex / Pi / opencode receive always-on rules inlined in `AGENTS.md`. A `Read <content-dir>/rules/<domain>.md before starting` line duplicates content the agent already has — double the tokens, and a second copy that drifts from the rule it copied.
+   - **Do not tell the agent to read the rules.** Rules load on their own: Claude Code loads `.claude/rules/` into every custom subagent's startup context alongside `CLAUDE.md` (*Subagents → What loads at startup*), and Cursor / Copilot / Codex / Pi / opencode / Antigravity receive always-on rules inlined in `AGENTS.md`. A `Read <content-dir>/rules/<domain>.md before starting` line duplicates content the agent already has — double the tokens, and a second copy that drifts from the rule it copied.
    - **Point at a rule, never restate it.** If you want to copy a rule into the agent, the rule is in the wrong place — move it, do not clone it.
    - **Do carry** what is genuinely the agent's own: its boundaries ("if the app is not running, stop — do not hand-write the output"), its verification commands, its definition of done.
    - All content must come from actual codebase analysis.

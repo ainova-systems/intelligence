@@ -201,9 +201,9 @@ Keep source fetching out of adapters and reuse shared rendering once per destina
 
 **Selection gate.** A new built-in needs current adoption evidence, maintained
 interfaces and a real repository use case. Publisher reach, active users, downloads
-and GitHub stars are not interchangeable. Start with Cline, Antigravity and Qoder;
-evaluate OpenHands and Kiro next. Implement one validated target at a time. The
-candidate assessment below is not a commitment to add every listed tool.
+and GitHub stars are not interchangeable. Antigravity is delivered; continue with
+Cline and Qoder, then evaluate OpenHands and Kiro. Implement one validated target
+at a time. The candidate assessment below is not a commitment to add every listed tool.
 
 **Acceptance.** A host smoke test proves each advertised capability: instructions
 load once, a skill can read its resources, scoped rules activate only as intended,
@@ -281,8 +281,8 @@ before implementation. Official links for existing adapters are in
 | Cursor | Existing `cursor` adapter | Maintain native rules, agents and skills; verify before changing shared paths. |
 | GitHub Copilot | Existing `copilot` adapter | Maintain instructions, agents and skills; distinguish supported host surfaces. |
 | Pi | Existing `pi` adapter | Maintain prompt templates, rule extension and shared skills. |
+| Antigravity | Existing `antigravity` adapter | Maintain native rules, skills and agents in `.agents/`. |
 | Cline | **First queue.** Publisher reports [8M+ developers](https://cline.bot/). | Rules + skills; [native skills documentation](https://docs.cline.bot/customization/skills) does not establish shared `.agents/skills` loading. Reusable agent-file export needs separate evidence. |
-| Antigravity | **First queue.** Google reports [2.4M+ weekly active users](https://blog.google/company-news/inside-google/message-ceo/alphabet-earnings-q2-2026/). | Rules, skills and custom-agent candidate; verify product version and permissions using [official docs](https://www.antigravity.google/docs/subagents). |
 | Qoder | **First queue.** Publisher reports [6M+ builders](https://qoder.com/), product-wide. | Native rules/skills/agents candidate; validate CLI and IDE separately against [subagent docs](https://docs.qoder.com/cli/subagent). |
 | OpenHands | **Next queue.** Publisher reports [9M+ OSS downloads](https://www.openhands.dev/about), not unique users. | Start with instructions/skills. Verify SDK/CLI agent loading and ACP limitations before fuller support; [current skills](https://docs.openhands.dev/overview/skills). |
 | Kiro CLI | **Next queue.** AWS reported [250k+ preview developers](https://aws.amazon.com/startups/learn/power-your-startup-with-1-year-of-kiro-pro-plus-now-available-through-aws-startups), historical product-wide reach. | Steering, skills and custom agents; prove custom agents load declared resources. [Skills](https://kiro.dev/docs/skills/); current CLI-specific adoption remains uncertain. |

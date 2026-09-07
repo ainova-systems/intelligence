@@ -224,9 +224,20 @@ if [ -n "$targets_arg" ]; then
 else
     if [ -d "$root/.claude" ] || [ -f "$root/CLAUDE.md" ]; then targets="$targets claude"; fi
     if [ -d "$root/.cursor" ] || [ -f "$root/.cursorrules" ]; then targets="$targets cursor"; fi
-    if [ -d "$root/.codex" ] || [ -d "$root/.agents" ]; then targets="$targets codex"; fi
+    # `.agents/skills` is the only part of the shared root Codex reads, so it is
+    # the only part that may imply Codex. `.agents/` as a whole cannot: its
+    # `rules/`, `agents/` and `workflows/` siblings belong to Antigravity, and
+    # treating them as a Codex marker would invent a tool the project shows no
+    # trace of.
+    if [ -d "$root/.codex" ] || [ -d "$root/.agents/skills" ]; then targets="$targets codex"; fi
     [ -d "$root/.pi" ] && targets="$targets pi"
     [ -d "$root/.opencode" ] && targets="$targets opencode"
+    if [ -f "$root/GEMINI.md" ] \
+        || [ -d "$root/.agents/rules" ] \
+        || [ -d "$root/.agents/agents" ] \
+        || [ -d "$root/.agents/workflows" ]; then
+        targets="$targets antigravity"
+    fi
     if [ -f "$root/.github/copilot-instructions.md" ] \
         || [ -d "$root/.github/instructions" ] \
         || [ -d "$root/.github/agents" ] \
