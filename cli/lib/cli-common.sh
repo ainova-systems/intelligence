@@ -164,6 +164,7 @@ manifest_intelligence_dir() {
 default_target_output() {
     case "$1" in
         agents) printf '%s' "AGENTS.md" ;;
+        antigravity) printf '%s' ".agents" ;;
         copilot) printf '%s' ".github" ;;
         *) printf '.%s' "$1" ;;
     esac

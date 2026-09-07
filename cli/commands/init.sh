@@ -227,6 +227,12 @@ else
     if [ -d "$root/.codex" ] || [ -d "$root/.agents" ]; then targets="$targets codex"; fi
     [ -d "$root/.pi" ] && targets="$targets pi"
     [ -d "$root/.opencode" ] && targets="$targets opencode"
+    if [ -f "$root/GEMINI.md" ] \
+        || [ -d "$root/.agents/rules" ] \
+        || [ -d "$root/.agents/agents" ] \
+        || [ -d "$root/.agents/workflows" ]; then
+        targets="$targets antigravity"
+    fi
     if [ -f "$root/.github/copilot-instructions.md" ] \
         || [ -d "$root/.github/instructions" ] \
         || [ -d "$root/.github/agents" ] \

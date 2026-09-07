@@ -830,6 +830,11 @@ get_model_default() {
         codex:heavy)      echo "gpt-5.6-sol" ;;
         codex:standard)   echo "gpt-5.6-terra" ;;
         codex:light)      echo "gpt-5.6-luna" ;;
+        # Antigravity accepts only inherit|flash|pro, so standard and light
+        # share `flash` — there is no third tier to map onto.
+        antigravity:heavy)     echo "pro" ;;
+        antigravity:standard)  echo "flash" ;;
+        antigravity:light)     echo "flash" ;;
         opencode:heavy)    echo "anthropic/claude-opus-4-8" ;;
         opencode:standard) echo "anthropic/claude-sonnet-5" ;;
         opencode:light)    echo "anthropic/claude-haiku-4-5-20251001" ;;

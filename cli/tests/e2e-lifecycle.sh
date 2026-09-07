@@ -83,6 +83,7 @@ mkdir -p "$FRESH/.github/instructions" "$FRESH/.claude/skills/legacy"
 touch "$FRESH/.cursorrules"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
+printf '# Gemini marker\n' > "$FRESH/GEMINI.md"
 printf '%s\n' '# Legacy local skill' > "$FRESH/.claude/skills/legacy/SKILL.md"
 printf '# Existing project instructions\nCUSTOM_AGENTS_MARKER\n' > "$FRESH/AGENTS.md"
 printf '%s\n' '# Shell-special legacy file' > "$FRESH/$SPECIAL_TRACKED"
@@ -91,7 +92,7 @@ printf '# keep vscode packaging rule\nout/**\n' > "$FRESH/.vscodeignore"
 printf '# keep npm packaging rule\ndist/**\n' > "$FRESH/.npmignore"
 printf '# keep docker context rule\nnode_modules\n' > "$FRESH/.dockerignore"
 git -C "$FRESH" init --quiet
-git -C "$FRESH" add CLAUDE.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md \
+git -C "$FRESH" add CLAUDE.md GEMINI.md .cursorrules AGENTS.md .claude/skills/legacy/SKILL.md \
     "$SPECIAL_TRACKED" "$APOSTROPHE_TRACKED"
 # Existing broad tool ignores are common in established projects. The CLI's
 # settings reinclusions must remain effective even when these earlier rules
@@ -108,6 +109,7 @@ chk grep -q 'intelligence adapter enable codex' "$OUT/fresh-init.txt"
 chk grep -q 'intelligence adapter disable cursor' "$OUT/fresh-init.txt"
 chk grep -q 'Generated adapter output is gitignored by CLI-owned path' "$OUT/fresh-init.txt"
 chknot grep -Fq "git rm --cached -- 'CLAUDE.md'" "$OUT/fresh-init.txt"
+chknot grep -Fq "git rm --cached -- 'GEMINI.md'" "$OUT/fresh-init.txt"
 chknot grep -Fq "git rm --cached -- '.cursorrules'" "$OUT/fresh-init.txt"
 chknot grep -Fq "git rm --cached -- '.claude/skills/legacy/SKILL.md'" "$OUT/fresh-init.txt"
 chk grep -Fq "git rm --cached -- '$SPECIAL_TRACKED'" "$OUT/fresh-init.txt"
@@ -137,6 +139,7 @@ if ! awk '
 fi
 chk grep -q 'cursor: { enabled: true' "$FRESH/intelligence.yaml"
 chk grep -q 'copilot: { enabled: true, output: ".github"' "$FRESH/intelligence.yaml"
+chk grep -q 'antigravity: { enabled: true, output: ".agents"' "$FRESH/intelligence.yaml"
 chk grep -q '^\.intelligence/' "$FRESH/.gitignore"
 chk grep -Fqx 'CLAUDE.md' "$FRESH/.gitignore"
 chk grep -Fqx '.claude/*' "$FRESH/.gitignore"
@@ -145,6 +148,13 @@ chk grep -Fqx '!.claude/settings.json' "$FRESH/.gitignore"
 chk grep -Fqx '.cursor/*' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/settings.json' "$FRESH/.gitignore"
+chk grep -Fqx 'GEMINI.md' "$FRESH/.gitignore"
+chk grep -Fqx '.agents/rules/' "$FRESH/.gitignore"
+chk grep -Fqx '.agents/agents/' "$FRESH/.gitignore"
+chk grep -Fqx '.agents/skills/' "$FRESH/.gitignore"
+# `.agents/` is a shared workspace root, not adapter-owned output: ignoring it
+# whole would hide hand-written workspace content the adapter never writes.
+chknot grep -Fqx '.agents/' "$FRESH/.gitignore"
 chk grep -Fqx 'intelligence/_backup/' "$FRESH/.gitignore"
 chknot grep -Fqx '.github/' "$FRESH/.gitignore"
 for policy in .vscodeignore .npmignore .dockerignore; do
@@ -157,6 +167,7 @@ for policy in .vscodeignore .npmignore .dockerignore; do
     chk grep -Fqx '.claude/**' "$FRESH/$policy"
     chk grep -Fqx '.cursor/**' "$FRESH/$policy"
     chk grep -Fqx '.github/**' "$FRESH/$policy"
+    chk grep -Fqx '.agents/**' "$FRESH/$policy"
 done
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --no-sync >/dev/null)
 for policy in .vscodeignore .npmignore .dockerignore; do
@@ -164,8 +175,12 @@ for policy in .vscodeignore .npmignore .dockerignore; do
     [ "$count" -eq 1 ] || { echo "FAIL: publisher-ignore block duplicated in $policy"; fail=1; }
 done
 chk grep -q '# Claude marker' "$FRESH/intelligence/_backup/CLAUDE.md"
+chk grep -q '# Gemini marker' "$FRESH/intelligence/_backup/GEMINI.md"
 chk test -f "$FRESH/intelligence/_backup/.cursorrules"
 chknot test -e "$FRESH/CLAUDE.md"
+# GEMINI.md outranks AGENTS.md in Antigravity's rule precedence: left in place
+# it would silently override every synced rule, so onboarding quarantines it.
+chknot test -e "$FRESH/GEMINI.md"
 chknot test -e "$FRESH/.cursorrules"
 chknot test -e "$FRESH/.claude/commands"
 chknot test -e "$FRESH/.cursor/commands"
@@ -176,6 +191,7 @@ chk grep -Fqx $'path\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\tCLAUDE.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\t.cursorrules' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\tGEMINI.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chknot test -e "$FRESH/intelligence/_backup/.quarantine-pending"
 chk grep -q 'CUSTOM_AGENTS_MARKER' "$FRESH/intelligence/_backup/AGENTS.md"
 chk grep -q 'intelligence/_backup/AGENTS.md' "$FRESH/AGENTS.md"
@@ -188,6 +204,19 @@ chknot git -C "$FRESH" check-ignore -q AGENTS.md
 chk test -f "$FRESH/AGENTS.md"
 chk test -d "$FRESH/.claude"
 chk grep -q 'intelligence/\*\*' "$FRESH/.cursor/rules/intelligence-authoring.mdc"
+# Antigravity: AGENTS.md carries always-on rules, so only path-scoped rules
+# reach .agents/rules — as glob-triggered files. Agents need the `name` the
+# tool requires and a model from its documented inherit|flash|pro set.
+chk grep -Fqx 'trigger: glob' "$FRESH/.agents/rules/intelligence-authoring.md"
+chk grep -Fqx 'globs:' "$FRESH/.agents/rules/intelligence-authoring.md"
+chknot grep -Fqx 'paths:' "$FRESH/.agents/rules/intelligence-authoring.md"
+chk grep -q 'intelligence/\*\*' "$FRESH/.agents/rules/intelligence-authoring.md"
+chk grep -Fqx 'name: "intelligence-architect"' "$FRESH/.agents/agents/intelligence-architect.md"
+chk grep -Fqx 'model: "pro"' "$FRESH/.agents/agents/intelligence-architect.md"
+chk grep -Fqx 'model: "flash"' "$FRESH/.agents/agents/intelligence-operator.md"
+chk grep -Fqx 'subagent: true' "$FRESH/.agents/agents/intelligence-architect.md"
+chk grep -Fqx 'mainAgent: false' "$FRESH/.agents/agents/intelligence-architect.md"
+chk test -f "$FRESH/.agents/skills/intelligence-review-skills/SKILL.md"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/conventions.md' \
     "$FRESH/.claude/skills/intelligence-review-skills/SKILL.md"
 chk test -f "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
@@ -197,7 +226,7 @@ chk grep -q '.intelligence/packages/@ainova-systems/sync/references/onboarding-m
     "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
-    "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github"
+    "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github" "$FRESH/.agents"
 (cd "$FRESH" && bash "$CLI" status --check)
 
 # A deliberately new, machine-local CLAUDE.md created after onboarding is not

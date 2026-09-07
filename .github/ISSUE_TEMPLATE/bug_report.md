@@ -25,7 +25,7 @@ labels: bug
 - Node version: <!-- `node --version` -->
 - Bash version: <!-- `bash --version` -->
 - Intelligence npm version: <!-- from your package manager/global package list -->
-- Adapter(s): <!-- agents / claude / cursor / copilot / codex / pi / opencode / custom -->
+- Adapter(s): <!-- agents / claude / cursor / copilot / codex / pi / opencode / antigravity / custom -->
 
 ## Project status
 

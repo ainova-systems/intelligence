@@ -156,7 +156,7 @@ Agent instructions in Markdown.
 
 An agent stays thin: **Expertise** → **Boundaries** → **Build & Verify**. Its role, limits and proof of completion belong here; reusable constraints belong in rules and reusable procedures belong in skills.
 
-Do not instruct an agent to read rules or restate their content. Claude loads its generated rules for its subagents, while Cursor, Copilot, Codex, Pi and OpenCode receive always-on rules through `AGENTS.md`. Duplicating a rule in an agent spends context twice and creates a copy that drifts.
+Do not instruct an agent to read rules or restate their content. Claude loads its generated rules for its subagents, while Cursor, Copilot, Codex, Pi, OpenCode and Antigravity receive always-on rules through `AGENTS.md`. Duplicating a rule in an agent spends context twice and creates a copy that drifts.
 
 ### Tier mappings
 
@@ -196,12 +196,12 @@ Rule content in Markdown.
 
 ### Routing
 
-| Source rule | Claude | Cursor | Copilot | Codex / Pi / OpenCode / `AGENTS.md` |
-|---|---|---|---|---|
-| Scoped | copied with `paths:` | `.mdc` with `globs:` | `.instructions.md` with `applyTo:` | listed in `AGENTS.md`; Pi also gets on-demand files and an extension |
-| Always-on | copied | omitted | omitted | inlined once into `AGENTS.md` |
+| Source rule | Claude | Cursor | Antigravity | Copilot | Codex / Pi / OpenCode / `AGENTS.md` |
+|---|---|---|---|---|---|
+| Scoped | copied with `paths:` | `.mdc` with `globs:` | `.md` with `trigger: glob` and `globs:` | `.instructions.md` with `applyTo:` | listed in `AGENTS.md`; Pi also gets on-demand files and an extension |
+| Always-on | copied | omitted | omitted | omitted | inlined once into `AGENTS.md` |
 
-Cursor, Copilot, Codex, Pi and OpenCode consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. OpenCode and Codex have no generated path-scoped rule channel; OpenCode users may configure `instructions:` globs themselves.
+Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. OpenCode and Codex have no generated path-scoped rule channel; OpenCode users may configure `instructions:` globs themselves.
 
 Keep always-on rules small. Put narrow framework or component guidance behind `paths:` so unrelated tasks do not pay its context cost.
 
@@ -288,6 +288,7 @@ Every line enters a finite context budget. Prefer subtraction, consolidation and
 | Target | Rules | Skills | Agents |
 |---|---|---|---|
 | `agents` | Always-on inlined; scoped listed in `AGENTS.md` | Listed | Listed |
+| Antigravity | `AGENTS.md` plus scoped `.agents/rules/*.md` | `.agents/skills/` | `.agents/agents/*.md` |
 | Claude | `.claude/rules/` | `.claude/skills/` | `.claude/agents/` |
 | Cursor | scoped `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
 | Copilot | scoped `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
@@ -306,6 +307,7 @@ By default, commit the manifest, lock, project-owned content, `AGENTS.md`, and s
 # Local root instructions migrate into project rules; local preferences stay ignored
 CLAUDE.md
 .cursorrules
+GEMINI.md
 
 # Generated Claude and Cursor content; shared settings remain trackable
 .claude/*
@@ -315,8 +317,11 @@ CLAUDE.md
 !.cursor/
 !.cursor/settings.json
 
-# Generated open-standard and Codex content
+# Generated open-standard, Codex and Antigravity content. `.agents/` is a
+# shared workspace root, so only the generated subdirectories are ignored.
 .agents/skills/
+.agents/rules/
+.agents/agents/
 .codex/agents/
 
 # Generated Pi content

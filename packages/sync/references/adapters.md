@@ -163,6 +163,7 @@ Intelligence routes always-on rules once through `AGENTS.md` for tools that cons
 | Built-in | Always-on rules | Scoped rules |
 |---|---|---|
 | `agents` | Inline in `AGENTS.md` | List with links |
+| `antigravity` | Omit; reads `AGENTS.md` | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
 | `claude` | Copy | Copy with `paths:` preserved |
 | `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `globs:` |
 | `copilot` | Omit; reads `AGENTS.md` | `.instructions.md` with `applyTo:` |
@@ -186,7 +187,7 @@ copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
 
 Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, avoids materializing symlink targets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings.
 
-Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
+Antigravity, Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
 
 ### Agents
 
@@ -300,6 +301,7 @@ For a built-in adapter, add the same assertions to the repository's smoke or lif
 | Adapter | Primary output |
 |---|---|
 | `agents` | `AGENTS.md` |
+| `antigravity` | `.agents/rules`, `.agents/agents`, `.agents/skills` |
 | `claude` | `.claude/rules`, `.claude/agents`, `.claude/skills` |
 | `cursor` | `.cursor/rules`, `.cursor/agents`, `.cursor/skills` |
 | `copilot` | `.github/instructions`, `.github/agents`, `.github/skills` |

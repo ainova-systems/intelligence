@@ -4,6 +4,14 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.12.0]
+
+### Added
+
+- Added the built-in `antigravity` adapter: path-scoped rules become `.agents/rules/*.md` with `trigger: glob`, agents become `.agents/agents/*.md` subagents, and skills join the shared `.agents/skills/` directory while `AGENTS.md` keeps carrying always-on rules.
+- `init` now detects Antigravity from `GEMINI.md` or an existing `.agents/rules`, `.agents/agents` or `.agents/workflows` directory, and preserves `GEMINI.md` in the onboarding backup before quarantining it.
+- Added the `go-api-with-antigravity` example and its adapter assertions to the example smoke matrix.
+
 ## [0.11.9]
 
 ### Fixed

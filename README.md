@@ -188,7 +188,7 @@ available locally.
 
 ## How rules are routed
 
-Always-on rules are inlined once into `AGENTS.md`, which Cursor, Copilot, Codex, Pi and OpenCode consume as project context. Their adapters do not duplicate those rules into tool-specific channels.
+Always-on rules are inlined once into `AGENTS.md`, which Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume as project context. Their adapters do not duplicate those rules into tool-specific channels.
 
 Path-scoped rules stay in native channels where supported:
 
@@ -196,6 +196,7 @@ Path-scoped rules stay in native channels where supported:
 |---|---|
 | Claude Code | `.claude/rules/*.md` (all rules; Claude does not consume `AGENTS.md`) |
 | Cursor | `.cursor/rules/*.mdc` with `globs:` |
+| Antigravity | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
 | GitHub Copilot | `.github/instructions/*.instructions.md` with `applyTo:` |
 | Pi | generated on-demand rule files and extension |
 | Codex / OpenCode | no generated scoped-rule channel |
@@ -217,7 +218,7 @@ intelligence sync mytool
 
 ### Related links
 
-Official references for the currently supported adapters, checked September 5, 2026.
+Official references for the currently supported adapters, checked September 7, 2026.
 These describe the tools' native capabilities; Intelligence's generated paths and
 supported mappings are documented in [Built-in outputs](packages/sync/references/adapters.md#built-in-outputs)
 and [Artifact conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
@@ -225,6 +226,7 @@ and [Artifact conventions](packages/sync/references/conventions.md#generated-out
 | Adapter | Official references |
 |---|---|
 | `agents` | [AGENTS.md specification and examples](https://agents.md/) |
+| `antigravity` | [Rules](https://antigravity.google/docs/rules-workflows), [skills](https://antigravity.google/docs/skills), [subagents](https://antigravity.google/docs/subagents) |
 | `claude` | [Project instructions and rules](https://code.claude.com/docs/en/memory), [skills](https://code.claude.com/docs/en/skills), [subagents](https://code.claude.com/docs/en/sub-agents) |
 | `cursor` | [Rules](https://cursor.com/docs/rules), [skills](https://cursor.com/docs/skills), [subagents](https://cursor.com/docs/subagents) |
 | `copilot` | [Repository instructions](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/add-custom-instructions/add-repository-instructions), [skills](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills), [custom agents](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/create-custom-agents) |

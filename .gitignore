@@ -20,3 +20,6 @@ CLAUDE.md
 intelligence/_backup/
 .agents/skills/
 .codex/agents/
+GEMINI.md
+.agents/rules/
+.agents/agents/

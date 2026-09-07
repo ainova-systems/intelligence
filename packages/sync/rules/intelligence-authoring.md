@@ -25,7 +25,7 @@ Three ways to shorten, in order of what they are worth:
 
 ## Source of truth
 
-Edit the project-owned sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. An installed package source is replaced by CLI lifecycle/package operations; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/skills/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
+Edit the project-owned sources listed in `<manifest>` — the `rules/`, `agents/` and `skills/` directories it names — and `<manifest>` itself. An installed package source is replaced by CLI lifecycle/package operations; change it in its own repository. Everything else is derived: `.claude/`, `.cursor/`, `.github/{instructions,agents,skills}/`, `.codex/`, `.agents/{rules,agents,skills}/`, `.pi/`, `.opencode/` and `AGENTS.md` are **generated output**, and a hand edit there survives exactly until the next sync.
 
 `<module>/` is the installed sync package's content. Package operations replace it, so a local edit there is lost. Fix it upstream instead.
 
@@ -68,7 +68,7 @@ The mistakes that actually happen, in order of frequency:
 
 An agent is **thin**: who it is, where it stops, how it verifies. Nothing else.
 
-- **Do not list rules for an agent to read.** They load on their own — Claude Code loads `.claude/rules/` into every custom subagent's startup context, and Cursor, Copilot, Codex, Pi and opencode receive always-on rules inlined in `AGENTS.md`. Naming a rule is fine; copying it is duplication that drifts.
+- **Do not list rules for an agent to read.** They load on their own — Claude Code loads `.claude/rules/` into every custom subagent's startup context, and Cursor, Copilot, Codex, Pi, OpenCode and Antigravity receive always-on rules inlined in `AGENTS.md`. Naming a rule is fine; copying it is duplication that drifts.
 - **Point at a rule, do not restate it.** Wanting to copy a rule into an agent means the rule is in the wrong place — move it.
 - **Do carry** what is genuinely the agent's own: its boundaries ("if the app will not start, stop — do not hand-write the output"), its verification commands, its definition of done.
 

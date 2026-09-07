@@ -881,6 +881,21 @@ chk grep -Fqx '!.cursor/settings.json' "$PROJ/.gitignore"
 xfail "required by enabled target 'cursor'" "$PROJ" adapter disable agents
 xok "disabled: cursor" "$PROJ" adapter disable cursor
 xok "disabled: agents" "$PROJ" adapter disable agents
+
+# Antigravity owns three sibling directories under one shared root: the
+# generated ones are ignored individually, never `.agents/` itself, which also
+# holds hand-written workspace content the adapter never writes.
+xfail "requires target 'agents'" "$PROJ" adapter enable antigravity
+xok "enabled: agents" "$PROJ" adapter enable agents
+xok "enabled: antigravity" "$PROJ" adapter enable antigravity
+chk grep -Fqx '.agents/rules/' "$PROJ/.gitignore"
+chk grep -Fqx '.agents/agents/' "$PROJ/.gitignore"
+chk grep -Fqx '.agents/skills/' "$PROJ/.gitignore"
+chk grep -Fqx 'GEMINI.md' "$PROJ/.gitignore"
+chknot grep -Fqx '.agents/' "$PROJ/.gitignore"
+xfail "required by enabled target 'antigravity'" "$PROJ" adapter disable agents
+xok "disabled: antigravity" "$PROJ" adapter disable antigravity
+xok "disabled: agents" "$PROJ" adapter disable agents
 xok "myide" "$PROJ" adapter list
 xok "removed: intelligence/adapters/myide.sh" "$PROJ" adapter remove myide --apply
 chknot test -f "$PROJ/intelligence/adapters/myide.sh"

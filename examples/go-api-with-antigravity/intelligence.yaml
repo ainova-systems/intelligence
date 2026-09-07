@@ -1,6 +1,7 @@
-# Example: Go API service with opencode
-# Demonstrates the minimal config to enable the opencode adapter alongside
-# the always-on AGENTS.md (which opencode reads natively).
+# Example: Go API service with Google Antigravity
+# Antigravity reads AGENTS.md natively, so always-on rules stay there and the
+# adapter only adds what AGENTS.md cannot carry: glob-triggered rules, shared
+# .agents/skills bundles and .agents/agents subagent definitions.
 
 project:
   name: my-api
@@ -25,10 +26,10 @@ targets:
     header: |
       # My API
 
-      Go 1.22 HTTP API | Postgres | opencode example
+      Go 1.22 HTTP API | Postgres | Antigravity example
 
       **Full context**: [`intelligence/rules/context.md`](intelligence/rules/context.md)
-  opencode: { enabled: true, output: ".opencode" }
+  antigravity: { enabled: true, output: ".agents" }
 
 # CLI-owned blocks — the engine never reads below this line. The engine's own
 # content is an ordinary package, pinned to the engine and restored offline
