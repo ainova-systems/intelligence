@@ -67,4 +67,4 @@ packages:
   "@ainova-systems/sync":
     version: "0.12.0"
   "@ainova-systems/core":
-    version: "^0.3.0"
+    version: "^0.4.0"
