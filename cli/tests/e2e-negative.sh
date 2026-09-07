@@ -868,6 +868,19 @@ xok "" "$PROJ" init --no-sync
 chk grep -Fqx '!.claude/' "$PROJ/.gitignore"
 chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
 xok "all good" "$PROJ" status --check
+# The repair moves the negation chain last, and appending is the only move it
+# has — so once the chain IS last, running again must add nothing. Alignment is
+# idempotent or it silently grows the file on every run.
+gi_lines="$(grep -c '' "$PROJ/.gitignore")"
+gi_negations="$(grep -Fxc '!.claude/' "$PROJ/.gitignore")"
+for _ in 1 2 3; do xok "" "$PROJ" init --no-sync; done
+gi_after="$(grep -c '' "$PROJ/.gitignore")"
+[ "$gi_after" -eq "$gi_lines" ] \
+    || { echo "FAIL: .gitignore grew from $gi_lines to $gi_after across repeated alignment"; fail=1; }
+negations_after="$(grep -Fxc '!.claude/' "$PROJ/.gitignore")"
+[ "$negations_after" -eq "$gi_negations" ] \
+    || { echo "FAIL: '!.claude/' count moved from $gi_negations to $negations_after across repeated alignment"; fail=1; }
+chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
 
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.
