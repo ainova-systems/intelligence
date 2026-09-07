@@ -4,7 +4,7 @@ Build, version and distribute project rules, agents and skills across AI tools.
 Make existing skill ecosystems easy to consume while preserving explicit source
 trust, reproducible package state and deterministic native rendering.
 
-Reviewed September 5, 2026. These are planned changes, not current CLI features
+Reviewed September 7, 2026. These are planned changes, not current CLI features
 or release commitments. Completed work belongs in `CHANGELOG.md`; architectural
 rationale, accepted direction and unresolved design choices are in
 [decision 0006](decisions/0006-safe-skill-imports-and-adapter-growth.md).
@@ -43,77 +43,27 @@ scoped rules and custom agents remain distinct capabilities.
 | 8 | Resolve selected remote plugins through trusted marketplace registries | 1, 3–5 |
 | 9 | Optimize acquisition and consider additional transports | Measured demand after 4/8 |
 
-### Batch: exact locked restore (step 1, first slice)
-
-Scope: restore Git packages by locked commit even when the requested branch or
-tag moves. Keep requested refs for updates and retain the offline bundle seed.
-Version intent: patch fix in pending `0.11.8`.
-
-- [x] Restore retained commits after branch and tag movement without changing
-  the manifest or lock; verify the restored content and generated output.
-- [x] Refuse unavailable commits and malformed/missing required commit identities
-  before publishing that package; preserve existing output and the lock on failure.
-- [x] Verify matching release-bundle identities and explicitly report the
-  development-bundle exception when commit verification is unavailable.
-- [x] Preserve update planning, manifest/lock drift refusal and repeatable sync.
-- [x] Preserve normalized checkout bytes for explicit commit refs under inherited
-  Git settings.
-
-This first slice leaves lock-schema/identity validation, installed
-content rehashing, transactions across package store/manifest/lock/render state,
-and bounded Git/authentication diagnostics. This batch verifies acquisition of
-each restored package; it does not make a multi-package restore transactional.
-Rollback: revert this batch; the lock format is unchanged, so older clients can
-still read it and retain their earlier moved-ref refusal behavior.
-
-### Batch: lock validation before lifecycle writes (step 1, second slice)
-
-Scope: validate the existing v1 lock structure and required source identities
-before lifecycle alignment, restore or mutation, even with an installed store.
-Use the same validation in read-only status/package reports and lifecycle previews.
-Version intent: patch fix in pending `0.11.9`.
-
-- [x] Reject unsupported/missing lock versions, malformed package maps/scalars,
-  duplicate package/field identities and missing or unsafe required source data.
-- [x] Validate every row before any package, manifest, lock or generated-output
-  write; cover installed and missing stores and alignment from an older schema.
-- [x] Report invalid locks through `status` and `package list`; keep independent
-  `status --check` diagnostics available and diagnose missing stores strictly.
-- [x] Preserve generated v1 locks, CRLF, optional root paths, the explicit offline
-  bundle SHA exception and newer same-major project compatibility.
-- [x] Share field/row tokenization with strict validation, preserve writer escapes
-  through repeated rewrites, and parse each lock once per validation.
-- [x] Refuse legacy mirrors without recorded SHAs before conversion writes;
-  preserve offline conversion of valid stamped mirrors.
-- [x] Document whole-file recovery from trusted state and explicit CLI rebuilding
-  when no valid copy exists; never fabricate missing commit identities.
-
-Remaining step 1 work: installed-content rehashing, full manifest-intent validation,
-transactions across package store/manifest/lock/render state, and bounded
-Git/authentication diagnostics. This batch validates lock metadata; it does not
-verify existing package bytes or make package operations transactional.
-Rollback: revert this batch; the generated lock format is unchanged.
-
 ### 1. Exact restore and integrity boundaries
 
-**Problem.** Exact locked acquisition is delivered by the first batch above.
-Lock readers can still silently skip malformed structure, and the existing store
-is not fully rehashed during ordinary sync. Output rollback does not cover every
-package-store/manifest/lock mutation.
+**Problem.** Exact locked acquisition and lock-metadata validation are in place, so
+what remains is everything they deliberately did not cover. Installed package bytes
+are never rehashed, manifest intent is validated only where the lock forced it, and
+rollback still spans one operation at a time rather than the package store, manifest,
+lock and rendered output together. Git and authentication failures reach the user as
+raw transport errors.
 
-**Deliver.** Fetch and verify the locked commit; keep requested refs for update
-planning. Define validation for lock schema, required identities and installed
-content. Specify and stage the state covered by package operations before claiming
-transactional installation. Keep the bundle-seeded offline default and make any
-development-build integrity exception explicit. Improve bounded Git failures and
-authentication diagnostics without extracting credentials.
+**Deliver.** Define and apply an integrity check over installed package content.
+Complete manifest-intent validation beside the lock validation already shipped.
+Specify and stage the state a package operation covers before calling it
+transactional, keeping the bundle-seeded offline default and the explicit
+development-build exception. Improve bounded Git failures and authentication
+diagnostics without extracting credentials.
 
-**Acceptance.** A fresh clone restores a retained commit after a branch/tag moves;
-an unavailable commit fails without substituting HEAD or changing the lock. Reject
-manifest/lock drift and malformed required identity before writes. A tampered store
-is detected by the chosen integrity check. A late fetch/render failure preserves
-the prior state covered by the operation's documented transaction. Existing
-moved-tag refusal tests are replaced only with stronger exact-commit assertions.
+**Acceptance.** A tampered store is detected by the chosen integrity check. A late
+fetch or render failure preserves the prior state covered by the operation's
+documented transaction. An unreachable or unauthenticated remote reports what to fix
+without echoing credentials. The delivered exact-commit and lock-validation refusals
+keep their tests; they are replaced only by stronger assertions.
 
 ### 2. Skill ownership and coexistence
 
