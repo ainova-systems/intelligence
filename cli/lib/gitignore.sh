@@ -15,34 +15,60 @@ gitignore_path_is_ignored() {
     git -C "$root" check-ignore -q --no-index -- "$path"
 }
 
-# Git cannot re-include a child of an excluded directory. Add explicit parent
-# reinclusions, then make sure both parent and child negations occur after any
-# pre-existing rule that still wins. The check-ignore probe also catches broad
-# patterns such as an old `.claude/` or `.cursor/**`, not just exact matches.
+# True when the file's last lines are exactly these, in order.
+gitignore_tail_is() {
+    local file="$1"; shift
+    [ -f "$file" ] || return 1
+    local want tail_lines
+    want="$(printf '%s\n' "$@")"
+    tail_lines="$(tail -n "$#" -- "$file")"
+    [ "$tail_lines" = "$want" ]
+}
+
+# Git cannot re-include a child of an excluded directory, so an include needs an
+# explicit negation for every parent. A negation only wins when it comes after
+# the rule excluding the parent, and the only repair an append can make is to
+# move the whole chain last — so the repair runs when, and only when, the chain
+# is not already there.
+#
+# Probe the include TARGET, never a parent with a trailing slash: `dir/*` — the
+# ignore this very policy writes — matches `dir/` because `*` matches the empty
+# string, so a parent probe answers "still ignored" in the healthy end state.
+# Keyed on that, the repair re-appended a line already last, which cannot change
+# the answer, and the file grew by one line on every run.
 gitignore_add_effective_include() {
-    local root="$1" value="${2#./}" dir parent="" part rc
+    local root="$1" value="${2#./}" dir parent="" part line rc
+    local -a negations=()
     dir="${value%/*}"
     if [ "$dir" != "$value" ]; then
         while IFS= read -r part; do
             [ -n "$part" ] || continue
             if [ -n "$parent" ]; then parent="$parent/$part"; else parent="$part"; fi
-            gitignore_add_line "$root" "!$parent/"
-            if gitignore_path_is_ignored "$root" "$parent/"; then
-                printf '!%s/\n' "$parent" >> "$root/.gitignore"
-            else
-                rc=$?
-                [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ] || return "$rc"
-            fi
+            negations+=("!$parent/")
         done < <(printf '%s\n' "$dir" | tr '/' '\n')
     fi
+    negations+=("!$value")
 
-    gitignore_add_line "$root" "!$value"
-    if gitignore_path_is_ignored "$root" "$value"; then
-        printf '!%s\n' "$value" >> "$root/.gitignore"
-    else
-        rc=$?
-        [ "$rc" -eq 1 ] || [ "$rc" -eq 2 ] || return "$rc"
-    fi
+    for line in "${negations[@]}"; do
+        gitignore_add_line "$root" "$line"
+    done
+
+    # `|| rc=$?` keeps the probe out of `set -e`'s reach: its honest "not
+    # ignored" is exit 1, and a bare call would abort the whole command there.
+    rc=0
+    gitignore_path_is_ignored "$root" "$value" || rc=$?
+    case "$rc" in
+        0) ;;
+        1|2) return 0 ;;
+        *) return "$rc" ;;
+    esac
+
+    # Still ignored: an earlier negation is shadowed by a later rule. Move the
+    # chain last. Already last means appending cannot help — leave it, and let
+    # `status --check` report the re-inclusion this policy could not make
+    # effective rather than growing the file forever.
+    gitignore_tail_is "$root/.gitignore" "${negations[@]}" && return 0
+    printf '%s\n' "${negations[@]}" >> "$root/.gitignore"
 }
 
 ensure_gitignore_header() {

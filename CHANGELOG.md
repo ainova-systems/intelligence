@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.12.1]
+
+### Fixed
+
+- Stopped `.gitignore` growing by one line on every project alignment: the re-inclusion repair probed the parent directory, which the policy's own `dir/*` ignore matches, so it re-appended a negation that was already last. It now probes the include target and only moves the negation chain when the chain is not already at the end of the file.
+
 ## [0.12.0]
 
 ### Added
