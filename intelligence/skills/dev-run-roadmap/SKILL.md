@@ -38,6 +38,7 @@ merge and release requires the owner's explicit approval for that PR and version
    Record the batch in the repository's existing plan convention, or a concise
    section in the roadmap when none exists. Include scope, acceptance checklist and
    remaining portions of split items. Keep transient CI/review state in the PR.
+   That section is working state for this batch, not a record of it.
 
 ## Implement and prepare the PR
 
@@ -47,10 +48,13 @@ merge and release requires the owner's explicit approval for that PR and version
    about changed product decisions before dependent implementation.
 
 6. Update affected documentation, conventions and decisions with the implementation.
-   Record only the delivered part in the roadmap and leave unfinished criteria
-   open. Progress in the feature branch describes that branch; confirm its merge
-   before a later run counts it as completed project work. Keep release/publication
-   state grounded in Git and the release platform, not roadmap checkboxes.
+   In the same PR, fold what the batch leaves unfinished back into the plan item it
+   came from and retire the batch's own section, so the plan keeps only open work
+   and no item still describes a problem this batch solved. The delivered behavior
+   is recorded by the changelog, not by ticked checkboxes. Progress in the feature
+   branch describes that branch; confirm its merge before a later run counts it as
+   completed project work. Keep release/publication state grounded in Git and the
+   release platform, not roadmap checkboxes.
 
 7. Apply the repository's version/changelog policy to the complete pending release.
    Check publication before choosing a version, promote a pending version when the
