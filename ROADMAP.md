@@ -94,29 +94,6 @@ Git/authentication diagnostics. This batch validates lock metadata; it does not
 verify existing package bytes or make package operations transactional.
 Rollback: revert this batch; the generated lock format is unchanged.
 
-### Batch: Antigravity adapter (step 6, first target)
-
-Scope: a built-in `antigravity` target rendering Google Antigravity's native
-resource model. Version intent: minor feature in pending `0.12.0`.
-
-- [x] Route always-on rules through `AGENTS.md` only, and emit path-scoped rules
-  as `.agents/rules/*.md` with `trigger: glob` and `globs:`.
-- [x] Share `.agents/skills/` with Codex, Pi and opencode through the single
-  open-standard helper, independently of the configured output.
-- [x] Export agents to `.agents/agents/*.md` with the required `name`, a model
-  from the documented `inherit|flash|pro` set, and a readonly tool allowlist.
-- [x] Quarantine `GEMINI.md` at onboarding: it outranks `AGENTS.md`, so leaving
-  it in place would silently override every synced rule.
-- [x] Detect the tool from its own markers, ignore only generated subdirectories
-  of the shared `.agents/` root, and cover the outputs in the gate runner and
-  the example smoke matrix.
-
-Rollback: revert this batch and run `intelligence adapter disable antigravity`.
-No shared format changed, so every other adapter's output is unaffected; the
-generated `.agents/rules` and `.agents/agents` directories are then removed by
-ordinary adapter-aware cleanup, and a quarantined `GEMINI.md` is restorable from
-`intelligence/_backup/`.
-
 ### 1. Exact restore and integrity boundaries
 
 **Problem.** Exact locked acquisition is delivered by the first batch above.
