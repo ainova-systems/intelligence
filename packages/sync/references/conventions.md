@@ -392,6 +392,7 @@ The public lifecycle is deliberately compact:
 - `intelligence init [--preview|--apply]` is universal: it creates a new setup, aligns an existing Intelligence project, or plans/applies conversion of an eligible legacy Intelligence Sync project.
 - `intelligence sync [adapter] [--compact]` first aligns an existing Intelligence project with the installed CLI, restores a missing store strictly from `intelligence.lock`, then renders. Compact mode shows context sizes, actionable warnings and final status on success, and all diagnostics on failure. In CI it refuses an alignment that would change tracked files and points to a local `intelligence init --apply` plus review/commit.
 - `intelligence update [@scope/name] [--preview|--apply]` is the only update surface. It prints the CLI/project/package plan; default mode prompts, `--preview` never writes, and `--apply` does not prompt. It never moves `ref:` pins.
+- `intelligence upgrade [--next] [--preview|--apply]` replaces the installed CLI with the newest version on its npm channel (`next` for a prerelease or with `--next`, otherwise `latest`) with the same modes. It touches no project, never downgrades, and refuses an installation that npm did not make.
 - `intelligence package add|remove|list|search` owns package inventory.
 - `intelligence adapter list|create|enable|disable|remove` owns adapter inventory and target state.
 - `intelligence status [--check]` reports state; `--check` runs deep consistency checks.

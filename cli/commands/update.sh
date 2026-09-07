@@ -2,8 +2,9 @@
 # intelligence update [@scope/name] [--preview|--apply]
 #
 # One update surface: show the installed-CLI/project/package plan, then either
-# stop, ask interactively, or apply without a prompt. Updating the global npm
-# installation remains an explicit package-manager operation.
+# stop, ask interactively, or apply without a prompt. Replacing the global npm
+# installation is `intelligence upgrade`, which the plan names; it never
+# happens inside a project command.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -30,18 +31,27 @@ project_change=0
 echo "Update plan"
 echo ""
 echo "CLI:"
-if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ "${IS_SKIP_NPM_CHECK:-0}" != "1" ] && command -v npm >/dev/null 2>&1; then
-    channel="latest"
-    case "$INTELLIGENCE_NPM_VERSION" in *-*) channel="next" ;; esac
-    available="$(npm view "@ainova-systems/intelligence" "dist-tags.$channel" 2>/dev/null || true)"
-    if [ -z "$available" ]; then
-        echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
-    elif [ "$available" = "$INTELLIGENCE_NPM_VERSION" ]; then
-        echo "  $INTELLIGENCE_NPM_VERSION (up to date on npm $channel)"
+if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ -n "${INTELLIGENCE_NPM_PACKAGE:-}" ] \
+    && [ "${IS_SKIP_NPM_CHECK:-0}" != "1" ] && command -v npm >/dev/null 2>&1; then
+    channel="$(npm_channel_for "$INTELLIGENCE_NPM_VERSION")"
+    # Ask the way `upgrade` will install: in global mode at this tree's own
+    # prefix when npm made it, so the plan and the install read one config.
+    cli_install_classify "$(cd "$CLI_DIR/.." && pwd -P)" "$INTELLIGENCE_NPM_PACKAGE" "${INTELLIGENCE_NPM_BIN:-}"
+    npm_prefix=""
+    [ "$CLI_INSTALL_KIND" != "npm" ] || npm_prefix="$(native_path "$CLI_INSTALL_PREFIX")"
+    # An empty or non-version answer is "not checked", never a comparison.
+    if available="$(cli_registry_version "$INTELLIGENCE_NPM_PACKAGE" "$channel" "$npm_prefix")"; then
+        case "$(semver_cmp_full "$available" "$INTELLIGENCE_NPM_VERSION")" in
+            1)
+                echo "  $INTELLIGENCE_NPM_VERSION -> $available (npm $channel)"
+                echo "  run: intelligence upgrade"
+                echo "  then rerun: intelligence update --apply"
+                ;;
+            0) echo "  $INTELLIGENCE_NPM_VERSION (up to date on npm $channel)" ;;
+            *) echo "  $INTELLIGENCE_NPM_VERSION (ahead of npm $channel $available)" ;;
+        esac
     else
-        echo "  $INTELLIGENCE_NPM_VERSION -> $available (npm $channel)"
-        echo "  run: npm install -g @ainova-systems/intelligence@$channel"
-        echo "  then rerun: intelligence update --apply"
+        echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
     fi
 else
     echo "  source checkout/registry check skipped; engine $eng"
@@ -50,7 +60,7 @@ fi
 echo ""
 echo "Project:"
 if project_stamped_ahead "$IP_ROOT"; then
-    echo "  schema $stamp is ahead of engine $eng — left as is; update the CLI to align it"
+    echo "  schema $stamp is ahead of engine $eng — left as is; update the CLI to align it: intelligence upgrade (--next when the stamp came from a prerelease line)"
 elif project_needs_upgrade "$IP_ROOT"; then
     echo "  lifecycle alignment required (stamp ${stamp:-unstamped}, engine $eng)"
     project_change=1

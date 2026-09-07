@@ -4,7 +4,7 @@ Thank you for improving the Intelligence CLI, sync engine or package content.
 
 ## Before you change code
 
-Read [decision 0001](decisions/0001-separate-legacy-intelligence-sync-from-intelligence.md) and [decision 0002](decisions/0002-consolidate-intelligence-cli-lifecycle.md). Keep Intelligence separate from legacy Intelligence Sync and preserve the compact public command model; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the legacy migration chain.
+Read [decision 0001](decisions/0001-separate-legacy-intelligence-sync-from-intelligence.md), [decision 0002](decisions/0002-consolidate-intelligence-cli-lifecycle.md) and [decision 0007](decisions/0007-add-upgrade-as-the-cli-self-update-command.md). Keep Intelligence separate from legacy Intelligence Sync and preserve the compact public command model; do not reintroduce vendored engine layouts, `packs:`, mirrors, `update.sh` or the legacy migration chain.
 
 Open issues against [`ainova-systems/intelligence`](https://github.com/ainova-systems/intelligence/issues). Include the operating system, shell, installed npm package version, `intelligence status`, the failing command and a minimal redacted `intelligence.yaml` when relevant.
 
@@ -31,11 +31,12 @@ the existing merge and release workflows. Reinvoke it to start the next batch.
 
 ## Public CLI contract
 
-Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
+Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `upgrade`, `package`, `adapter`, `status` and `registry`. Package and adapter verbs are subcommands of their respective groups.
 
 - `init` owns new-project setup, legacy-project conversion and project alignment.
 - Project-aware mutations align Intelligence projects automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
 - `sync` restores a missing package store from the committed lock before rendering.
+- `update` plans CLI, project and package changes and applies the project ones; `upgrade` is the only command that replaces the installed CLI, and it touches no project.
 - Planned writes use `--preview` and `--apply` consistently.
 - Deep consistency validation belongs to `status --check`.
 

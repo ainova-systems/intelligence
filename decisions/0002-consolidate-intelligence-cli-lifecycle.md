@@ -56,3 +56,7 @@ state. That preserved the shape of the legacy Intelligence Sync procedures inste
   repositories, so it cannot safely find or modify project manifests.
 - **Let CI auto-commit alignment.** Hidden tracked changes in a render step are not reviewable and
   can make generated output appear valid against uncommitted schema state.
+
+Amended by 0007 (this file is append-only, the items above are unchanged): `upgrade` returns as
+the CLI's self-update command. Item 7's removal of the legacy project-upgrade meaning stands, and
+the npm command item 5's plan used to print is now that command.

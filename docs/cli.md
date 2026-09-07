@@ -175,9 +175,19 @@ Modes:
 | `--preview` | Print the plan and write nothing |
 | `--apply` | Apply project/package changes without asking, then sync |
 
-The plan reports the npm command required to replace the global executable; it never mutates the global npm prefix itself. The exact engine-content pin does not move as an ordinary range.
+When a newer CLI is on its npm channel, the plan names `intelligence upgrade`; `update` never mutates the global npm prefix itself. The exact engine-content pin does not move as an ordinary range.
 
 A `ref:` pin is compared by commit, not by ref name: the plan resolves the ref on the remote and reports `<ref> <old sha> -> <new sha>` when it moved, so a branch or `HEAD` pin follows its upstream and a re-cut tag is visible. A ref that is itself a commit reports `(pinned commit)` and never moves — that is how a source is frozen. A remote that cannot be reached is reported as not checked, never as up to date.
+
+### `intelligence upgrade`
+
+```text
+intelligence upgrade [--next] [--preview | --apply]
+```
+
+Replaces the installed CLI with the newest version on its npm channel: `next` when the running version is a prerelease or `--next` is given, otherwise `latest`. The command asks the registry, prints `installed -> available` with the exact `npm install -g --prefix … <package>@<version>` it will run as one pastable command, and follows the `update` modes: no flag asks first and a non-interactive shell refuses, `--preview` writes nothing, `--apply` installs without asking. The version installed is the one the plan showed, never a moving tag, and success is what the freshly installed launcher reports, not what npm returned. A CLI already at its channel's version exits 0 without writes; one ahead of its channel exits 0 too and names the command that moves it back deliberately, because `upgrade` never downgrades. A registry that does not answer is a refusal, never "up to date".
+
+`upgrade` replaces the installation it runs from and touches no project. It reads the npm prefix off its own location (`<prefix>/lib/node_modules/<package>` on POSIX, `<prefix>/node_modules/<package>` on Windows), accepts it only when the shim npm linked at that prefix (`bin/intelligence`, or `intelligence.cmd` on Windows) points at this tree, and passes it to npm explicitly, so the CLI on `PATH` is the one replaced under nvm, Homebrew or a custom prefix alike; the registry is asked in that same global configuration. Anything else — a source checkout, an `npx` run, a checkout linked with `npm link`, a project's own dependency, another package manager's store (pnpm, yarn, bun, Volta, Nix) — is refused before any network call, with the command that upgrades that installation where it lives. After upgrading, run `intelligence update` in each project to align it with the new CLI; a project stamped by a prerelease CLI needs `upgrade --next`.
 
 ### `intelligence package`
 
@@ -253,7 +263,7 @@ A newer globally installed CLI cannot update projects at npm installation time b
 
 This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
 
-The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`npm i -g @ainova-systems/intelligence@latest`) to align the project again.
+The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`intelligence upgrade`) to align the project again.
 
 CI is intentionally different. When `CI` is true and tracked alignment is pending, implicit preflight refuses and prints:
 
@@ -389,6 +399,6 @@ bash cli/tests/verify.sh
 bash cli/tests/verify.sh all
 ```
 
-The `tests` scope runs six hermetic suites (`unit-semver`, `unit-manifest`, `unit-release`, `e2e-packages`, `e2e-lifecycle`, `e2e-negative`); the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
+The `tests` scope runs the hermetic suites listed in the runner (`unit-semver`, `unit-manifest`, `unit-release`, `unit-fetch`, `unit-upgrade`, `e2e-packages`, `e2e-lifecycle`, `e2e-negative`, `e2e-lock-validation`, `e2e-compat`); the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
 
 Build the npm payload with `bash npm/build.sh 0.0.0-dev`. To release, create and push a tag from `main`, then publish a GitHub Release for it. Prerelease tag `vX.Y.Z-rc.N` goes to npm dist-tag `next`; stable tag `vX.Y.Z` goes to `latest` and advances a stale `next` without replacing a newer preview line. Mark an RC Release as a prerelease; the workflow rejects a tag outside `main`, a base version that differs from `engine/VERSION`, or a mismatched prerelease flag.

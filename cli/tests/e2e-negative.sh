@@ -914,7 +914,9 @@ xok "removed: intelligence/adapters/myide.sh" "$PROJ" adapter remove myide --app
 chknot test -f "$PROJ/intelligence/adapters/myide.sh"
 
 echo "== 16. removed public commands stay removed =="
-for old in install upgrade migrate outdated target doctor add remove list search; do
+# `upgrade` is public again since 0.13.0, with the CLI itself as its only
+# meaning; the legacy project-upgrade names stay unknown.
+for old in install migrate outdated target doctor add remove list search; do
     xfail "unknown command" "$PROJ" "$old"
 done
 run_in "$PROJ" help
@@ -923,6 +925,8 @@ printf '%s\n' "$OUTPUT" | grep -qF -- "--targets a,b --dir name --bare --no-sync
     || { echo "FAIL: init options missing from help"; fail=1; }
 printf '%s\n' "$OUTPUT" | grep -qF -- "sync [adapter] [--compact]" \
     || { echo "FAIL: compact sync missing from help"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -qF -- "upgrade [--next] [--preview|--apply]" \
+    || { echo "FAIL: upgrade missing from help"; fail=1; }
 
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"

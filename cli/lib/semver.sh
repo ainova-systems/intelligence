@@ -21,6 +21,72 @@ semver_cmp() {
         }'
 }
 
+# semver_cmp_full <a> <b> — prints -1 / 0 / 1 with SemVer prerelease
+# precedence: 1.0.0-rc.1 < 1.0.0-rc.2 < 1.0.0; build metadata is ignored.
+# Package ranges never see prereleases, so semver_cmp stays digits-only; this
+# one is for the CLI's own npm versions, whose `next` channel is a prerelease
+# line.
+semver_cmp_full() {
+    awk -v a="${1#v}" -v b="${2#v}" '
+        # Numeric identifiers compare as numbers (no leading zeros, so length
+        # then digits — exact beyond what a double holds) and sort before
+        # alphanumeric ones; those compare as ASCII strings, never as numbers
+        # awk might read into them (1e5).
+        function idcmp(x, y,    xn, yn) {
+            xn = (x ~ /^[0-9]+$/); yn = (y ~ /^[0-9]+$/)
+            if (xn && yn) {
+                if (length(x) != length(y)) return (length(x) < length(y)) ? -1 : 1
+                return (x "" < y "") ? -1 : (x "" > y "") ? 1 : 0
+            }
+            if (xn) return -1
+            if (yn) return 1
+            return (x "" < y "") ? -1 : (x "" > y "") ? 1 : 0
+        }
+        BEGIN {
+            sub(/\+.*$/, "", a); sub(/\+.*$/, "", b)
+            pa = ""; pb = ""
+            if (i = index(a, "-")) { pa = substr(a, i + 1); a = substr(a, 1, i - 1) }
+            if (i = index(b, "-")) { pb = substr(b, i + 1); b = substr(b, 1, i - 1) }
+            na = split(a, A, "."); nb = split(b, B, ".")
+            for (i = 1; i <= 3; i++) {
+                x = (i <= na) ? A[i] + 0 : 0
+                y = (i <= nb) ? B[i] + 0 : 0
+                if (x < y) { print -1; exit }
+                if (x > y) { print 1; exit }
+            }
+            # A release outranks every prerelease of the same core.
+            if (pa == "" && pb == "") { print 0; exit }
+            if (pa == "") { print 1; exit }
+            if (pb == "") { print -1; exit }
+            na = split(pa, PA, "."); nb = split(pb, PB, ".")
+            n = (na < nb) ? na : nb
+            for (i = 1; i <= n; i++) {
+                c = idcmp(PA[i], PB[i])
+                if (c != 0) { print c; exit }
+            }
+            r = (na < nb) ? -1 : (na > nb) ? 1 : 0
+            print r
+        }'
+}
+
+# npm_channel_for <version> — the npm dist-tag a CLI version came from:
+# `next` for a prerelease, `latest` otherwise. `update` and `upgrade` both
+# derive the channel from the running version; one rule here keeps them equal.
+npm_channel_for() {
+    case "$1" in
+        *-*) printf 'next' ;;
+        *) printf 'latest' ;;
+    esac
+}
+
+# is_npm_version <string> — 0 iff the string is a version as npm publishes
+# it: `x.y.z`, an optional `-prerelease`, an optional `+build`, nothing else.
+# A registry answer becomes an npm argument, so anything else is refused.
+is_npm_version() {
+    local re='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+    [[ "$1" =~ $re ]]
+}
+
 # semver_is_stable <version> — 0 iff `[v]x.y.z` with nothing else.
 semver_is_stable() {
     case "${1#v}" in

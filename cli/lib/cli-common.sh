@@ -80,6 +80,7 @@ pin_label() {
 
 source "$CLI_DIR/lib/manifest.sh"
 source "$CLI_DIR/lib/semver.sh"
+source "$CLI_DIR/lib/cli-install.sh"
 source "$CLI_DIR/lib/registry.sh"
 source "$CLI_DIR/lib/lockfile.sh"
 source "$CLI_DIR/lib/adapter-lifecycle.sh"

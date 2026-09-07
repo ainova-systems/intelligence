@@ -28,10 +28,15 @@ result.
    mode also shows the plan and prompts; after approval, use `--apply` for an
    unambiguous non-interactive execution.
 
-4. If the plan reports a newer global CLI, run exactly the npm command it
-   prints after approval, then rerun `intelligence update --preview` with the
-   new executable. Apply the resulting plan with `intelligence update --apply`,
-   or `intelligence update $ARGUMENTS --apply` when one package was requested.
+4. If the plan reports a newer global CLI, run `intelligence upgrade --apply`
+   after approval — it installs exactly the version the plan showed — then
+   rerun `intelligence update --preview` with the new executable. When the
+   project section reports a schema stamped ahead of the stable line, the CLI
+   that stamped it was a prerelease: use `intelligence upgrade --next --apply`.
+   If `upgrade` refuses because npm did not make this installation, run the
+   command its message names instead. Apply the resulting plan with
+   `intelligence update --apply`, or `intelligence update $ARGUMENTS --apply`
+   when one package was requested.
 
 5. An applied update that renders must finish with `IS_STATUS=ok`; preserve and
    stop on any other status. Then run `intelligence status --check`. Do not run
