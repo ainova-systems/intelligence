@@ -12,6 +12,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - `init` now detects Antigravity from `GEMINI.md` or an existing `.agents/rules`, `.agents/agents` or `.agents/workflows` directory, and preserves `GEMINI.md` in the onboarding backup before quarantining it.
 - Added the `go-api-with-antigravity` example and its adapter assertions to the example smoke matrix.
 
+### Changed
+
+- `init` now treats only `.agents/skills` as a Codex marker instead of the whole `.agents/` root, so an Antigravity-only workspace no longer enables Codex as well.
+
 ## [0.11.9]
 
 ### Fixed

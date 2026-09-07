@@ -287,6 +287,23 @@ printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: 
 compact_target="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact agents)"
 printf '%s\n' "$compact_target" | grep -q 'IS_DETAIL=synced=1' || { echo "FAIL: compact-first filtered sync failed"; fail=1; }
 
+echo "== .agents/ markers select only the tools that read them =="
+# The shared root holds Antigravity's own directories next to the skills
+# directory Codex reads. An Antigravity-only workspace must not enable Codex.
+AG_ONLY="$OUT/agents-root-only"
+mkdir -p "$AG_ONLY/.agents/rules"
+git -C "$AG_ONLY" init --quiet
+(cd "$AG_ONLY" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --no-sync >/dev/null)
+chk grep -q 'antigravity: { enabled: true' "$AG_ONLY/intelligence.yaml"
+chknot grep -q 'codex:' "$AG_ONLY/intelligence.yaml"
+# The shared skills directory still implies Codex, which genuinely reads it.
+AG_SHARED="$OUT/agents-root-shared"
+mkdir -p "$AG_SHARED/.agents/rules" "$AG_SHARED/.agents/skills"
+git -C "$AG_SHARED" init --quiet
+(cd "$AG_SHARED" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --no-sync >/dev/null)
+chk grep -q 'antigravity: { enabled: true' "$AG_SHARED/intelligence.yaml"
+chk grep -q 'codex: { enabled: true' "$AG_SHARED/intelligence.yaml"
+
 PREVIEW_AI="$OUT/preview-ai"
 mkdir -p "$PREVIEW_AI"
 printf 'legacy cursor rule\n' > "$PREVIEW_AI/.cursorrules"
