@@ -126,14 +126,14 @@ check_version_compat() {
     if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then
         is_status ahead-of-engine "stamp=$stamp engine=$eng"
         echo "  ERROR: project stamped $stamp but this engine is $eng — a newer major schema; refusing." >&2
-        echo "         Update the CLI first: npm i -g @ainova-systems/intelligence@latest" >&2
+        echo "         Update the CLI first: intelligence upgrade" >&2
         return "$IS_RC_AHEAD"
     fi
     # One warning per command, however many processes re-check on the way to
     # the engine (CLI preflight first, then the engine itself). The line has
     # no indent on purpose: `sync --compact` keeps `WARNING:` lines.
     if [ "${IS_SCHEMA_AHEAD_WARNED:-}" != "$stamp" ]; then
-        echo "WARNING: project schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: npm i -g @ainova-systems/intelligence@latest" >&2
+        echo "WARNING: project schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: intelligence upgrade" >&2
         export IS_SCHEMA_AHEAD_WARNED="$stamp"
     fi
     return 0

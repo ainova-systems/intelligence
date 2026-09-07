@@ -50,7 +50,12 @@ const pkg = require(path.join(__dirname, '..', 'package.json'));
 
 const result = spawnSync(findBash(), [cli].concat(process.argv.slice(2)), {
   stdio: 'inherit',
-  env: Object.assign({}, process.env, { INTELLIGENCE_NPM_VERSION: pkg.version }),
+  // Version and name of the installed package: `update` checks the npm
+  // channel with them and `upgrade` replaces exactly this package.
+  env: Object.assign({}, process.env, {
+    INTELLIGENCE_NPM_VERSION: pkg.version,
+    INTELLIGENCE_NPM_PACKAGE: pkg.name,
+  }),
 });
 if (result.error) {
   console.error('intelligence: failed to launch bash: ' + result.error.message);

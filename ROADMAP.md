@@ -20,9 +20,9 @@ rationale, accepted direction and unresolved design choices are in
 | CLI | Discovery, acquisition, selection, verification and package lifecycle |
 | Sync engine | Local sources rendered through adapter ownership contracts |
 
-Keep the public groups `init`, `sync`, `update`, `package`, `adapter`, `status`
-and `registry`. Put new content operations under `package`, catalog lookup under
-`registry`, and target support under `adapter`. Exact new flags and schemas are
+Keep the public groups `init`, `sync`, `update`, `upgrade`, `package`, `adapter`,
+`status` and `registry`. Put new content operations under `package`, catalog lookup
+under `registry`, and target support under `adapter`. Exact new flags and schemas are
 design deliverables. Preserve existing `github:org/repo#path` and `git+` syntax.
 
 The core remains project-first. Recurring team workflows use managed installation

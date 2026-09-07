@@ -33,6 +33,14 @@ run_case() {
             got="$(semver_cmp "$a" "$b")"
             [ "$got" = "$exp" ] || { echo "FAIL: cmp '$a' '$b' -> '$got' want '$exp'"; fail=1; }
             ;;
+        cmpfull)
+            got="$(semver_cmp_full "$a" "$b")"
+            [ "$got" = "$exp" ] || { echo "FAIL: cmpfull '$a' '$b' -> '$got' want '$exp'"; fail=1; }
+            ;;
+        channel)
+            got="$(npm_channel_for "$a")"
+            [ "$got" = "$exp" ] || { echo "FAIL: channel '$a' -> '$got' want '$exp'"; fail=1; }
+            ;;
         stable)
             if semver_is_stable "$a"; then got=ok; else got=no; fi
             [ "$got" = "$exp" ] || { echo "FAIL: stable '$a' -> $got want $exp"; fail=1; }
@@ -77,6 +85,28 @@ cmp|10.0.0|9.9.9|1
 cmp|1.2|1.2.0|0
 cmp|1|1.0.0|0
 cmp|1.2|1.2.1|-1
+# --- semver_cmp_full: digits like cmp, then SemVer prerelease precedence
+cmpfull|1.2.3|1.2.3|0
+cmpfull|v1.2.3|1.2.3|0
+cmpfull|2.0.0|1.9.9|1
+cmpfull|0.12.1|0.13.0|-1
+cmpfull|0.13.0|0.13.0-rc.1|1
+cmpfull|0.13.0-rc.1|0.13.0|-1
+cmpfull|0.13.0-rc.2|0.13.0-rc.1|1
+cmpfull|0.13.0-rc.1|0.13.0-rc.2|-1
+cmpfull|0.13.0-rc.10|0.13.0-rc.9|1
+cmpfull|0.13.0-rc.1|0.13.0-rc.1|0
+cmpfull|0.13.0-alpha|0.13.0-beta|-1
+cmpfull|0.13.0-alpha.1|0.13.0-alpha|1
+cmpfull|0.13.0-1|0.13.0-alpha|-1
+cmpfull|0.13.1-rc.1|0.13.0|1
+cmpfull|0.13.0+build.7|0.13.0|0
+cmpfull|0.12.1|0.0.0-dev|1
+# --- npm_channel_for: prerelease -> next, otherwise latest
+channel|0.13.0||latest
+channel|0.13.0-rc.1||next
+channel|0.0.0-dev||next
+channel|0.13.0+build.7||latest
 # --- semver_is_stable: [v]x.y.z only
 stable|1.2.3||ok
 stable|v1.2.3||ok

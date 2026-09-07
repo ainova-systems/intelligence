@@ -44,9 +44,9 @@ if [ -z "$stamp" ]; then
     warn "manifest has no schema_version — run 'intelligence init'"
 elif _ver_gt "$stamp" "$eng"; then
     if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then
-        warn "manifest schema $stamp is a newer major than this CLI's engine $eng — update the CLI: npm i -g @ainova-systems/intelligence@latest"
+        warn "manifest schema $stamp is a newer major than this CLI's engine $eng — update the CLI: intelligence upgrade"
     else
-        note "manifest schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: npm i -g @ainova-systems/intelligence@latest"
+        note "manifest schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: intelligence upgrade"
     fi
 elif _ver_gt "$eng" "$stamp"; then
     warn "manifest schema $stamp behind engine $eng — run 'intelligence init'"

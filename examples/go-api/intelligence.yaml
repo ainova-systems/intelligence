@@ -4,7 +4,7 @@
 project:
   name: my-api
 
-schema_version: "0.12.1"
+schema_version: "0.13.0"
 
 sources:
   rules:
@@ -35,4 +35,4 @@ targets:
 # from the CLI bundle.
 packages:
   "@ainova-systems/sync":
-    version: "0.12.1"
+    version: "0.13.0"

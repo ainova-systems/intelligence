@@ -7,8 +7,8 @@ description: "CLI boundaries: command surface, the integration seam, and who own
 # CLI
 
 `cli/intelligence` is a small dispatcher. The public lifecycle surface is `init`,
-`sync`, `update`, `package`, `adapter`, `status` and `registry` — one file each in
-`cli/commands/`. Shared plumbing lives in `cli/lib/`. Non-public mechanics —
+`sync`, `update`, `upgrade`, `package`, `adapter`, `status` and `registry` — one file
+each in `cli/commands/`. Shared plumbing lives in `cli/lib/`. Non-public mechanics —
 package operations, locked restore, deep checking, legacy conversion, project
 alignment, target-state editing — live in `cli/internal/` and are reached only
 through a lifecycle command.
@@ -94,6 +94,14 @@ same major cannot read is a major change.
 store strictly from `intelligence.lock`, never re-resolving a version during restore.
 `intelligence update` always prints the installed-CLI, project and package plan;
 `--preview` stops without writing, the bare form asks, `--apply` proceeds and syncs.
+The CLI step it names is `intelligence upgrade`, the one command that writes to an
+npm prefix: it takes no project, derives the prefix from its own location and hands
+it to npm explicitly, installs the exact version its plan showed, and refuses any
+tree npm did not lay out (checkout, `npx`, `npm link`, another package manager) with
+the command that upgrades that installation where it lives. Never ask npm where its
+global root is to decide this: it answers for the current config, not for the running
+tree, and redacts UUID-like path segments. The launcher exports the installed package
+name and version; nothing in `cli/` names the npm package.
 
 ## Tests
 
