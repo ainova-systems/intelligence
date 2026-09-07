@@ -73,6 +73,14 @@ npm_channel_for() {
     esac
 }
 
+# is_npm_version <string> — 0 iff the string is a version as npm publishes
+# it: `x.y.z`, an optional `-prerelease`, an optional `+build`, nothing else.
+# A registry answer becomes an npm argument, so anything else is refused.
+is_npm_version() {
+    local re='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+    [[ "$1" =~ $re ]]
+}
+
 # semver_is_stable <version> — 0 iff `[v]x.y.z` with nothing else.
 semver_is_stable() {
     case "${1#v}" in

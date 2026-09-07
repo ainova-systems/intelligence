@@ -36,7 +36,8 @@ if [ -n "${INTELLIGENCE_NPM_VERSION:-}" ] && [ -n "${INTELLIGENCE_NPM_PACKAGE:-}
     channel="$(npm_channel_for "$INTELLIGENCE_NPM_VERSION")"
     available="$(npm view "$INTELLIGENCE_NPM_PACKAGE" "dist-tags.$channel" 2>/dev/null || true)"
     available="${available//[$' \t\r\n']/}"
-    if [ -z "$available" ]; then
+    # An empty or non-version answer is "not checked", never a comparison.
+    if ! is_npm_version "$available"; then
         echo "  installed: $INTELLIGENCE_NPM_VERSION; registry check unavailable"
     else
         case "$(semver_cmp_full "$available" "$INTELLIGENCE_NPM_VERSION")" in

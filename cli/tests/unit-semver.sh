@@ -41,6 +41,10 @@ run_case() {
             got="$(npm_channel_for "$a")"
             [ "$got" = "$exp" ] || { echo "FAIL: channel '$a' -> '$got' want '$exp'"; fail=1; }
             ;;
+        npmver)
+            if is_npm_version "$a"; then got=ok; else got=no; fi
+            [ "$got" = "$exp" ] || { echo "FAIL: npmver '$a' -> $got want $exp"; fail=1; }
+            ;;
         stable)
             if semver_is_stable "$a"; then got=ok; else got=no; fi
             [ "$got" = "$exp" ] || { echo "FAIL: stable '$a' -> $got want $exp"; fail=1; }
@@ -107,6 +111,19 @@ channel|0.13.0||latest
 channel|0.13.0-rc.1||next
 channel|0.0.0-dev||next
 channel|0.13.0+build.7||latest
+# --- is_npm_version: x.y.z, optional -prerelease, optional +build, nothing else
+npmver|0.13.0||ok
+npmver|0.13.0-rc.1||ok
+npmver|0.13.0-rc.1+build.7||ok
+npmver|0.13.0+build.7||ok
+npmver|0.0.0-dev||ok
+npmver|v0.13.0||no
+npmver|0.13||no
+npmver|0.13.0-||no
+npmver|0.13.0-a+b+c||no
+npmver|--registry=evil||no
+npmver|0.13.0 extra||no
+npmver|||no
 # --- semver_is_stable: [v]x.y.z only
 stable|1.2.3||ok
 stable|v1.2.3||ok

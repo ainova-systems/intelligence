@@ -31,8 +31,7 @@ channel="$(npm_channel_for "$installed")"
 available="$(npm view "$pkg" "dist-tags.$channel" 2>/dev/null || true)"
 available="${available//[$' \t\r\n']/}"
 [ -n "$available" ] || die "npm could not report $pkg dist-tag $channel — check the network or the registry and retry"
-# The answer becomes an npm argument: accept a version, nothing else.
-[[ "$available" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.+-]+)?$ ]] \
+is_npm_version "$available" \
     || die "npm reported an unusable version '$available' for $pkg dist-tag $channel"
 
 case "$(semver_cmp_full "$available" "$installed")" in
@@ -72,7 +71,7 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 
 echo "CLI upgrade: $installed -> $available (npm $channel)"
-echo "  npm install -g --prefix '$prefix' $pkg@$available"
+echo "  npm install -g --prefix $(shell_single_quote "$prefix") $pkg@$available"
 [ "$mode" != "preview" ] || exit 0
 if [ "$mode" = "ask" ]; then
     [ -t 0 ] || die "upgrade requires confirmation — rerun with --preview or --apply"

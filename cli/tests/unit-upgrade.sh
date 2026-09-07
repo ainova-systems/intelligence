@@ -130,6 +130,15 @@ stage_install "$POSIX/lib/node_modules/$PKG"
 run "$OUT" "0.12.1" "$POSIX/lib/node_modules/$PKG/cli/intelligence" upgrade --apply
 expect_rc 0; expect_install "$POSIX" "$PKG@0.13.0"
 
+echo "== a quote in the prefix stays a valid shell word in the printed command =="
+QUOTED="$OUT/o'brien"
+stage_install "$QUOTED/node_modules/$PKG"
+run "$OUT" "0.12.1" "$QUOTED/node_modules/$PKG/cli/intelligence" upgrade --apply
+expect_rc 0
+quoted_native="$(native_path "$QUOTED")"
+expect_out "--prefix '${quoted_native//\'/\'\\\'\'}' $PKG@0.13.0"
+expect_install "$QUOTED" "$PKG@0.13.0"
+
 echo "== a prerelease follows the next channel, including onto the stable that advanced it =="
 export FAKE_NEXT="0.13.0-rc.2"
 run "$OUT" "0.13.0-rc.1" "$CLI" upgrade --preview
@@ -199,6 +208,10 @@ run "$PROJ" "0.13.0" "$CLI" update --preview
 expect_rc 0; expect_out "0.13.0 (up to date on npm latest)"
 run "$PROJ" "0.13.1" "$CLI" update --preview
 expect_rc 0; expect_out "0.13.1 (ahead of npm latest 0.13.0)"
+export FAKE_LATEST="--registry=evil"
+run "$PROJ" "0.12.1" "$CLI" update --preview
+expect_rc 0; expect_out "registry check unavailable"; expect_no_out "ahead of"; expect_no_out "->"
+export FAKE_LATEST="0.13.0"
 
 [ "$fail" -eq 0 ] && echo "unit-upgrade: ALL OK"
 exit "$fail"
