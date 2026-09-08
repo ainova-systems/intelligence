@@ -585,5 +585,93 @@ n="$(grep -c '@a/p/rules' "$SRC")"
 sources_add_entry_first "$SRC" "skills" ".intelligence/packages/@a/p/skills"
 chk grep -q '  skills:' "$SRC"
 
+
+echo "== sources_add_entry: placement, exactness, refusal =="
+POS="$OUT/src-pos.yaml"
+# entries_of <file> <section> — the section's entries as the engine reads them.
+entries_of() {
+    awk -v sec="$2" '
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; next }
+        ins && /^[^ #]/ { ins = 0; f = 0 }
+        ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
+        ins && /^  [A-Za-z_]/ { f = 0 }
+        f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
+    ' "$1" | paste -sd, -
+}
+seed_pos() {
+    cat > "$POS" <<'YAML'
+project:
+  name: unit
+
+sources:
+  rules:
+    - ".intelligence/packages/@a/p/rules"
+    - "intelligence/rules"
+
+  agents:
+
+targets:
+  agents: { enabled: true }
+YAML
+}
+
+seed_pos
+sources_add_entry "$POS" rules "backend/intelligence/rules"
+chk eq "$(entries_of "$POS" rules)" ".intelligence/packages/@a/p/rules,intelligence/rules,backend/intelligence/rules"
+# The blank line separating the sections stays a separator: `last` lands after
+# the final entry, not after the blank line.
+chk grep -qx '    - "backend/intelligence/rules"' "$POS"
+chk awk '/backend\/intelligence\/rules/ { getline; exit ($0 == "" ? 0 : 1) }' "$POS"
+
+sources_add_entry "$POS" rules "packs/local/rules" before "intelligence/rules"
+chk eq "$(entries_of "$POS" rules)" ".intelligence/packages/@a/p/rules,packs/local/rules,intelligence/rules,backend/intelligence/rules"
+sources_add_entry "$POS" rules "after/rules" after "intelligence/rules"
+chk eq "$(entries_of "$POS" rules)" ".intelligence/packages/@a/p/rules,packs/local/rules,intelligence/rules,after/rules,backend/intelligence/rules"
+sources_add_entry "$POS" rules "top/rules" first
+chk eq "$(entries_of "$POS" rules)" "top/rules,.intelligence/packages/@a/p/rules,packs/local/rules,intelligence/rules,after/rules,backend/intelligence/rules"
+
+# A declared but empty section takes an entry without growing a second header.
+sources_add_entry "$POS" agents "intelligence/agents"
+chk eq "$(entries_of "$POS" agents)" "intelligence/agents"
+chk eq "$(grep -c '^  agents:$' "$POS")" "1"
+
+# An absent section is created; an absent sources: block is created whole.
+sources_add_entry "$POS" skills "intelligence/skills"
+chk eq "$(entries_of "$POS" skills)" "intelligence/skills"
+BARE="$OUT/src-bare.yaml"
+printf 'project:\n  name: bare\n' > "$BARE"
+sources_add_entry "$BARE" rules "intelligence/rules"
+chk eq "$(entries_of "$BARE" rules)" "intelligence/rules"
+
+echo "== sources_add_entry: exact, section-scoped idempotence =="
+seed_pos
+cp "$POS" "$OUT/src-pos.once"
+sources_add_entry "$POS" rules "intelligence/rules"
+chk diff "$OUT/src-pos.once" "$POS"
+# The same directory may legitimately feed two sections — a whole-file check
+# would silently drop the second one.
+sources_add_entry "$POS" agents "intelligence/rules"
+chk eq "$(entries_of "$POS" agents)" "intelligence/rules"
+# A bare entry must not match by substring: `docs` is not `docs/api`.
+SUB="$OUT/src-substring.yaml"
+printf 'sources:\n  rules:\n    - docs/api\n' > "$SUB"
+sources_add_entry "$SUB" rules "docs"
+chk eq "$(entries_of "$SUB" rules)" "docs/api,docs"
+
+echo "== sources_has_entry =="
+chk sources_has_entry "$SUB" rules "docs/api"
+chknot sources_has_entry "$SUB" rules "docs/ap"
+chknot sources_has_entry "$SUB" agents "docs/api"
+chknot sources_has_entry "$OUT/does-not-exist.yaml" rules "docs"
+
+echo "== sources_add_entry: an unplaceable anchor refuses without writing =="
+seed_pos
+cp "$POS" "$OUT/src-anchor.before"
+( sources_add_entry "$POS" rules "x/rules" before "not/listed" ) >/dev/null 2>&1 \
+    && { echo "FAIL: a missing anchor was accepted"; fail=1; }
+chk diff "$OUT/src-anchor.before" "$POS"
+chknot ls "$POS.cli.tmp"
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

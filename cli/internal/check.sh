@@ -175,6 +175,13 @@ for section in rules agents skills; do
         case "$src" in
             git+*|@*) continue ;;
         esac
+        # A hand-edited entry the engine cannot render is worse than a missing
+        # one: it is skipped without a word and the sync still reports ok.
+        problem="$(source_entry_problem "$IP_ROOT" "$src")"
+        if [ -n "$problem" ]; then
+            warn "sources.$section '$src' $problem"
+            continue
+        fi
         if [ ! -d "$IP_ROOT/$src" ]; then
             case "$src" in
                 # Store content is restorable state: absent means un-installed.

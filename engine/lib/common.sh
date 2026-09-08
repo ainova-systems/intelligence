@@ -1335,7 +1335,15 @@ warn_unsynced() {
     done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
 
     if [ $warnings -gt 0 ]; then
-        echo "  Add these paths to sources: in ${config_file##*/}"
+        # Name the command that does it. A diagnostic that ends in "edit this
+        # file yourself" is the one step nobody repeats the same way twice —
+        # and hand-placing an entry in an ordered list decides which artifact
+        # wins. The engine may also run without the CLI around it.
+        if [ "${IS_CLI:-0}" = "1" ]; then
+            echo "  Wire one in: intelligence source add <rules|agents|skills> <path>"
+        else
+            echo "  Add these paths to sources: in ${config_file##*/}"
+        fi
     fi
 }
 

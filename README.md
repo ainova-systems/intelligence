@@ -92,6 +92,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | `update [@scope/name] [--latest] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. `--latest` moves one named package past its range to the newest version. |
 | `upgrade [--next] [--preview\|--apply]` | Replace the installed CLI with the newest version on its npm channel (`--next` for the prerelease line); ask before installing by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |
+| `source add\|remove\|list` | Manage the project's own `sources:` entries — a monorepo's per-component directories, or a pack developed in the repository that ships it. Placement decides which artifact wins, so `add` appends by default and `--before`/`--after` place an entry relative to a listed one. |
 | `adapter list\|create\|enable\|disable\|remove` | Discover built-ins and manage project-owned adapters and their manifest state. |
 | `status [--check]` | Show project state; `--check` performs deep manifest, lock, store and engine consistency checks. |
 | `registry list\|add\|remove` | Manage the ordered trust list used for package-name resolution. |

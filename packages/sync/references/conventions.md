@@ -73,6 +73,8 @@ sources:
 
 Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
 
+Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
+
 The CLI owns package and registry blocks:
 
 ```yaml

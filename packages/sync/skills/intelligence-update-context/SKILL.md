@@ -24,7 +24,10 @@ the same procedure. Updating the layer can create a new artifact.
    Prefer extending an existing owner, merging duplicates, or enforcing a
    convention mechanically. Resolve the writable directory from the manifest;
    create a pre-listed missing directory without changing the source list. Add a
-   source entry only when an accepted destination is outside the listed groups.
+   source entry only when an accepted destination is outside the listed groups,
+   and add it with `intelligence source add <rules|agents|skills> <dir>` rather
+   than by editing the manifest: the list is ordered, and its order decides which
+   artifact wins.
 
 3. Establish the evidence and artifact type. A constraint is a rule, a repeatable
    procedure is a skill, and a persona or expertise boundary is an agent. Verify
