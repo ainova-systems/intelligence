@@ -140,10 +140,10 @@ while IFS= read -r name; do
       follow it: intelligence update $name --latest"
                 outside=$((outside + 1))
             fi
-        elif [ "$latest" -eq 1 ]; then
-            echo "  $name: $(pin_label "$ref" "$current" "$locked_sha") is already the newest stable version"
-            continue
         fi
+        # When the newest version is already inside the range there is nothing
+        # to cross: `--latest` falls through to the ordinary comparison, which
+        # still installs a move the lock is behind on and still widens nothing.
     fi
     if [ "$ref_moved" -eq 0 ] && [ "$tag" = "$current" ] && [ "$requested" != "$locked_requested" ]; then
         if [ "$preview" -eq 1 ]; then

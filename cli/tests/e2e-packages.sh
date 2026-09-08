@@ -168,10 +168,24 @@ chk grep -q 'resolved: "v2.0.0"' "$PROJ/intelligence.lock"
 pv_after="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
 chknot grep -q 'available outside' <<< "$pv_after"
 chknot grep -q '^outside the requested range' <<< "$pv_after"
-grep -q 'is already the newest stable version' \
+grep -q 'v2.0.0 (up to date)' \
     <<< "$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --preview)" \
-    || { echo "FAIL: --latest on the newest version did not say so"; fail=1; }
+    || { echo "FAIL: --latest on the newest version did not report it as current"; fail=1; }
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
+
+# A newest version INSIDE the range is not a crossing, but it is still a move:
+# --latest must install it rather than call the behind lock "newest".
+# On v2.0.0's own commit: the later cases resolve the highest tag of this repo
+# and still need the shape v2.0.0 has.
+git -C "$PACK" tag v2.1.0 v2.0.0
+pv_in="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --preview)"
+grep -q 'v2.0.0 -> v2.1.0' <<< "$pv_in" \
+    || { echo "FAIL: --latest skipped an in-range move the lock was behind on"; fail=1; }
+chknot grep -q 'range \^2.0.0' <<< "$pv_in"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --apply >/dev/null)
+chk grep -q 'resolved: "v2.1.0"' "$PROJ/intelligence.lock"
+# The range already permitted it, so requested intent is untouched.
+chk grep -q 'version: "\^2.0.0"' "$PROJ/intelligence.yaml"
 
 echo "== ref pin: a moved branch is an update, not 'up to date' =="
 # Until 0.11.6 a `ref:` pin compared the manifest's ref NAME against the lock's
