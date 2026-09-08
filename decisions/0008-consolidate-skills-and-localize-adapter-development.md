@@ -20,7 +20,9 @@ without creating a second content package.
 1. Ship seven skills: `intelligence-update-context`,
    `intelligence-learn-from-session`, `intelligence-review-context`,
    `intelligence-learn-from-repository`, `intelligence-manage-adapters`,
-   `intelligence-sync`, and `intelligence-update`.
+   `intelligence-sync`, and `intelligence-upgrade`. Use `upgrade` for installed
+   version changes so it is distinct from `update-context` for project knowledge;
+   the CLI command names stay unchanged.
 2. Context updating owns authoring for rules, agents, and skills. Type-specific
    steps and templates load conditionally from its own references. Session
    learning, onboarding, and accepted review findings pass proposals to that
@@ -52,7 +54,7 @@ relationship.
 Functional preservation is checked at each owner: artifact formats and bindings
 in context updating; evidence and workflow sequence in session learning; semantic
 equivalence and language quality in review; migration in onboarding; retained
-output and approval scope in adapter management. Sync and update retain their
+output and approval scope in adapter management. Sync and upgrade retain their
 existing status, failure, and release-gap checks.
 
 ## Rejected

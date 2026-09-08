@@ -230,7 +230,7 @@ chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboa
 expected_skills=(
     intelligence-learn-from-repository intelligence-learn-from-session
     intelligence-manage-adapters intelligence-review-context intelligence-sync
-    intelligence-update intelligence-update-context
+    intelligence-upgrade intelligence-update-context
 )
 printf '%s\n' "${expected_skills[@]}" | sort > "$OUT/expected-skills.txt"
 for skill_root in "$FRESH/.intelligence/packages/@ainova-systems/sync/skills" \
@@ -265,7 +265,8 @@ chknot grep -q 'NOT SYNCED: intelligence/_backup/' "$OUT/fresh-resync.txt"
 # package. Removed commands must disappear while a configured local skill stays.
 old_skills=(intelligence-add-rule intelligence-add-agent intelligence-add-skill
     intelligence-learn-from-context intelligence-extract-skill intelligence-review-skills
-    intelligence-compact-context intelligence-install-adapter intelligence-uninstall-adapter)
+    intelligence-compact-context intelligence-install-adapter intelligence-uninstall-adapter
+    intelligence-update)
 for skill_root in "$FRESH/.claude/skills" "$FRESH/.agents/skills"; do
     for old_skill in "${old_skills[@]}"; do
         mkdir -p "$skill_root/$old_skill"

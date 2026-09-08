@@ -45,7 +45,7 @@ The per-artifact checks are procedure, so they live in the meta-skills rather th
 | `intelligence-learn-from-repository` | recover and complete first-time repository onboarding |
 | `intelligence-learn-from-session` | capture session lessons and observed workflows |
 | `intelligence-sync` | project the source to every tool channel |
-| `intelligence-update` | interpret and apply the CLI's unified update plan |
+| `intelligence-upgrade` | interpret and apply the CLI's unified update plan |
 | `intelligence-manage-adapters` | enable, disable, remove, and assess output cleanup |
 
 A change is done when the sync is green and the skill you invoked reports clean. Size is a separate judgement: the caps are ceilings, not quotas, and a short artifact is not a defect.

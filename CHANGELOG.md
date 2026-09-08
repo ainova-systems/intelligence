@@ -9,6 +9,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Changed
 
 - Consolidated the shipped catalog from twelve skills to seven with shared context authoring, session learning, review and compaction, and adapter management; moved adapter implementation to the repository-only `dev-build-adapter` skill.
+- Renamed the version-management skill to `intelligence-upgrade` to distinguish it from `intelligence-update-context`; CLI command names are unchanged.
 
 ### Breaking
 

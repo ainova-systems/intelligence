@@ -42,8 +42,8 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 | [intelligence-manage-adapters](.intelligence/packages/@ainova-systems/sync/skills/intelligence-manage-adapters/SKILL.md) | Enable, disable, or remove adapters and assess generated-output cleanup |
 | [intelligence-review-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-review-context/SKILL.md) | Audit rules, agents, and skills and propose behavior-preserving reductions |
 | [intelligence-sync](.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync/SKILL.md) | Sync intelligence to enabled adapters |
-| [intelligence-update](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update/SKILL.md) | Interpret an update plan and verify breaking post-conditions |
 | [intelligence-update-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update-context/SKILL.md) | Create, revise, or remove project rules, agents, and skills |
+| [intelligence-upgrade](.intelligence/packages/@ainova-systems/sync/skills/intelligence-upgrade/SKILL.md) | Upgrade Intelligence and installed packages with migration checks |
 | [dev-build-adapter](intelligence/skills/dev-build-adapter/SKILL.md) | Implement and verify built-in or project-owned Intelligence adapters |
 | [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) | Implement one roadmap batch through a merge-ready PR |
 

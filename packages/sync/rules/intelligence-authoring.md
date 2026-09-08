@@ -109,6 +109,6 @@ The goal is subtraction, above. These are only the line past which something is 
 
 ## Verifying a change to this layer
 
-The per-artifact authoring checks belong to `intelligence-update-context`. Session learning, repository onboarding, and accepted review findings use that same procedure. Invoke `intelligence-learn-from-session` to capture a lesson or workflow, `intelligence-learn-from-repository` for initial migration and recovery, and `intelligence-review-context` for audits and reductions. Operational work uses `intelligence-sync`, `intelligence-update`, or `intelligence-manage-adapters`.
+The per-artifact authoring checks belong to `intelligence-update-context`. Session learning, repository onboarding, and accepted review findings use that same procedure. Invoke `intelligence-learn-from-session` to capture a lesson or workflow, `intelligence-learn-from-repository` for initial migration and recovery, and `intelligence-review-context` for audits and reductions. Operational work uses `intelligence-sync`, `intelligence-upgrade`, or `intelligence-manage-adapters`.
 
 A change to this layer is done when `<sync-cmd>` reports `IS_STATUS=ok` and the skill you invoked reports clean.

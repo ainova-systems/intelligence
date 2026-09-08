@@ -11,7 +11,7 @@ workflows; ordinary `intelligence ...` commands are deterministic CLI operations
 | `intelligence-learn-from-repository` | Complete initial onboarding, migrate preserved instructions, or recover interrupted setup. |
 | `intelligence-manage-adapters` | Enable, disable, or remove existing adapters and assess generated-output cleanup. |
 | `intelligence-sync` | Render source content and interpret sync results or failures. |
-| `intelligence-update` | Interpret CLI/package update plans and verify breaking post-conditions. |
+| `intelligence-upgrade` | Upgrade Intelligence and installed packages, verifying migrations and breaking post-conditions. |
 
 Session learning identifies and generalizes evidence; context updating owns the
 artifact-writing procedure. Review is read-only until changes are accepted, then
@@ -24,6 +24,10 @@ For example, "remember the workflow we just used" belongs to
 `intelligence-update-context`; and "reduce our overlapping skills" belongs to
 `intelligence-review-context`.
 
+`intelligence-upgrade` changes installed versions; `intelligence-update-context`
+edits project knowledge. The upgrade skill coordinates the existing
+`intelligence update` and `intelligence upgrade` CLI commands.
+
 ## Migrating from the twelve-skill catalog
 
 The removed names have no installed aliases. Update project skill invocations,
@@ -33,6 +37,7 @@ compare its content with the new owner before deciding whether to retain it.
 
 | Previous skill | Replacement |
 |---|---|
+| `intelligence-update` | `intelligence-upgrade` |
 | `intelligence-add-rule` | `intelligence-update-context` with a rule request |
 | `intelligence-add-agent` | `intelligence-update-context` with an agent request |
 | `intelligence-add-skill` | `intelligence-update-context` with a skill request |

@@ -422,7 +422,7 @@ The public lifecycle is deliberately compact:
 
 Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is a newer major; a newer minor or patch within the same major warns once and proceeds without restamping the project. Normal project entry points close a behind-project gap through lifecycle preflight.
 
-Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The update skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
+Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The `intelligence-upgrade` skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
 
 ### Engine status contract
 

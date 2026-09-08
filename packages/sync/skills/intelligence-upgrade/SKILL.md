@@ -1,11 +1,11 @@
 ---
-name: intelligence-update
-description: "Interpret an update plan and verify breaking post-conditions"
+name: intelligence-upgrade
+description: "Upgrade Intelligence and installed packages with migration checks"
 argument-hint: "[@scope/name]"
 agent: intelligence-operator
 ---
 
-# Update intelligence
+# Upgrade Intelligence and packages
 
 The CLI owns planning and application. This skill interprets the plan, reads
 the changelog across an engine-version gap, obtains approval, and verifies the
