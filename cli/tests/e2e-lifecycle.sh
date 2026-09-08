@@ -216,15 +216,38 @@ chk grep -Fqx 'model: "pro"' "$FRESH/.agents/agents/intelligence-architect.md"
 chk grep -Fqx 'model: "flash"' "$FRESH/.agents/agents/intelligence-operator.md"
 chk grep -Fqx 'subagent: true' "$FRESH/.agents/agents/intelligence-architect.md"
 chk grep -Fqx 'mainAgent: false' "$FRESH/.agents/agents/intelligence-architect.md"
-chk test -f "$FRESH/.agents/skills/intelligence-review-skills/SKILL.md"
+chk test -f "$FRESH/.agents/skills/intelligence-review-context/SKILL.md"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/conventions.md' \
-    "$FRESH/.claude/skills/intelligence-review-skills/SKILL.md"
+    "$FRESH/.claude/skills/intelligence-review-context/SKILL.md"
 chk test -f "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chk grep -q '_backup/manifest.tsv' "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
-chk grep -q 'established Intelligence project' "$FRESH/.claude/skills/intelligence-learn-from-context/SKILL.md"
+chk grep -q 'established Intelligence project' "$FRESH/.claude/skills/intelligence-learn-from-session/SKILL.md"
 chk grep -q '.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md' \
     "$FRESH/.claude/skills/intelligence-learn-from-repository/SKILL.md"
 chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboarding-migration.md"
+# The bundled catalog and its conditional references must survive rendering;
+# contributor-only implementation workflows do not belong in consumer output.
+expected_skills=(
+    intelligence-learn-from-repository intelligence-learn-from-session
+    intelligence-manage-adapters intelligence-review-context intelligence-sync
+    intelligence-upgrade intelligence-update-context
+)
+printf '%s\n' "${expected_skills[@]}" | sort > "$OUT/expected-skills.txt"
+for skill_root in "$FRESH/.intelligence/packages/@ainova-systems/sync/skills" \
+    "$FRESH/.claude/skills" "$FRESH/.agents/skills"; do
+    find "$skill_root" -mindepth 2 -maxdepth 2 -name SKILL.md \
+        | awk -F/ '{ print $(NF-1) }' | sort > "$OUT/actual-skills.txt"
+    chk diff -u "$OUT/expected-skills.txt" "$OUT/actual-skills.txt"
+    for reference in rules agents skills; do
+        chk test -s "$skill_root/intelligence-update-context/references/$reference.md"
+    done
+    for reference in audit-checks compaction principles; do
+        chk test -s "$skill_root/intelligence-review-context/references/$reference.md"
+    done
+    chknot test -e "$skill_root/dev-build-adapter"
+done
+chk grep -Fq 'intelligence.yaml' \
+    "$FRESH/.claude/skills/intelligence-review-context/references/audit-checks.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
     "$FRESH/AGENTS.md" "$FRESH/.claude" "$FRESH/.cursor" "$FRESH/.github" "$FRESH/.agents"
 (cd "$FRESH" && bash "$CLI" status --check)
@@ -237,6 +260,35 @@ chk grep -q 'Local machine only' "$FRESH/CLAUDE.md"
 
 (cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/fresh-resync.txt")
 chknot grep -q 'NOT SYNCED: intelligence/_backup/' "$OUT/fresh-resync.txt"
+
+# Simulate output from the previous catalog, then regenerate from the current
+# package. Removed commands must disappear while a configured local skill stays.
+old_skills=(intelligence-add-rule intelligence-add-agent intelligence-add-skill
+    intelligence-learn-from-context intelligence-extract-skill intelligence-review-skills
+    intelligence-compact-context intelligence-install-adapter intelligence-uninstall-adapter
+    intelligence-update)
+for skill_root in "$FRESH/.claude/skills" "$FRESH/.agents/skills"; do
+    for old_skill in "${old_skills[@]}"; do
+        mkdir -p "$skill_root/$old_skill"
+        printf '# Previous generated command\n' > "$skill_root/$old_skill/SKILL.md"
+    done
+done
+mkdir -p "$FRESH/intelligence/skills"
+cp -R "$REPO/intelligence/skills/dev-build-adapter" "$FRESH/intelligence/skills/"
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/catalog-sync.txt")
+chk grep -q '^IS_STATUS=ok ' "$OUT/catalog-sync.txt"
+for skill_root in "$FRESH/.claude/skills" "$FRESH/.agents/skills"; do
+    chk test -s "$skill_root/dev-build-adapter/SKILL.md"
+    for old_skill in "${old_skills[@]}"; do
+        chknot test -e "$skill_root/$old_skill"
+    done
+done
+chk test -s "$FRESH/intelligence/skills/dev-build-adapter/SKILL.md"
+chknot test -e "$FRESH/.intelligence/packages/@ainova-systems/sync/skills/dev-build-adapter"
+cp -R "$FRESH/.claude/skills" "$OUT/catalog-first-render"
+(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/catalog-resync.txt")
+chk diff -ru "$OUT/catalog-first-render" "$FRESH/.claude/skills"
+(cd "$FRESH" && bash "$CLI" status --check)
 
 compact_output="$(cd "$FRESH" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact)"
 if ! printf '%s\n' "$compact_output" | awk '

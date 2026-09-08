@@ -34,5 +34,5 @@ keeps describing a problem the repository already solved.
 `CHANGELOG.md` is compact: one line per change, minimal context, no rationale. The
 rationale goes to `decisions/` as a numbered record with an explicit status. A
 `### Breaking` subsection is a checklist of verifiable post-conditions consumed by the
-update meta-skill, so write each item as something a reader can check in a project,
+upgrade meta-skill, so write each item as something a reader can check in a project,
 not as a description of what changed.

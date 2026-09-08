@@ -23,3 +23,4 @@ intelligence/_backup/
 GEMINI.md
 .agents/rules/
 .agents/agents/
+!.claude/

@@ -39,8 +39,7 @@ mechanics; this skill supplies repository judgement.
 
 5. Read `<manifest>` and resolve the configured source directories. Load
    `<module>/references/conventions.md` and the bundled
-   `intelligence-add-rule`, `intelligence-add-skill`, and
-   `intelligence-add-agent` skills before proposing authored content. When
+   `intelligence-update-context` skill before proposing authored content. When
    preserved or legacy instructions exist, also read
    `<module>/references/onboarding-migration.md` and use its inventory,
    reverse-mapping, packaging-safety, and stale-reference procedures.
@@ -87,10 +86,10 @@ explains itself well.
 
 ## Apply after approval
 
-9. Apply only accepted proposals. Delegate new artifacts to
-   `intelligence-add-rule`, `intelligence-add-skill`, or
-   `intelligence-add-agent`; update an existing project-owned artifact directly
-   when smaller, and edit an accepted manifest header directly. Never edit
+9. Apply only accepted proposals. Pass all artifact changes to
+   `intelligence-update-context`, retaining the migration evidence and acceptance
+   scope. Defer its batch sync to step 10 so the accepted manifest header and
+   content are verified together. Edit an accepted header directly. Never edit
    installed package content or generated tool output.
 10. Run `intelligence sync`, then `intelligence status --check`. Inspect the
     relevant generated `AGENTS.md`, Cursor rules, Claude rules, and any
@@ -106,6 +105,6 @@ explains itself well.
 
 ## Later learning
 
-After onboarding is complete, use `/intelligence-learn-from-context` to capture
+After onboarding is complete, use `/intelligence-learn-from-session` to capture
 a durable lesson from a working session. It does not repeat repository
 onboarding.

@@ -53,7 +53,7 @@ stamp_schema_version() {
 # --- bash ↔ skill status contract -------------------------------------------
 # Bash is the deterministic, fail-closed core: it never guesses. Any state it
 # cannot resolve safely is reported as a machine-readable status line on
-# stdout plus a stable exit code, and the intelligence-update SKILL (the
+# stdout plus a stable exit code, and the intelligence-upgrade SKILL (the
 # intelligent layer) decides what to do. Codes are part of the public
 # contract — do not renumber.
 IS_RC_OK=0                  # success (synced / migrated / nothing to do)

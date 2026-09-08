@@ -68,11 +68,11 @@ Confirm that it contains `cli/`, `engine/` and `packages/sync/`, and that the bu
 
 ## Adding a built-in adapter
 
-1. Copy `engine/adapters/_template.sh` to `engine/adapters/<name>.sh`.
-2. Replace every `<name>` placeholder and implement `sync_to_<name>()`.
-3. Use shared functions from `engine/lib/common.sh` for source iteration, frontmatter, model mapping, skill bundles and output finalization.
-4. Clean only adapter-owned paths; never delete an entire tool root that may contain user files.
-5. Add adapter coverage to the smoke or lifecycle suite and document the output in [the adapter guide](packages/sync/references/adapters.md).
+Use the repository-only [dev-build-adapter](intelligence/skills/dev-build-adapter/SKILL.md)
+skill for new adapters and changes to existing ones. It owns tool-format research,
+implementation, contract coverage, idempotence, and rollback verification. The
+[adapter guide](packages/sync/references/adapters.md) remains the public interface
+reference for contributors and consumers.
 
 The template is invalid shell until its placeholders are replaced because `<` is parsed as redirection.
 

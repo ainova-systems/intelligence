@@ -593,7 +593,7 @@ chknot grep -q '^[[:space:]]*url:' "$P13/intelligence.yaml"
 chknot grep -q '^[[:space:]]*path:' "$P13/intelligence.yaml"
 chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/intelligence.lock"
 chk test -d "$P13/.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync"
-chk test -d "$P13/.claude/skills/intelligence-update"
+chk test -d "$P13/.claude/skills/intelligence-upgrade"
 chk test -d "$P13/.claude/skills/intelligence-learn-from-repository"
 # Keep a second package in the lock so the missing-lock refusal proves an
 # alignment cannot silently replace a multi-package lock with sync content.
