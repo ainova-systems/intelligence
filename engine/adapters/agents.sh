@@ -58,11 +58,9 @@ agents_md_append_agents_table() {
     local rows=""
     local count=0
 
-    local f
     local -a files=()
-    while IFS= read -r f; do
-        [ -n "$f" ] && files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "agents")
+    read_source_artifact_files "$repo_root" "$config_file" "agents"
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path tier access desc name
@@ -101,11 +99,10 @@ agents_md_append_skills_table() {
     local rows=""
     local count=0
 
-    local f dirname
+    local dirname
     local -a skill_files=()
-    while IFS= read -r f; do
-        [ -n "$f" ] && skill_files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
+    read_source_artifact_files "$repo_root" "$config_file" "skills"
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#skill_files[@]}" -gt 0 ]; then
         local path desc
@@ -145,11 +142,9 @@ agents_md_append_rules_list() {
     local count=0
     local global_rule_files=()
 
-    local f
     local -a files=()
-    while IFS= read -r f; do
-        [ -n "$f" ] && files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "rules")
+    read_source_artifact_files "$repo_root" "$config_file" "rules"
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path hp name scope

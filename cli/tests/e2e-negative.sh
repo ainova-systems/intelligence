@@ -930,5 +930,62 @@ printf '%s\n' "$OUTPUT" | grep -qF -- "sync [adapter] [--compact]" \
 printf '%s\n' "$OUTPUT" | grep -qF -- "upgrade [--next] [--preview|--apply]" \
     || { echo "FAIL: upgrade missing from help"; fail=1; }
 
+echo "== 17. a source enumeration that cannot answer stops the run =="
+# A macOS runner cut a pipe write short mid-list (bash reports EINTR as
+# `printf: write error: Interrupted system call`). The list of files to render
+# was streamed out of a process substitution, which discards its writer's exit
+# status, so the truncation arrived as a SHORTER list: the adapter rendered an
+# incomplete AGENTS.md and the run still reported IS_STATUS=ok. The stub below
+# reproduces that shape exactly — a partial list followed by a failure.
+E17="$OUT/e17"
+mkdir -p "$E17/intelligence/rules" "$E17/bin"
+printf '# Ctx\n\ne17 context\n' > "$E17/intelligence/rules/context.md"
+# One name carries a space and a glob character: the enumerated list reaches
+# the renderer through array expansions, and an unquoted one would split or
+# glob this entry instead of passing it through whole.
+for s in alpha beta "gam ma[1]"; do
+    mkdir -p "$E17/intelligence/skills/$s"
+    printf -- '---\nname: %s\ndescription: "Skill %s"\n---\nBody.\n' "$s" "$s" \
+        > "$E17/intelligence/skills/$s/SKILL.md"
+done
+git -C "$E17" init --quiet
+xok "" "$E17" init --bare --targets agents
+run_in "$E17" sync
+[ "$RC" -eq 0 ] || { echo "FAIL: e17 baseline sync failed"; fail=1; }
+chk grep -q 'alpha' "$E17/AGENTS.md"
+chk grep -q 'beta' "$E17/AGENTS.md"
+chk grep -qF 'gam ma[1]' "$E17/AGENTS.md"
+printf '%s\n' "$OUTPUT" | grep -q 'skills: 3 listed' \
+    || { echo "FAIL: a skill name with a space or glob character was lost"; fail=1; }
+good_size="$(wc -c < "$E17/AGENTS.md")"
+
+REAL_FIND="$(command -v find)"
+cat > "$E17/bin/find" <<EOF
+#!/bin/bash
+# Real find everywhere except this project's skills directory, where it
+# answers with a partial list and then fails.
+for a in "\$@"; do
+    case "\$a" in
+        "$E17/intelligence/skills")
+            "$REAL_FIND" "\$@" | head -1
+            exit 1
+            ;;
+    esac
+done
+exec "$REAL_FIND" "\$@"
+EOF
+chmod +x "$E17/bin/find"
+RC=0
+OUTPUT="$( (cd "$E17" && PATH="$E17/bin:$PATH" IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync) 2>&1 )" || RC=$?
+[ "$RC" -ne 0 ] || { echo "FAIL: a failed enumeration was reported as success"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -qF "cannot enumerate skills" \
+    || { echo "FAIL: the refusal did not name the failed enumeration"; printf '%s\n' "$OUTPUT" | tail -5; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -q '^IS_STATUS=ok' \
+    && { echo "FAIL: a truncated render still claimed IS_STATUS=ok"; fail=1; }
+# Sync is transactional, so the previous complete file must survive intact.
+[ "$(wc -c < "$E17/AGENTS.md")" -eq "$good_size" ] \
+    || { echo "FAIL: the refused run left a shortened AGENTS.md behind"; fail=1; }
+chk grep -q 'beta' "$E17/AGENTS.md"
+
 [ "$fail" -eq 0 ] && echo "E2E-NEGATIVE: ALL OK"
 exit "$fail"
