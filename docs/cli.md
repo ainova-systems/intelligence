@@ -158,7 +158,7 @@ that happen to be locally available.
 ### `intelligence update`
 
 ```text
-intelligence update [@scope/name] [--preview | --apply]
+intelligence update [@scope/name] [--latest] [--preview | --apply]
 ```
 
 One plan covers:
@@ -178,6 +178,19 @@ Modes:
 When a newer CLI is on its npm channel, the plan names `intelligence upgrade`; `update` never mutates the global npm prefix itself. The exact engine-content pin does not move as an ordinary range.
 
 A `ref:` pin is compared by commit, not by ref name: the plan resolves the ref on the remote and reports `<ref> <old sha> -> <new sha>` when it moved, so a branch or `HEAD` pin follows its upstream and a re-cut tag is visible. A ref that is itself a commit reports `(pinned commit)` and never moves — that is how a source is frozen. A remote that cannot be reached is reported as not checked, never as up to date.
+
+A range is a ceiling as well as a floor, so the plan reports both sides of it. When the remote carries a newer stable version the range excludes, the package's line names it and the command that follows it, and a final line counts those packages separately:
+
+```text
+  @acme/core: v0.4.1 -> v0.4.2 — 0.6.1 available outside '^0.4.0'
+      follow it: intelligence update @acme/core --latest
+updates available: 1 package(s)
+outside the requested range: 1 package(s) — read the changelog, then run the 'follow it' command above
+```
+
+They are counted apart because no ordinary mode installs them. This matters most before `1.0.0`, where the caret holds the minor, so `^0.4.0` follows `0.4.x` only.
+
+`--latest` is that deliberate crossing: it moves the named package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. It shares the plan's modes, so `--preview` shows the move and the new range without writing. It requires the package to be named, because one confirmation must not cover several unrelated changelogs; it refuses a `ref:` pin, which is frozen by intent, and the engine-content package, whose pin follows `intelligence upgrade`. The widened range reaches the manifest only after the new content is installed and wired. See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
 
 ### `intelligence upgrade`
 

@@ -4,6 +4,14 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.14.0]
+
+### Added
+
+- The update plan now reports what a package's range excludes: when the remote carries a newer stable version outside it, the package's line names that version and the command that follows it, and a separate counter keeps it out of the applicable-update count. A caret on a pre-1.0 package holds the minor, so a project could sit on `0.4.x` while `0.6.1` shipped and every plan still read "up to date".
+- Added `intelligence update <@scope/name> --latest`: it moves one named package to the newest stable version and rewrites its requested range to `^<that version>`, sharing the plan's preview/ask/apply modes. It requires the package to be named, refuses a `ref:` pin and the engine-content package, and records the widened range only after the new content is installed and wired.
+- Documented how to choose a package range and when to cross one in the shipped conventions.
+
 ## [0.13.0]
 
 ### Added

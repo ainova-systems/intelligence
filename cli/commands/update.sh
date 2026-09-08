@@ -8,17 +8,22 @@
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
-only="" mode="ask" preview_seen=0 apply_seen=0
+only="" mode="ask" preview_seen=0 apply_seen=0 latest=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --preview) preview_seen=1; mode="preview" ;;
         --apply) apply_seen=1; mode="apply" ;;
+        --latest) latest=1 ;;
         @*) [ -z "$only" ] || die "only one package may be selected"; only="$1" ;;
-        *) die "usage: intelligence update [@scope/name] [--preview|--apply]" ;;
+        *) die "usage: intelligence update [@scope/name] [--latest] [--preview|--apply]" ;;
     esac
     shift
 done
 [ "$preview_seen" -eq 0 ] || [ "$apply_seen" -eq 0 ] || die "choose either --preview or --apply"
+# Crossing a range is one package's decision, and SemVer marks the boundary as
+# the place a changelog has to be read.
+[ "$latest" -eq 0 ] || [ -n "$only" ] \
+    || die "--latest needs the package to move: intelligence update @scope/name --latest"
 
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
@@ -74,6 +79,7 @@ fi
 
 pkg_args=(--preview)
 [ -z "$only" ] || pkg_args+=("$only")
+[ "$latest" -eq 0 ] || pkg_args+=(--latest)
 pkg_plan="$(bash "$CLI_DIR/internal/package-update.sh" "${pkg_args[@]}")"
 echo ""
 echo "Packages:"
@@ -102,5 +108,6 @@ fi
 ensure_project_current "$IP_ROOT"
 apply_args=(--no-sync)
 [ -z "$only" ] || apply_args+=("$only")
+[ "$latest" -eq 0 ] || apply_args+=(--latest)
 bash "$CLI_DIR/internal/package-update.sh" "${apply_args[@]}"
 exec bash "$CLI_DIR/commands/sync.sh"

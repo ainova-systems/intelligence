@@ -7,16 +7,22 @@
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
-only="" no_sync=0 preview=0
+only="" no_sync=0 preview=0 latest=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-sync) no_sync=1 ;;
         --preview) preview=1 ;;
+        --latest) latest=1 ;;
         @*) only="$1" ;;
         *) die "unknown argument '$1'" ;;
     esac
     shift || true
 done
+# Crossing a range is per package on purpose: each boundary SemVer marks is a
+# changelog to read, so a blanket sweep would be one confirmation for several
+# unrelated decisions.
+[ "$latest" -eq 0 ] || [ -n "$only" ] \
+    || die "--latest needs the package to move: intelligence update @scope/name --latest"
 
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"
@@ -36,7 +42,7 @@ move_label() {
     fi
 }
 
-moved=0 found=0
+moved=0 found=0 outside=0
 while IFS= read -r name; do
     [ -n "$name" ] || continue
     # Manifest keys are untrusted input on their way into store paths.
@@ -46,6 +52,8 @@ while IFS= read -r name; do
     # message followed by "not in the manifest" would contradict itself.
     found=1
     if [ "$name" = "$SYNC_PKG_NAME" ]; then
+        [ "$latest" -eq 0 ] \
+            || die "$name is the engine content package — its pin follows the installed CLI; use 'intelligence upgrade'"
         echo "  $name: engine content follows the installed CLI — skipped"
         continue
     fi
@@ -59,7 +67,9 @@ while IFS= read -r name; do
     range="$(qmap_field "$manifest" "packages" "$name" "version")"
     [ -n "$ref" ] || [ -n "$range" ] || die "$name has neither version nor ref in the manifest"
 
-    ref_moved=0 remote_sha=""
+    ref_moved=0 remote_sha="" beyond="" range_move=""
+    [ "$latest" -eq 0 ] || [ -z "$ref" ] \
+        || die "$name is pinned to ref '$ref', not a version range — a ref pin is frozen by intent; re-add the package to change it"
     if [ -n "$ref" ]; then
         tag="$ref"
         requested=""
@@ -101,27 +111,56 @@ while IFS= read -r name; do
         fi
         [ -z "$remote_sha" ] || [ "$remote_sha" = "$locked_sha" ] || ref_moved=1
     else
-        picked="$(list_remote_versions "$url" | semver_pick_highest "$range")"
+        # One remote read answers both questions: what the range selects, and
+        # what it excludes.
+        versions="$(list_remote_versions "$url")"
+        picked="$(printf '%s\n' "$versions" | semver_pick_highest "$range")"
         [ -n "$picked" ] || { echo "  $name: nothing satisfies '$range' at $url" >&2; continue; }
         read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
         requested="$range"
+        # A range is a ceiling as much as a floor, and on a 0.x package the
+        # caret stops at the minor: a project sits on 0.4.x while 0.6.1 ships
+        # and every plan still reads "up to date". Name what the range leaves
+        # out. Crossing it edits requested intent, which is a manifest change
+        # and never this command's to make.
+        newest="$(printf '%s\n' "$versions" | semver_pick_highest "latest")"
+        if [ -n "$newest" ] && [ "$(semver_cmp "$newest" "$picked")" = "1" ]; then
+            if [ "$latest" -eq 1 ]; then
+                # Asked for by name: take the newest and widen the recorded
+                # intent to match, keeping the caret so the next boundary is
+                # still a decision. The manifest keeps saying what the project
+                # asked for — that is what makes the move reviewable.
+                picked="$newest"
+                read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
+                requested="^$newest"
+                range_move=" (range $range -> $requested)"
+            else
+                beyond=" — $newest available outside '$range'"
+                beyond="$beyond
+      follow it: intelligence update $name --latest"
+                outside=$((outside + 1))
+            fi
+        fi
+        # When the newest version is already inside the range there is nothing
+        # to cross: `--latest` falls through to the ordinary comparison, which
+        # still installs a move the lock is behind on and still widens nothing.
     fi
     if [ "$ref_moved" -eq 0 ] && [ "$tag" = "$current" ] && [ "$requested" != "$locked_requested" ]; then
         if [ "$preview" -eq 1 ]; then
-            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (keeps $current)"
+            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (keeps $current)$beyond"
         else
             lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$current" "$locked_sha"
-            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (kept $current)"
+            echo "  $name: request ${locked_requested:-<none>} -> ${requested:-<ref>} (kept $current)$beyond"
         fi
         moved=$((moved + 1))
         continue
     fi
     if [ "$ref_moved" -eq 0 ] && [ "$tag" = "$current" ]; then
-        echo "  $name: $(pin_label "$ref" "$current" "$locked_sha") (up to date)"
+        echo "  $name: $(pin_label "$ref" "$current" "$locked_sha") (up to date)$beyond"
         continue
     fi
     if [ "$preview" -eq 1 ]; then
-        echo "  $name: $(move_label "$ref" "$current" "$tag" "$locked_sha" "$remote_sha")"
+        echo "  $name: $(move_label "$ref" "$current" "$tag" "$locked_sha" "$remote_sha")$range_move$beyond"
         moved=$((moved + 1))
         continue
     fi
@@ -139,7 +178,11 @@ while IFS= read -r name; do
     mv "$staging" "$IP_ROOT/$rel"
     wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
     lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$tag" "$sha"
-    echo "  $name: $(move_label "$ref" "$current" "$tag" "$locked_sha" "$sha")"
+    # The widened intent is recorded only once its content is installed and
+    # wired: a manifest saying ^0.6.1 over a failed fetch would describe a
+    # state the project never reached.
+    [ -z "$range_move" ] || qmap_set "$manifest" "packages" "$name" "version" "$requested"
+    echo "  $name: $(move_label "$ref" "$current" "$tag" "$locked_sha" "$sha")$range_move$beyond"
     moved=$((moved + 1))
 done < <(qmap_keys "$manifest" "packages")
 
@@ -148,6 +191,11 @@ if [ "$preview" -eq 1 ]; then
     echo "updates available: $moved package(s)"
 else
     echo "updated: $moved package(s)"
+fi
+# Counted apart from the movable ones: no mode of this command installs these,
+# so folding them into "updates available" would promise work --apply skips.
+if [ "$outside" -gt 0 ]; then
+    echo "outside the requested range: $outside package(s) — read the changelog, then run the 'follow it' command above"
 fi
 
 if [ "$preview" -eq 0 ] && [ "$moved" -gt 0 ] && [ "$no_sync" -eq 0 ]; then
