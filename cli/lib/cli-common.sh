@@ -156,14 +156,33 @@ require_cli_project() {
 
 # --- Manifest basics (engine-readable shapes) ----------------------------
 
+# normalize_source_dir_var <dir> — set IS_SOURCE_DIR to the spelling the
+# manifest stores: no `./` prefix, no interior `/./`, no trailing `/.` or `/`.
+# A path that reduces to nothing named the repository root, which is spelled
+# `.` — so the caller judges one shape instead of five.
+# shellcheck disable=SC2034
+normalize_source_dir_var() {
+    local dir="$1"
+    while [ "${dir#./}" != "$dir" ]; do dir="${dir#./}"; done
+    while [ "$dir" != "${dir//\/.\//\/}" ]; do dir="${dir//\/.\//\/}"; done
+    while [ "${dir%/.}" != "$dir" ]; do dir="${dir%/.}"; done
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+    IS_SOURCE_DIR="${dir:-.}"
+}
+
+normalize_source_dir() {
+    normalize_source_dir_var "$1"
+    printf '%s' "$IS_SOURCE_DIR"
+}
+
 # source_entry_problem <root> <entry> — one line naming why the engine cannot
-# render this `sources:` entry, or nothing when the entry is sound. Every case
-# here is invisible at sync time: the engine resolves an entry as
+# render this `sources:` entry, or nothing when the entry is sound. Most cases
+# here are invisible at sync time: the engine resolves an entry as
 # `$REPO_ROOT/<entry>` and skips whatever is not a directory, so a bad entry is
 # a silent omission from a run that still reports ok. `source add` refuses one
 # before it is written; `status --check` reports one already in the manifest.
 source_entry_problem() {
-    local root="$1" entry="$2" seg rest
+    local root="$1" entry="$2" seg rest norm
     case "$entry" in
         "") printf 'is empty'; return 0 ;;
         *\\*) printf 'uses backslashes — manifest paths use "/"'; return 0 ;;
@@ -172,7 +191,16 @@ source_entry_problem() {
             return 0
             ;;
     esac
-    rest="$entry"
+    # The root is the loud failure rather than the silent one: it IS a
+    # directory, so the engine reads every top-level *.md in it — README,
+    # CHANGELOG, docs — as an artifact of this section.
+    normalize_source_dir_var "$entry"
+    norm="$IS_SOURCE_DIR"
+    if [ "$norm" = "." ]; then
+        printf 'is the repository root — every top-level *.md there would be read as an artifact of this section'
+        return 0
+    fi
+    rest="$norm"
     while [ -n "$rest" ]; do
         seg="${rest%%/*}"
         if [ "$seg" = ".." ]; then

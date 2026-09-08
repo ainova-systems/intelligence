@@ -30,16 +30,11 @@ assert_source_section() {
     esac
 }
 
-# Normalize a user-typed directory to the spelling the manifest stores: no
-# trailing slash, no leading './'. Everything else is rejected rather than
+# `normalize_source_dir` reduces `./x/`, `x/.` and `x/./y` to the one spelling
+# the manifest stores; it lives beside the classifier in cli-common so a typed
+# path and a manifest entry are judged as the same thing. Nothing else is
 # repaired — a source entry decides which artifact wins, so a path the user did
 # not type is the wrong kind of help.
-normalize_source_dir() {
-    local dir="$1"
-    while [ "${dir#./}" != "$dir" ]; do dir="${dir#./}"; done
-    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
-    printf '%s' "$dir"
-}
 
 # assert_valid_source_dir <root> <dir> — refuse what the engine cannot report.
 # The shape checks are `source_entry_problem`, shared with `status --check` so

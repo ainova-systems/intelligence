@@ -659,6 +659,22 @@ printf 'sources:\n  rules:\n    - docs/api\n' > "$SUB"
 sources_add_entry "$SUB" rules "docs"
 chk eq "$(entries_of "$SUB" rules)" "docs/api,docs"
 
+echo "== normalize_source_dir: one spelling per directory =="
+norm_is() { [ "$(normalize_source_dir "$1")" = "$2" ] || { echo "FAIL: normalize '$1' — want '$2', got '$(normalize_source_dir "$1")'"; fail=1; }; }
+norm_is "intelligence/rules" "intelligence/rules"
+norm_is "./intelligence/rules/" "intelligence/rules"
+norm_is "intelligence/./rules" "intelligence/rules"
+norm_is "intelligence/rules/." "intelligence/rules"
+norm_is "a/././b" "a/b"
+# Everything that names the repository root reduces to one shape, so the
+# classifier judges it once instead of guessing at five spellings.
+norm_is "." "."
+norm_is "./" "."
+norm_is "" "."
+chk grep -q . <<< "$(source_entry_problem "$OUT" ".")"
+chk grep -q "repository root" <<< "$(source_entry_problem "$OUT" "./")"
+chknot grep -q . <<< "$(source_entry_problem "$OUT" "intelligence/rules")"
+
 echo "== sources_has_entry =="
 chk sources_has_entry "$SUB" rules "docs/api"
 chknot sources_has_entry "$SUB" rules "docs/ap"

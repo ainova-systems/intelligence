@@ -8,15 +8,16 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- Added `intelligence source add|remove|list` for the project's own `sources:` entries — a monorepo's per-component directories, or a pack developed inside the repository that ships it. `sources:` is an ordered list and the order is the override rule, so placement is the command's work: `add` appends by default, where a directory the project added wins over every installed package, and `--first` / `--last` / `--before <entry>` / `--after <entry>` place an entry explicitly. Adding a listed entry is a no-op; adding it with a position moves it, and every mutation prints the resulting order.
-- `source add` refuses the four inputs that used to fail silently after a green sync: an absolute path (the engine resolves entries as `$REPO_ROOT/<entry>`, so it matched nothing and the source was skipped), a path leaving the repository through `../` or a symlink (it renders, but has no committable path, so `AGENTS.md` carried bare artifact names instead of links), a path under the CLI-managed `.intelligence/` store, and a path a double-quoted YAML scalar cannot carry verbatim. A directory that does not exist yet stays a warning: the manifest records intent, and sync renders it once the directory appears.
-- `status --check` now reports a `sources:` entry the engine cannot render — absolute, escaping the repository, or holding a character the manifest cannot carry — instead of accepting it as an optional directory that does not exist yet. The same definition backs the refusal in `source add`, so a hand-edited manifest and a new entry are judged identically.
-- The unsynced-directory warning now names the command that wires a directory in instead of asking for a hand edit of the manifest.
+- Added `intelligence source add|remove|list` for the project's own `sources:` entries. `add` appends by default; `--first`, `--last`, `--before <entry>` and `--after <entry>` place an entry explicitly, and every mutation prints the resulting order.
+- `source add` refuses an entry the engine cannot render: absolute, leaving the repository, under the CLI-managed store, unquotable in YAML, or the repository root. A missing directory is a warning, not a refusal.
+- `status --check` reports such an entry in an existing manifest, through the same classifier `source add` refuses with.
+- Spellings of one directory became one entry: `./x/`, `x/.` and `x/./y` normalize before an entry is stored or compared.
+- The unsynced-directory warning names `intelligence source add` instead of asking for a hand edit of the manifest.
 
 ### Fixed
 
-- Stopped the sources editor from refusing an entry it had not actually listed: the presence check was a substring search over the whole manifest, so the same directory could not serve two sections (`shared/prompts` under both `rules:` and `agents:`), and a bare `- docs/api` entry blocked adding `docs`. It is now exact and scoped to the section, read through the engine's own list parser.
-- A manifest edit that cannot be placed now refuses and leaves the file untouched, instead of aborting mid-command and leaving the staged `.cli.tmp` behind.
+- Made the sources presence check exact and section-scoped: one directory may now serve two sections, and a bare `- docs/api` entry no longer blocks adding `docs`.
+- A manifest edit that cannot be placed now refuses and leaves the file untouched, instead of aborting mid-command and leaving a staged `.cli.tmp` behind.
 
 ## [0.15.0]
 

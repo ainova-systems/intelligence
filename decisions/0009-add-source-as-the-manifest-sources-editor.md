@@ -23,6 +23,10 @@ that still reports `IS_STATUS=ok`:
   alignment;
 - a path a double-quoted YAML scalar cannot carry verbatim.
 
+The repository root fails the other way round. `.` *is* a directory, so nothing is
+skipped: every top-level `*.md` beside it — `README.md`, `CHANGELOG.md`, whatever the
+repository keeps at its root — is read as an artifact of that section.
+
 The insert and remove primitives already existed for package wiring
 (`sources_add_entry_first`, `sources_remove_entry`), but they were shaped for their single
 caller: presence was a substring search over the whole file, which is exact enough for
@@ -44,9 +48,12 @@ wins, so an entry's position decides which artifact survives.
    ahead of the project's own.
 4. Adding an entry a section already holds is a no-op; adding it *with* a position moves
    it. Every mutation prints the resulting order, because the order is the decision.
-5. The four silent failures above are refused before the entry is written. A directory
-   that does not exist yet is a warning, not a refusal: the manifest records intent, and
-   the engine deliberately skips a missing source.
+5. The four silent failures above, and the repository root, are refused before the entry
+   is written. A directory that does not exist yet is a warning, not a refusal: the
+   manifest records intent, and the engine deliberately skips a missing source.
+   Spellings of one directory are reduced to one before anything is stored, compared or
+   judged, so `./x/`, `x/.` and `x/./y` are that directory and `.`, `./` and `sub/..`
+   are the root.
 6. One definition covers both directions. `source_entry_problem` classifies an entry, and
    `status --check` reports through it what `source add` refuses — so a manifest edited by
    hand before this command existed is judged identically.

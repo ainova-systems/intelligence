@@ -248,14 +248,19 @@ lands after the store entries and ahead of the project's own. Adding an entry
 the section already holds is a no-op; adding it *with* a position moves it.
 Every mutation prints the resulting order.
 
-Four inputs are refused, because each one fails silently after a green sync:
+Five inputs are refused. Four of them fail silently after a green sync; the
+fifth renders the wrong thing loudly:
 
 - an absolute path — the engine resolves every entry as `$REPO_ROOT/<entry>`, so it matches nothing and the source is simply skipped;
 - a path leaving the repository (`../`, or a symlink pointing out) — it renders, but has no committable path, so `AGENTS.md` carries bare artifact names instead of links;
 - a path under `.intelligence/` — package territory, as above;
-- a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes).
+- a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes);
+- the repository root itself (`.`, `./`, `sub/..`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
 
-`status --check` reports the same four through the same definition, so an entry
+Spellings of the same directory are one entry: `./intelligence/rules/`,
+`intelligence/./rules` and `intelligence/rules` are stored, compared and
+reported identically.
+`status --check` reports the same five through the same definition, so an entry
 a hand edit placed before this command existed is judged identically.
 
 A directory that does not exist yet is a warning, not a refusal: the manifest

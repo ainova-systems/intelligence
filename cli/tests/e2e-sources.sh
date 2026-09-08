@@ -94,6 +94,11 @@ cp "$PROJ/intelligence.yaml" "$OUT/before-refusals.yaml"
 chknot run source add rules /abs/rules
 chknot run source add rules 'C:/abs/rules'
 chknot run source add rules ../outside/rules
+# The repository root is a directory, so it does not fail silently — it renders
+# every top-level *.md as an artifact of the section.
+chknot run source add rules .
+chknot run source add rules ./
+chknot run source add rules 'sub/..'
 chknot run source add rules deep/../../outside/rules
 chknot run source add rules .intelligence/packages/@acme/x/rules
 chknot run source add rules 'backend\intelligence\rules'
@@ -108,13 +113,20 @@ chknot run source remove rules .intelligence/packages/@acme/x/rules
 chk diff -q "$OUT/before-refusals.yaml" "$PROJ/intelligence.yaml"
 chknot ls "$PROJ/intelligence.yaml.cli.tmp"
 
+echo "== a spelling of a listed directory is that directory =="
+cp "$PROJ/intelligence.yaml" "$OUT/before-spelling.yaml"
+chk run source add rules ./intelligence/rules/
+chk run source add rules intelligence/./rules
+chk diff -q "$OUT/before-spelling.yaml" "$PROJ/intelligence.yaml"
+
 echo "== status --check reports an entry a hand edit already placed =="
 cp "$PROJ/intelligence.yaml" "$OUT/before-check.yaml"
-awk '{ print } /^  rules:$/ { print "    - \"/etc/rules\""; print "    - \"../outside/rules\"" }' \
+awk '{ print } /^  rules:$/ { print "    - \"/etc/rules\""; print "    - \"../outside/rules\""; print "    - \".\"" }' \
     "$OUT/before-check.yaml" > "$PROJ/intelligence.yaml"
 out="$( (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check) 2>&1 || true)"
 grep -q "'/etc/rules' is an absolute path" <<< "$out" || { echo "FAIL: --check accepts an absolute source"; fail=1; }
 grep -q "'../outside/rules' leaves the repository" <<< "$out" || { echo "FAIL: --check accepts a source outside the repository"; fail=1; }
+grep -q "'\.' is the repository root" <<< "$out" || { echo "FAIL: --check accepts the repository root as a source"; fail=1; }
 cp "$OUT/before-check.yaml" "$PROJ/intelligence.yaml"
 
 echo "== a missing directory is a warning, not a refusal =="
