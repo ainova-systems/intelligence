@@ -37,18 +37,14 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 | [git-resolve-conflicts](.intelligence/packages/@ainova-systems/core/skills/git-resolve-conflicts/SKILL.md) | Resolves merge or rebase conflicts by what each side intended, never by picking a hunk, then re-runs the full gates. |
 | [git-review-pr-comments](.intelligence/packages/@ainova-systems/core/skills/git-review-pr-comments/SKILL.md) | Triages review comments on a pull request - fix, discuss, or decline with a reason - and leaves no thread unanswered. |
 | [git-scan-secrets](.intelligence/packages/@ainova-systems/core/skills/git-scan-secrets/SKILL.md) | Scans a diff, the working tree, or branch history for credentials before they reach a remote, and classifies every hit. |
-| [intelligence-add-agent](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-agent/SKILL.md) | Create new specialized agent |
-| [intelligence-add-rule](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-rule/SKILL.md) | Create new intelligence rule |
-| [intelligence-add-skill](.intelligence/packages/@ainova-systems/sync/skills/intelligence-add-skill/SKILL.md) | Create new skill |
-| [intelligence-compact-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-compact-context/SKILL.md) | Reduce rules, agents, and skills without changing behavior or teaching terse output |
-| [intelligence-extract-skill](.intelligence/packages/@ainova-systems/sync/skills/intelligence-extract-skill/SKILL.md) | Extract observed workflow into a reusable skill |
-| [intelligence-install-adapter](.intelligence/packages/@ainova-systems/sync/skills/intelligence-install-adapter/SKILL.md) | Research, implement, and enable a tool adapter |
-| [intelligence-learn-from-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-context/SKILL.md) | Capture one approved lesson from a session in an established Intelligence project |
 | [intelligence-learn-from-repository](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-repository/SKILL.md) | Recover and complete first-time Intelligence repository onboarding |
-| [intelligence-review-skills](.intelligence/packages/@ainova-systems/sync/skills/intelligence-review-skills/SKILL.md) | Audit the intelligence layer for duplication, drift, size, hardcoded paths and framing |
+| [intelligence-learn-from-session](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-session/SKILL.md) | Capture session lessons and workflows in project context |
+| [intelligence-manage-adapters](.intelligence/packages/@ainova-systems/sync/skills/intelligence-manage-adapters/SKILL.md) | Enable, disable, or remove adapters and assess generated-output cleanup |
+| [intelligence-review-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-review-context/SKILL.md) | Audit rules, agents, and skills and propose behavior-preserving reductions |
 | [intelligence-sync](.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync/SKILL.md) | Sync intelligence to enabled adapters |
-| [intelligence-uninstall-adapter](.intelligence/packages/@ainova-systems/sync/skills/intelligence-uninstall-adapter/SKILL.md) | Disable an adapter and assess its generated output |
 | [intelligence-update](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update/SKILL.md) | Interpret an update plan and verify breaking post-conditions |
+| [intelligence-update-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update-context/SKILL.md) | Create, revise, or remove project rules, agents, and skills |
+| [dev-build-adapter](intelligence/skills/dev-build-adapter/SKILL.md) | Implement and verify built-in or project-owned Intelligence adapters |
 | [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) | Implement one roadmap batch through a merge-ready PR |
 
 ### Rules
@@ -248,6 +244,7 @@ public command model. Neither model can be reconstructed from historical code.
 | `cli/` | dispatcher, lifecycle commands, package manager, test suites |
 | `engine/` | the sync engine bundled into the npm package |
 | `packages/sync/` | rules, agents, meta-skills and references installed as `@ainova-systems/sync` |
+| `intelligence/skills/` | repository-only workflows, including `dev-build-adapter`; excluded from distributed content |
 | `npm/` | Node launcher and distribution build |
 | `docs/` `examples/` `decisions/` | CLI reference, manifest fixtures, internal architecture records |
 

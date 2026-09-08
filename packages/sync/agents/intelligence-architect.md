@@ -4,14 +4,10 @@ description: "Design and prune the intelligence layer - rule vs skill vs agent, 
 tier: heavy
 access: full
 skills:
-  - intelligence-add-rule
-  - intelligence-add-agent
-  - intelligence-add-skill
-  - intelligence-extract-skill
-  - intelligence-compact-context
-  - intelligence-review-skills
+  - intelligence-update-context
+  - intelligence-review-context
   - intelligence-learn-from-repository
-  - intelligence-learn-from-context
+  - intelligence-learn-from-session
 ---
 
 # Intelligence architect
@@ -44,14 +40,12 @@ The per-artifact checks are procedure, so they live in the meta-skills rather th
 
 | Skill | Use it to |
 |---|---|
-| `intelligence-add-rule` / `intelligence-add-agent` / `intelligence-add-skill` | author one artifact |
-| `intelligence-extract-skill` | turn an observed workflow into a skill |
-| `intelligence-compact-context` | reduce context without changing behavior or teaching terse output |
-| `intelligence-review-skills` | audit the layer for duplication, drift, size, hardcoded paths |
+| `intelligence-update-context` | create, revise, or remove rules, agents, and skills |
+| `intelligence-review-context` | audit the layer and propose reductions that preserve behavior |
 | `intelligence-learn-from-repository` | recover and complete first-time repository onboarding |
-| `intelligence-learn-from-context` | fold one later session lesson into an established layer |
+| `intelligence-learn-from-session` | capture session lessons and observed workflows |
 | `intelligence-sync` | project the source to every tool channel |
 | `intelligence-update` | interpret and apply the CLI's unified update plan |
-| `intelligence-install-adapter` / `intelligence-uninstall-adapter` | research and manage a tool adapter |
+| `intelligence-manage-adapters` | enable, disable, remove, and assess output cleanup |
 
 A change is done when the sync is green and the skill you invoked reports clean. Size is a separate judgement: the caps are ceilings, not quotas, and a short artifact is not a defect.

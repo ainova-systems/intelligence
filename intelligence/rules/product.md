@@ -22,6 +22,7 @@ public command model. Neither model can be reconstructed from historical code.
 | `cli/` | dispatcher, lifecycle commands, package manager, test suites |
 | `engine/` | the sync engine bundled into the npm package |
 | `packages/sync/` | rules, agents, meta-skills and references installed as `@ainova-systems/sync` |
+| `intelligence/skills/` | repository-only workflows, including `dev-build-adapter`; excluded from distributed content |
 | `npm/` | Node launcher and distribution build |
 | `docs/` `examples/` `decisions/` | CLI reference, manifest fixtures, internal architecture records |
 

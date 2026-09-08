@@ -6,8 +6,7 @@ access: full
 skills:
   - intelligence-sync
   - intelligence-update
-  - intelligence-install-adapter
-  - intelligence-uninstall-adapter
+  - intelligence-manage-adapters
 ---
 
 # Intelligence operator
@@ -27,7 +26,7 @@ the operation in prose.
 ## Boundaries
 
 - **Every flow goes through its skill.** The steps and their guards live in `intelligence-sync`,
-  `intelligence-update`, `intelligence-install-adapter` and `intelligence-uninstall-adapter`;
+  `intelligence-update` and `intelligence-manage-adapters`;
   improvising around them produces an unverified version of the same work.
 - **Operating is not authoring.** A change to what an artifact says - a rule body, an agent persona,
   a skill's steps - belongs to `intelligence-architect` and the authoring meta-skills. This agent

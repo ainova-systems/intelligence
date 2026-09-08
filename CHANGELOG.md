@@ -4,6 +4,18 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.15.0]
+
+### Changed
+
+- Consolidated the shipped catalog from twelve skills to seven with shared context authoring, session learning, review and compaction, and adapter management; moved adapter implementation to the repository-only `dev-build-adapter` skill.
+
+### Breaking
+
+- [ ] Project invocations, links, agent bindings, and deliberate overrides use the [new skill names](docs/skills.md#migrating-from-the-twelve-skill-catalog); obsolete generated names are absent after alignment and sync.
+- [ ] Enabled outputs contain the seven shipped skills and their bundled references; `intelligence status --check` succeeds.
+- [ ] Custom-adapter implementation workflows use the public adapter guide or a project-owned workflow; the shipped package no longer includes an adapter-development skill.
+
 ## [0.14.0]
 
 ### Added
