@@ -644,14 +644,19 @@ sync_open_skill_dirs() {
     local count=0 log="" d skill_file skill_name
     local -a skill_dirs=()
     read_source_artifact_files "$repo_root" "$config_file" "skills"
-    for skill_file in ${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"}; do
-        [ -n "$skill_file" ] || continue
-        d="${skill_file%/SKILL.md}"
-        skill_name="${d##*/}"
-        skill_dirs+=("$d/")
-        count=$((count + 1))
-        log+="  skill: $skill_name"$'\n'
-    done
+    # Guard on the count, then expand quoted: Bash 3.2 (macOS) errors on an
+    # empty array under `set -u`, and quoting keeps a path with a space or a
+    # glob character intact.
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        for skill_file in "${IS_SOURCE_FILES[@]}"; do
+            [ -n "$skill_file" ] || continue
+            d="${skill_file%/SKILL.md}"
+            skill_name="${d##*/}"
+            skill_dirs+=("$d/")
+            count=$((count + 1))
+            log+="  skill: $skill_name"$'\n'
+        done
+    fi
     # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
     # target gets it — not just this open-standard dir.
     if [ "$count" -gt 0 ]; then
@@ -1422,7 +1427,7 @@ report_context_source_sizes() {
     local -a rule_files=() always_on_rules=() scoped_rules=() agent_files=() skill_files=()
 
     read_source_artifact_files "$repo_root" "$config_file" "rules"
-    rule_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || rule_files=("${IS_SOURCE_FILES[@]}")
     if [ "${#rule_files[@]}" -gt 0 ]; then
         while IFS=$'\x1f' read -r path has_paths; do
             [ -n "$path" ] || continue
@@ -1435,10 +1440,10 @@ report_context_source_sizes() {
     fi
 
     read_source_artifact_files "$repo_root" "$config_file" "agents"
-    agent_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || agent_files=("${IS_SOURCE_FILES[@]}")
 
     read_source_artifact_files "$repo_root" "$config_file" "skills"
-    skill_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
 
     local always_bytes custom_bytes agents_output agents_bytes=0 agents_status="disabled"
     always_bytes="$(context_files_bytes "${always_on_rules[@]+"${always_on_rules[@]}"}")"

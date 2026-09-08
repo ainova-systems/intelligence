@@ -60,7 +60,7 @@ agents_md_append_agents_table() {
 
     local -a files=()
     read_source_artifact_files "$repo_root" "$config_file" "agents"
-    files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path tier access desc name
@@ -102,7 +102,7 @@ agents_md_append_skills_table() {
     local dirname
     local -a skill_files=()
     read_source_artifact_files "$repo_root" "$config_file" "skills"
-    skill_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#skill_files[@]}" -gt 0 ]; then
         local path desc
@@ -144,7 +144,7 @@ agents_md_append_rules_list() {
 
     local -a files=()
     read_source_artifact_files "$repo_root" "$config_file" "rules"
-    files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
+    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path hp name scope

@@ -938,9 +938,13 @@ echo "== 17. a source enumeration that cannot answer stops the run =="
 # incomplete AGENTS.md and the run still reported IS_STATUS=ok. The stub below
 # reproduces that shape exactly — a partial list followed by a failure.
 E17="$OUT/e17"
-mkdir -p "$E17/intelligence/rules" "$E17/intelligence/skills/alpha" "$E17/intelligence/skills/beta" "$E17/bin"
+mkdir -p "$E17/intelligence/rules" "$E17/bin"
 printf '# Ctx\n\ne17 context\n' > "$E17/intelligence/rules/context.md"
-for s in alpha beta; do
+# One name carries a space and a glob character: the enumerated list reaches
+# the renderer through array expansions, and an unquoted one would split or
+# glob this entry instead of passing it through whole.
+for s in alpha beta "gam ma[1]"; do
+    mkdir -p "$E17/intelligence/skills/$s"
     printf -- '---\nname: %s\ndescription: "Skill %s"\n---\nBody.\n' "$s" "$s" \
         > "$E17/intelligence/skills/$s/SKILL.md"
 done
@@ -950,6 +954,9 @@ run_in "$E17" sync
 [ "$RC" -eq 0 ] || { echo "FAIL: e17 baseline sync failed"; fail=1; }
 chk grep -q 'alpha' "$E17/AGENTS.md"
 chk grep -q 'beta' "$E17/AGENTS.md"
+chk grep -qF 'gam ma[1]' "$E17/AGENTS.md"
+printf '%s\n' "$OUTPUT" | grep -q 'skills: 3 listed' \
+    || { echo "FAIL: a skill name with a space or glob character was lost"; fail=1; }
 good_size="$(wc -c < "$E17/AGENTS.md")"
 
 REAL_FIND="$(command -v find)"
