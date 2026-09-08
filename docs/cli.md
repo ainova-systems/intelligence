@@ -255,7 +255,7 @@ fifth renders the wrong thing loudly:
 - a path leaving the repository (`../`, or a symlink pointing out) — it renders, but has no committable path, so `AGENTS.md` carries bare artifact names instead of links;
 - a path under `.intelligence/` — package territory, as above;
 - a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes);
-- the repository root itself (`.`, `./`, `sub/..`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
+- the repository root itself (`.` and `./`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
 
 Spellings of the same directory are one entry: `./intelligence/rules/`,
 `intelligence/./rules` and `intelligence/rules` are stored, compared and

@@ -95,13 +95,18 @@ chknot run source add rules /abs/rules
 chknot run source add rules 'C:/abs/rules'
 chknot run source add rules ../outside/rules
 # The repository root is a directory, so it does not fail silently — it renders
-# every top-level *.md as an artifact of the section.
+# every top-level *.md as an artifact of the section. `sub/..` names the root
+# too, but is refused one step earlier, as any entry carrying `..` is.
 chknot run source add rules .
 chknot run source add rules ./
 chknot run source add rules 'sub/..'
 chknot run source add rules deep/../../outside/rules
 chknot run source add rules .intelligence/packages/@acme/x/rules
 chknot run source add rules 'backend\intelligence\rules'
+# The refusal names the corrected spelling, which is itself a substitution the
+# shell has to get right on every supported Bash.
+err="$(run source add rules 'backend\intelligence\rules' 2>&1 || true)"
+grep -q 'backend/intelligence/rules' <<< "$err" || { echo "FAIL: the backslash refusal does not name the corrected path: $err"; fail=1; }
 chknot run source add rules 'quoted"/rules'
 chknot run source add rules 'commented#/rules'
 chknot run source add prompts intelligence/rules

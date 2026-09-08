@@ -52,8 +52,7 @@ wins, so an entry's position decides which artifact survives.
    is written. A directory that does not exist yet is a warning, not a refusal: the
    manifest records intent, and the engine deliberately skips a missing source.
    Spellings of one directory are reduced to one before anything is stored, compared or
-   judged, so `./x/`, `x/.` and `x/./y` are that directory and `.`, `./` and `sub/..`
-   are the root.
+   judged, so `./x/`, `x/.` and `x/./y` are that directory and `.` and `./` are the root.
 6. One definition covers both directions. `source_entry_problem` classifies an entry, and
    `status --check` reports through it what `source add` refuses — so a manifest edited by
    hand before this command existed is judged identically.

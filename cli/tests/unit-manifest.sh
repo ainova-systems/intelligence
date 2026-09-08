@@ -671,6 +671,12 @@ norm_is "a/././b" "a/b"
 norm_is "." "."
 norm_is "./" "."
 norm_is "" "."
+# A leading slash survives: normalizing it away would turn an absolute path
+# into a relative one and hide it from the classifier.
+norm_is "/abs/rules" "/abs/rules"
+norm_is "//abs//rules/" "/abs/rules"
+chk grep -q "absolute path" <<< "$(source_entry_problem "$OUT" "/abs/rules")"
+chk grep -q "absolute path" <<< "$(source_entry_problem "$OUT" "//abs/rules")"
 chk grep -q . <<< "$(source_entry_problem "$OUT" ".")"
 chk grep -q "repository root" <<< "$(source_entry_problem "$OUT" "./")"
 chknot grep -q . <<< "$(source_entry_problem "$OUT" "intelligence/rules")"
