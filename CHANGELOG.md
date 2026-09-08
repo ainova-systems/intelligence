@@ -12,6 +12,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - Added `intelligence update <@scope/name> --latest`: it moves one named package to the newest stable version and rewrites its requested range to `^<that version>`, sharing the plan's preview/ask/apply modes. It requires the package to be named, refuses a `ref:` pin and the engine-content package, and records the widened range only after the new content is installed and wired.
 - Documented how to choose a package range and when to cross one in the shipped conventions.
 
+### Fixed
+
+- Stopped a truncated source enumeration from rendering an incomplete file and reporting success: the list of rules, agents and skills is assembled in the calling shell instead of being streamed out of a process substitution, whose writer's exit status was discarded, and the remaining pipeline is status-checked. An interrupted pipe write dropped entries silently, so an adapter wrote a short `AGENTS.md` and the run still ended `IS_STATUS=ok`; such a failure now refuses, names the directory it could not enumerate, and leaves the previous output restored.
+
 ## [0.13.0]
 
 ### Added

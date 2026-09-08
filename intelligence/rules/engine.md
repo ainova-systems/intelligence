@@ -28,6 +28,16 @@ Preserve a command's real status with `rc=0; cmd || rc=$?`. Writing
 `if ! cmd; then rc=$?` captures the negation instead, so a `6` arrives as `1` and the
 caller loses the reason it must act on.
 
+A list that decides what gets rendered must fail closed. `read_source_artifact_files`
+fills `IS_SOURCE_FILES` in the caller's shell for that reason: a shorter list is
+indistinguishable from a smaller project, so an enumeration that cannot answer has to
+stop the run rather than shorten the answer. Never stream such a list out of a process
+substitution — `done < <(producer)` discards the producer's exit status, and a pipe
+write cut short (bash reports EINTR as `printf: write error: Interrupted system call`)
+then reaches the adapter as fewer files, which renders an incomplete output that still
+reports `IS_STATUS=ok`. Assemble in the current shell and check every pipeline that
+feeds it.
+
 ## Rule routing
 
 Always-on rules are inlined once into `AGENTS.md`. Cursor, Copilot, Codex, Pi and

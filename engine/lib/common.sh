@@ -643,14 +643,15 @@ sync_open_skill_dirs() {
 
     local count=0 log="" d skill_file skill_name
     local -a skill_dirs=()
-    while IFS= read -r skill_file; do
+    read_source_artifact_files "$repo_root" "$config_file" "skills"
+    for skill_file in ${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"}; do
         [ -n "$skill_file" ] || continue
         d="${skill_file%/SKILL.md}"
         skill_name="${d##*/}"
         skill_dirs+=("$d/")
         count=$((count + 1))
         log+="  skill: $skill_name"$'\n'
-    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
+    done
     # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
     # target gets it — not just this open-standard dir.
     if [ "$count" -gt 0 ]; then
@@ -1335,29 +1336,58 @@ warn_unsynced() {
 
 # Enumerate one manifest source kind using the same depth and ordering
 # everywhere. Source-list order is significant; entries inside each directory
-# use byte-order sorting for cross-platform determinism.
-source_artifact_files() {
+# use byte-order sorting for cross-platform determinism. The result lands in
+# IS_SOURCE_FILES; callers read that array.
+#
+# It is deliberately not streamed out of a subshell. This list decides what
+# every adapter renders, and a truncated one is indistinguishable from a
+# smaller project: a short list renders an incomplete file and the run still
+# reports IS_STATUS=ok. Streaming had two ways to truncate silently — a pipe
+# write cut short (bash's printf surfaces EINTR as `write error: Interrupted
+# system call` and drops the line) and a process substitution, which discards
+# its writer's exit status entirely. Assembling in the caller's shell leaves no
+# writer whose failure can be lost, and the remaining pipeline is checked. An
+# enumeration that cannot answer must stop the run, never shorten the answer.
+read_source_artifact_files() {
     local repo_root="$1"
     local config_file="$2"
     local section="$3"
-    local src f dir
+    local src f dir listing
 
+    IS_SOURCE_FILES=()
     load_yaml_list "$config_file" "$section"
     while IFS= read -r src; do
         [ -n "$src" ] || continue
         dir="$repo_root/$src"
         [ -d "$dir" ] || continue
+        # Command substitution, so the pipeline's status is the assignment's:
+        # `find` or `sort` failing aborts here instead of yielding a short list.
         case "$section" in
             rules|agents)
-                find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort
+                listing="$(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)" || {
+                    echo "ERROR: cannot enumerate $section under '$dir' — refusing to render a partial list." >&2
+                    exit 1
+                }
                 ;;
             skills)
-                while IFS= read -r f; do
-                    [ -n "$f" ] || continue
-                    [ -f "$f/SKILL.md" ] && printf '%s\n' "$f/SKILL.md"
-                done < <(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+                listing="$(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)" || {
+                    echo "ERROR: cannot enumerate $section under '$dir' — refusing to render a partial list." >&2
+                    exit 1
+                }
                 ;;
+            *) continue ;;
         esac
+        [ -n "$listing" ] || continue
+        # A here-string redirect keeps this loop in the current shell, so the
+        # array it fills survives and any failure inside it is this shell's.
+        while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if [ "$section" = "skills" ]; then
+                [ -f "$f/SKILL.md" ] || continue
+                f="$f/SKILL.md"
+            fi
+            IS_SOURCE_FILES+=("$f")
+        done <<< "$listing"
     done <<< "$IS_YAML_LIST"
 }
 
@@ -1391,9 +1421,8 @@ report_context_source_sizes() {
     local f path has_paths
     local -a rule_files=() always_on_rules=() scoped_rules=() agent_files=() skill_files=()
 
-    while IFS= read -r f; do
-        [ -n "$f" ] && rule_files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "rules")
+    read_source_artifact_files "$repo_root" "$config_file" "rules"
+    rule_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
     if [ "${#rule_files[@]}" -gt 0 ]; then
         while IFS=$'\x1f' read -r path has_paths; do
             [ -n "$path" ] || continue
@@ -1405,13 +1434,11 @@ report_context_source_sizes() {
         done < <(frontmatter_index "paths#" "${rule_files[@]}")
     fi
 
-    while IFS= read -r f; do
-        [ -n "$f" ] && agent_files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "agents")
+    read_source_artifact_files "$repo_root" "$config_file" "agents"
+    agent_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
 
-    while IFS= read -r f; do
-        [ -n "$f" ] && skill_files+=("$f")
-    done < <(source_artifact_files "$repo_root" "$config_file" "skills")
+    read_source_artifact_files "$repo_root" "$config_file" "skills"
+    skill_files=(${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"})
 
     local always_bytes custom_bytes agents_output agents_bytes=0 agents_status="disabled"
     always_bytes="$(context_files_bytes "${always_on_rules[@]+"${always_on_rules[@]}"}")"
