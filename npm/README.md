@@ -34,7 +34,7 @@ intelligence sync
 |---|---|
 | `intelligence init [--preview\|--apply]` | Create, convert, restore or align a project |
 | `intelligence sync [adapter]` | Restore locked content if needed, then render all or one enabled adapter |
-| `intelligence update [@scope/name] [--preview\|--apply]` | Plan or apply project and ranged-package updates |
+| `intelligence update [@scope/name] [--latest] [--preview\|--apply]` | Plan or apply project and ranged-package updates; `--latest` crosses one package's range |
 | `intelligence upgrade [--next] [--preview\|--apply]` | Replace the installed CLI with the newest version on its npm channel |
 | `intelligence package add\|remove\|list\|search` | Manage versioned Intelligence Packages |
 | `intelligence adapter list\|create\|enable\|disable\|remove` | Manage render adapters |

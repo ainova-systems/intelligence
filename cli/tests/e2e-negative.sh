@@ -638,6 +638,8 @@ if grep -nE '^[[:space:]]*(url|path):' "$P13/intelligence.yaml"; then
 fi
 chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/intelligence.lock"
 xok "engine content follows" "$P13" update --preview
+# The engine-content pin is the CLI's, not a range anyone crosses.
+xfail "intelligence upgrade" "$P13" update @ainova-systems/sync --latest --preview
 xfail "--force" "$P13" package remove @ainova-systems/sync
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 xok "" "$P13" package remove @ainova-systems/sync --force

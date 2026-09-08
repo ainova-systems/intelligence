@@ -51,6 +51,7 @@ Usage: intelligence <command> [args]
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking
+    --latest              Move one named package past its range to the newest version
   upgrade [--next] [--preview|--apply]  Replace the installed CLI with the newest npm version
     --next                Follow the prerelease line instead of the stable one
   package <command>       add | remove | list | search

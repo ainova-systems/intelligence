@@ -94,6 +94,18 @@ git -C "$PACK" tag v2.0.0   # out of ^1.1.0 range — must NOT be picked
 preview12="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
 grep -q 'v1.1.0 -> v1.2.0' <<< "$preview12" \
     || { echo "FAIL: preview omitted the available update"; fail=1; }
+# The range is a ceiling too: v2.0.0 is excluded, and a plan that reported only
+# the move would read as "current" while a whole major went unmentioned.
+grep -q "2.0.0 available outside '\^1.1.0'" <<< "$preview12" \
+    || { echo "FAIL: preview hid the version outside the range"; fail=1; }
+# The note is only useful if it names a command that runs.
+grep -q 'follow it: intelligence update @acme/shared --latest' <<< "$preview12" \
+    || { echo "FAIL: preview named no command for the excluded version"; fail=1; }
+# Counted apart from the move the range does allow.
+grep -q '^updates available: 1 package(s)' <<< "$preview12" \
+    || { echo "FAIL: the outside-range package leaked into the update counter"; fail=1; }
+grep -q '^outside the requested range: 1 package(s)' <<< "$preview12" \
+    || { echo "FAIL: preview omitted the outside-range summary"; fail=1; }
 if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update) >/dev/null 2>&1; then
     echo "FAIL: non-interactive update applied without --apply"; fail=1
 fi
@@ -122,6 +134,43 @@ grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' <<< "$preview_req" \
     || { echo "FAIL: preview omitted request-only lock alignment"; fail=1; }
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply >/dev/null)
 chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
+
+echo "== --latest crosses the range, and only when asked for one package =="
+# ~1.3.0 holds the project at v1.3.0 while v2.0.0 exists — the shape of every
+# range that has fallen behind. Crossing it is the named, deliberate move.
+pv_out="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q "2.0.0 available outside '~1.3.0'" <<< "$pv_out" \
+    || { echo "FAIL: preview hid the version outside the range"; fail=1; }
+grep -q 'follow it: intelligence update @acme/shared --latest' <<< "$pv_out" \
+    || { echo "FAIL: preview named no command for the excluded version"; fail=1; }
+grep -q '^outside the requested range: 1 package(s)' <<< "$pv_out" \
+    || { echo "FAIL: preview omitted the outside-range summary"; fail=1; }
+# Counted apart: no ordinary mode installs it.
+grep -q '^updates available: 0 package(s)' <<< "$pv_out" \
+    || { echo "FAIL: the outside-range package leaked into the update counter"; fail=1; }
+# A blanket sweep would be one confirmation for several unrelated changelogs.
+if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest --preview) >/dev/null 2>&1; then
+    echo "FAIL: --latest without a package name was accepted"; fail=1
+fi
+pv_latest="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --preview)"
+grep -q 'v1.3.0 -> v2.0.0 (range ~1.3.0 -> \^2.0.0)' <<< "$pv_latest" \
+    || { echo "FAIL: --latest preview did not report the crossing and the new range"; fail=1; }
+chk grep -q 'version: "~1.3.0"' "$PROJ/intelligence.yaml"
+chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --apply >/dev/null)
+# Requested intent moves with the content: the manifest still records what the
+# project asked for, so the next boundary stays a decision.
+chk grep -q 'version: "\^2.0.0"' "$PROJ/intelligence.yaml"
+chk grep -q 'requested: "\^2.0.0"' "$PROJ/intelligence.lock"
+chk grep -q 'resolved: "v2.0.0"' "$PROJ/intelligence.lock"
+# Nothing is excluded now, so the note and its counter are gone.
+pv_after="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+chknot grep -q 'available outside' <<< "$pv_after"
+chknot grep -q '^outside the requested range' <<< "$pv_after"
+grep -q 'is already the newest stable version' \
+    <<< "$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --preview)" \
+    || { echo "FAIL: --latest on the newest version did not say so"; fail=1; }
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
 
 echo "== ref pin: a moved branch is an update, not 'up to date' =="
@@ -155,6 +204,11 @@ grep -q "pack-main@${BR_SHA1:0:7} (up to date)" <<< "$pv_ref0" \
 list_ref="$(cd "$PROJ" && bash "$CLI" package list)"
 grep -q "locked:pack-main@${BR_SHA1:0:7}" <<< "$list_ref" \
     || { echo "FAIL: package list hides the ref pin's commit"; fail=1; }
+# A ref pin has no range to cross: it is frozen by intent, and --latest must
+# say so rather than quietly turning it into a version range.
+if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/branch --latest --preview) >/dev/null 2>&1; then
+    echo "FAIL: --latest converted a ref pin"; fail=1
+fi
 
 printf '# Branch rule v2\n\nBRANCH_MARKER_TWO\n' > "$BR/rules/branch-rule.md"
 git -C "$BR" -c user.email=t@t -c user.name=t commit --quiet -am b2

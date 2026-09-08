@@ -96,6 +96,29 @@ Registries are an ordered trust list and the only resolver for a package name. T
 
 Stable Git tags provide package versions. Semver ranges select the highest matching stable tag; a `ref:` pin names a branch or commit and does not move during `intelligence update`. One package name has one version per project.
 
+### Choosing a range
+
+`package add` without an explicit range writes `^<the version it installed>`, npm's caret. The caret holds the **leftmost non-zero** component, and that is the whole story:
+
+| Requested | Follows automatically | Stops at |
+|---|---|---|
+| `^1.4.0` | every later `1.x` | `2.0.0` |
+| `^0.4.0` | every later `0.4.x` | `0.5.0` |
+| `~1.4.0` | every later `1.4.x` | `1.5.0` |
+| `1.4.0` | nothing | it is a pin |
+| `latest` | every stable tag | nothing |
+
+**A pre-1.0 package therefore follows patches only.** SemVer treats a `0.x` minor as a major, so `^0.4.0` is a ceiling at `0.5.0` and the project stays on `0.4.x` while `0.5`, `0.6` and later ship. That is the correct reading of the range, not a defect — but it is the single most common surprise, because the same spelling behaves differently once the package reaches `1.0.0`.
+
+Practice:
+
+- **Keep the caret.** It is the right default at both stages: automatic patches, and a deliberate decision at every boundary that SemVer says may break.
+- **Read `intelligence update --preview` as two answers.** The move is what the range allows; the `available outside '<range>'` note is what it excludes, and it prints the command that follows it. That note never joins the counter, because no ordinary mode of `update` installs it.
+- **Cross a boundary deliberately, one at a time.** Read the package's changelog for every version crossed, then `intelligence update @scope/name --latest`: it takes the newest stable version and rewrites the requested range to `^<that version>`, so the manifest still records what the project asked for and the next boundary is still a decision. The flag needs the package named — one confirmation must not cover several unrelated changelogs — and it refuses a `ref:` pin, which is frozen by intent. Without it `update` never widens a range, because a command that granted itself permission to install would make the range meaningless.
+- **Review the generated diff, not just the lock.** A package minor may rename or drop an artifact. A renamed skill breaks every `/skill-name` that invoked it, and a renamed artifact silently ends the override relationship a same-named project artifact had, so the project's version stops winning and the package's content appears instead.
+- **`latest` and `*` are for a package you own and release in lockstep.** Anywhere else they hand an upstream author write access to your agents' behavior between two syncs.
+- **Never pin a range to dodge a broken release.** Pin the exact version (`1.4.2`), record why, and remove the pin when the fix ships — a narrowed range hides the reason and outlives the incident.
+
 Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, `intelligence sync` restores a missing store strictly from that lock before rendering; manifest/lock or SHA drift is refused. Re-run `package add` when deliberately changing a source.
 
 `@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Lifecycle preflight keeps that pin and `schema_version` aligned with the installed CLI; package-range updates never move it independently.
