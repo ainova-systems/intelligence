@@ -55,6 +55,7 @@ Usage: intelligence <command> [args]
   upgrade [--next] [--preview|--apply]  Replace the installed CLI with the newest npm version
     --next                Follow the prerelease line instead of the stable one
   package <command>       add | remove | list | search
+  source <command>        add | remove | list — the sources: block (own directories)
   adapter <command>       list | create | enable | disable | remove
   status [--check]        Project state; --check runs deep consistency checks
   registry <list|add|remove>  Manage the trusted registry list (add <repo-url>)
@@ -87,6 +88,10 @@ if [ ! -f "$cmd_file" ]; then
             ;;
         packages)
             echo "ERROR: unknown command 'packages'. Use the singular command: intelligence package list" >&2
+            exit 1
+            ;;
+        sources)
+            echo "ERROR: unknown command 'sources'. Use the singular command: intelligence source list" >&2
             exit 1
             ;;
         registries)

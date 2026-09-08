@@ -4,6 +4,21 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.16.0]
+
+### Added
+
+- Added `intelligence source add|remove|list` for the project's own `sources:` entries. `add` appends by default; `--first`, `--last`, `--before <entry>` and `--after <entry>` place an entry explicitly, and every mutation prints the resulting order.
+- `source add` refuses an entry the engine cannot render: absolute, leaving the repository, under the CLI-managed store, unquotable in YAML, or the repository root. A missing directory is a warning, not a refusal.
+- `status --check` reports such an entry in an existing manifest, through the same classifier `source add` refuses with.
+- Spellings of one directory became one entry: `./x/`, `x/.` and `x/./y` normalize before an entry is stored or compared.
+- The unsynced-directory warning names `intelligence source add` instead of asking for a hand edit of the manifest.
+
+### Fixed
+
+- Made the sources presence check exact and section-scoped: one directory may now serve two sections, and a bare `- docs/api` entry no longer blocks adding `docs`.
+- A manifest edit that cannot be placed now refuses and leaves the file untouched, instead of aborting mid-command and leaving a staged `.cli.tmp` behind.
+
 ## [0.15.0]
 
 ### Changed

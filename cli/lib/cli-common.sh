@@ -156,6 +156,91 @@ require_cli_project() {
 
 # --- Manifest basics (engine-readable shapes) ----------------------------
 
+# normalize_source_dir_var <dir> — set IS_SOURCE_DIR to the spelling the
+# manifest stores: `.` and empty segments dropped, no trailing slash. A path
+# that reduces to nothing named the repository root, which is spelled `.` — so
+# the caller judges one shape instead of several.
+#
+# Rebuilt segment by segment rather than with `${dir//\/.\//\/}`: bash 3.2, which
+# is what macOS ships and CI runs, keeps the backslash of an escaped separator in
+# the REPLACEMENT and produced `intelligence\/rules`, while bash 5 consumed it.
+# shellcheck disable=SC2034
+normalize_source_dir_var() {
+    local dir="$1" out="" seg rest lead=""
+    # A leading slash is meaning, not an empty segment: dropping it would turn
+    # an absolute path into a relative one and hide it from the classifier.
+    case "$dir" in /*) lead="/" ;; esac
+    rest="$dir"
+    while [ -n "$rest" ]; do
+        seg="${rest%%/*}"
+        if [ "$seg" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+        case "$seg" in ""|".") continue ;; esac
+        out="${out:+$out/}$seg"
+    done
+    if [ -n "$lead" ]; then
+        IS_SOURCE_DIR="$lead$out"
+    else
+        IS_SOURCE_DIR="${out:-.}"
+    fi
+}
+
+normalize_source_dir() {
+    normalize_source_dir_var "$1"
+    printf '%s' "$IS_SOURCE_DIR"
+}
+
+# source_entry_problem <root> <entry> — one line naming why the engine cannot
+# render this `sources:` entry, or nothing when the entry is sound. Most cases
+# here are invisible at sync time: the engine resolves an entry as
+# `$REPO_ROOT/<entry>` and skips whatever is not a directory, so a bad entry is
+# a silent omission from a run that still reports ok. `source add` refuses one
+# before it is written; `status --check` reports one already in the manifest.
+source_entry_problem() {
+    local root="$1" entry="$2" seg rest norm
+    case "$entry" in
+        "") printf 'is empty'; return 0 ;;
+        *\\*) printf 'uses backslashes — manifest paths use "/"'; return 0 ;;
+        /*|[A-Za-z]:/*)
+            printf 'is an absolute path — the engine resolves every entry as $REPO_ROOT/<entry>, so it renders nothing'
+            return 0
+            ;;
+    esac
+    # The root is the loud failure rather than the silent one: it IS a
+    # directory, so the engine reads every top-level *.md in it — README,
+    # CHANGELOG, docs — as an artifact of this section.
+    normalize_source_dir_var "$entry"
+    norm="$IS_SOURCE_DIR"
+    if [ "$norm" = "." ]; then
+        printf 'is the repository root — every top-level *.md there would be read as an artifact of this section'
+        return 0
+    fi
+    rest="$norm"
+    while [ -n "$rest" ]; do
+        seg="${rest%%/*}"
+        if [ "$seg" = ".." ]; then
+            printf 'leaves the repository — its artifacts render, but with bare names instead of links in AGENTS.md'
+            return 0
+        fi
+        [ "$seg" = "$rest" ] && break
+        rest="${rest#*/}"
+    done
+    # The entry is stored as a double-quoted YAML scalar and read back by a
+    # parser that strips quotes and a trailing ` # comment`.
+    case "$entry" in
+        *[\"\'\#\$\`]*|*:*)
+            printf 'holds a character the manifest cannot carry verbatim — allowed: letters, digits, . _ - / @'
+            return 0
+            ;;
+    esac
+    # A symlink leaves the repository without a '..' anywhere in the path.
+    # repo_rel_dir compares by device+inode, so it answers for the real target.
+    if [ -d "$root/$entry" ] && [ -z "$(repo_rel_dir "$root" "$root/$entry")" ]; then
+        printf 'resolves outside the repository root'
+        return 0
+    fi
+    return 0
+}
+
 manifest_intelligence_dir() {
     local manifest="$1" v
     v="$(get_yaml_field "$manifest" "project" "intelligence_dir")"

@@ -184,11 +184,14 @@ qmap_field() { _qmap_read field "$1" "$2" "$3" "$4"; }
 qmap_value() { _qmap_read value "$1" "$2" "$3"; }
 
 # _qmap_stage <file> <awk-program> [awk args…] — run an editing pass, verify
-# it produced output, commit.
+# it produced output, commit. An editor that cannot place its edit exits
+# non-zero; the staged file is dropped so a refused edit never reaches the
+# manifest half-applied.
 _qmap_stage() {
     local file="$1"; shift
-    local tmp="$file.cli.tmp"
-    awk "$@" "$file" > "$tmp"
+    local tmp="$file.cli.tmp" rc=0
+    awk "$@" "$file" > "$tmp" || rc=$?
+    [ "$rc" -eq 0 ] || { rm -f "$tmp"; die "internal: manifest edit refused (awk exit $rc) for $file"; }
     [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: manifest edit produced an empty file for $file"; }
     mv "$tmp" "$file"
 }
@@ -399,42 +402,110 @@ registries_remove() {
         { print }
     '
 }
-# True (0) if <config> already lists <entry> under any sources section. Quoted
-# and bare spellings both count - a manifest may hold either.
-_mig_has_source() {
-    local config="$1" entry="$2"
-    [ -f "$config" ] || return 1
-    grep -Fq -- "\"$entry\"" "$config" || grep -Fq -- "- $entry" "$config"
+# --- sources: an ORDERED list of content directories ------------------------
+# Adapters copy sources in order and the last write wins, so position carries
+# meaning: a later entry overrides a same-named artifact from an earlier one.
+# Reading goes through the engine's own list parser, so the CLI sees exactly
+# what the engine will render instead of a second reading of the same file.
+
+# sources_list_entries <file> <section> — entries of sources.<section>, one per
+# line, in manifest order.
+sources_list_entries() {
+    [ -f "$1" ] || return 0
+    read_yaml_list "$1" "$2"
 }
 
+# sources_has_entry <file> <section> <entry> — true (0) when that section lists
+# exactly this entry. Section-scoped and exact on purpose: one directory may
+# legitimately appear under two sections, and a substring test over the whole
+# file would silently refuse the second add — and would match a bare `- docs`
+# against a neighbouring `- docs/api`.
+sources_has_entry() {
+    local file="$1" section="$2" entry="$3" listed
+    [ -f "$file" ] || return 1
+    while IFS= read -r listed; do
+        [ "$listed" = "$entry" ] && return 0
+    done < <(sources_list_entries "$file" "$section")
+    return 1
+}
 
-# sources_add_entry_first <file> <section> <entry> — idempotent insert at the
-# TOP of sources.<section> (creating sources:/section as needed). Package
-# entries go through this so project-owned entries stay later in the list —
-# adapters copy sources in order and the last write wins, which is exactly
-# the documented "your file overrides the package's" behavior.
-sources_add_entry_first() {
-    local file="$1" section="$2" entry="$3"
-    _mig_has_source "$file" "$entry" && return 0
-    _qmap_stage "$file" -v section="$section" -v entry="$entry" '
+# sources_add_entry <file> <section> <entry> [position] [anchor]
+# Idempotent insert into sources.<section>, creating `sources:` and the section
+# as needed. Position is `last` (default), `first`, `before` or `after`; the
+# anchored forms take <anchor>, an entry the section already lists. The caller
+# validates the anchor, and an edit that cannot be placed exits 3 rather than
+# landing the entry somewhere else — a silently misplaced source changes which
+# artifact wins.
+sources_add_entry() {
+    local file="$1" section="$2" entry="$3" pos="${4:-last}" anchor="${5:-}"
+    sources_has_entry "$file" "$section" "$entry" && return 0
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" -v pos="$pos" -v anchor="$anchor" '
         function line() { return "    - \"" entry "\"" }
+        function place() { print line(); done = 1 }
+        # Blank lines inside sources: are held back so an insert lands next to
+        # the entries it belongs with, not after the blank line that separates
+        # one section from the next.
+        function flush_tail(   i) { for (i = 1; i <= ntail; i++) print tail[i]; blanks = ntail; ntail = 0 }
+        function open_section() { flush_tail(); print "  " section ":"; place(); if (blanks) print "" }
+        function value(s,   v) {
+            v = s
+            sub(/^[ \t]*-[ \t]*/, "", v)
+            gsub(/["\x27]/, "", v)
+            sub(/[ \t]+#.*$/, "", v)
+            sub(/[ \t]+$/, "", v)
+            return v
+        }
+        BEGIN { anchored = (pos == "before" || pos == "after") }
         { sub(/\r$/, "") }
         /^sources:[ \t]*$/ { ins = 1; sourceseen = 1; print; next }
         ins && /^[^ #]/ {
-            if (!secseen && !done) { print "  " section ":"; print line(); done = 1 }
+            if (insec) { if (!done && pos == "last") place(); insec = 0 }
+            if (!secseen && !done && !anchored) { open_section(); secseen = 1 }
+            else flush_tail()
             ins = 0
         }
-        ins && $0 ~ "^  " section ":[ \t]*$" { secseen = 1; print; print line(); done = 1; next }
-        { print }
+        ins && !insec && $0 ~ "^  " section ":[ \t]*$" {
+            flush_tail(); secseen = 1; insec = 1; print
+            if (pos == "first") place()
+            next
+        }
+        ins && insec && /^  [A-Za-z_]/ {
+            if (!done && pos == "last") place()
+            insec = 0
+            flush_tail()
+        }
+        insec && /^[ \t]*-/ {
+            flush_tail()
+            v = value($0)
+            if (pos == "before" && v == anchor && !done) place()
+            print
+            if (pos == "after" && v == anchor && !done) place()
+            next
+        }
+        ins && /^[ \t]*$/ { tail[++ntail] = $0; next }
+        ins { flush_tail(); print; next }
+        { last = $0; print }
         END {
-            if (ins && !secseen && !done) { print "  " section ":"; print line(); done = 1 }
-            if (!sourceseen) {
-                print "sources:"
-                print "  " section ":"
-                print line()
+            if (insec && !done && pos == "last") place()
+            flush_tail()
+            if (!done && !anchored) {
+                if (ins && !secseen) { print "  " section ":"; place() }
+                else if (!sourceseen) {
+                    if (last != "") print ""
+                    print "sources:"; print "  " section ":"; place()
+                }
             }
+            if (!done) exit 3
         }
     '
+}
+
+# sources_add_entry_first <file> <section> <entry> — insert at the TOP of
+# sources.<section>. Package wiring uses it so project-owned entries stay later
+# in the list — adapters copy sources in order and the last write wins, which
+# is exactly the documented "your file overrides the package's" behavior.
+sources_add_entry_first() {
+    sources_add_entry "$1" "$2" "$3" first
 }
 
 # sources_remove_entry <file> <section> <entry> — remove `- "entry"` from

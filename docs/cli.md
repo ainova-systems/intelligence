@@ -225,6 +225,49 @@ the manifest. Re-adding a package is the explicit way to change its source.
 
 `package list` shows requested and locked state. `package search` combines what trusted registries offer with what the project has.
 
+### `intelligence source`
+
+```text
+intelligence source add <rules|agents|skills> <dir> [--first|--last|--before <entry>|--after <entry>]
+intelligence source remove <rules|agents|skills> <dir>
+intelligence source list
+```
+
+Manages the project's own entries in `sources:` — a monorepo's per-component
+directories, or a pack developed inside the repository that ships it. Installed
+package content is not managed here: `.intelligence/` entries belong to
+`package add` / `package remove`, and an entry hand-placed under the store does
+not survive the next lifecycle alignment.
+
+`sources:` is an ordered list and the order is the override rule, so placement
+is the command's real work. `add` appends by default: the end of the section is
+the project's own territory, where a directory the project added wins over every
+installed package. `--before` / `--after` place an entry relative to one the
+section already lists — this is how content that should behave like a package
+lands after the store entries and ahead of the project's own. Adding an entry
+the section already holds is a no-op; adding it *with* a position moves it.
+Every mutation prints the resulting order.
+
+Five inputs are refused. Four of them fail silently after a green sync; the
+fifth renders the wrong thing loudly:
+
+- an absolute path — the engine resolves every entry as `$REPO_ROOT/<entry>`, so it matches nothing and the source is simply skipped;
+- a path leaving the repository (`../`, or a symlink pointing out) — it renders, but has no committable path, so `AGENTS.md` carries bare artifact names instead of links;
+- a path under `.intelligence/` — package territory, as above;
+- a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes);
+- the repository root itself (`.` and `./`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
+
+Spellings of the same directory are one entry: `./intelligence/rules/`,
+`intelligence/./rules` and `intelligence/rules` are stored, compared and
+reported identically.
+`status --check` reports the same five through the same definition, so an entry
+a hand edit placed before this command existed is judged identically.
+
+A directory that does not exist yet is a warning, not a refusal: the manifest
+documents intent, and sync renders the source once the directory appears.
+`remove` drops the entry only — the directory is untouched, and its artifacts
+leave the generated output at the next sync.
+
 ### `intelligence adapter`
 
 ```text
@@ -381,6 +424,8 @@ registries:
 ```
 
 `project.intelligence_dir` selects a content directory other than `intelligence/`. `schema_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
+
+`sources:` is engine-readable but CLI-edited: `package add` / `package remove` own the `.intelligence/` entries, `source add` / `source remove` own the project's own, and both place entries in a list whose order decides which artifact wins.
 
 Package entries never contain `url` or `path`. Those resolved fields live in
 the committed lock whether the package came from a registry, `github:`,

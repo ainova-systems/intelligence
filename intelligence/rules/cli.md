@@ -7,8 +7,8 @@ description: "CLI boundaries: command surface, the integration seam, and who own
 # CLI
 
 `cli/intelligence` is a small dispatcher. The public lifecycle surface is `init`,
-`sync`, `update`, `upgrade`, `package`, `adapter`, `status` and `registry` — one file
-each in `cli/commands/`. Shared plumbing lives in `cli/lib/`. Non-public mechanics —
+`sync`, `update`, `upgrade`, `package`, `source`, `adapter`, `status` and `registry` —
+one file each in `cli/commands/`. Shared plumbing lives in `cli/lib/`. Non-public mechanics —
 package operations, locked restore, deep checking, legacy conversion, project
 alignment, target-state editing — live in `cli/internal/` and are reached only
 through a lifecycle command.
@@ -38,6 +38,13 @@ and edit them through `cli/lib/manifest.sh`. Its shared `qmap.awk` tokenizer sup
 field reads, row streams and strict lock validation; decode the writer's escaped
 backslashes and quotes exactly once. Reuse the engine readers for shapes both
 sides share rather than growing a parallel YAML parser.
+
+`sources:` is shared: the engine reads it, so the CLI edits it through the engine's
+own list reader and never a second interpretation of the same lines. It is an
+ordered list and the order is the override rule, so an editor places entries
+explicitly — `package add` wires store paths first, `source add` appends project
+paths last, and an edit that cannot be placed refuses instead of landing the entry
+somewhere else.
 
 Registries are an ordered trust list and the only resolver for a package name. There
 is no built-in catalog and no `@org/name` to GitHub inference; explicit `github:` and
