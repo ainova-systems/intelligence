@@ -6,8 +6,8 @@ packages:
     requested: "^0.4.0"
     url: "https://github.com/ainova-systems/intelligence-dev-packs.git"
     path: "packs/core"
-    resolved: "v0.4.1"
-    sha: "bdf2db1ddfd95750a37394c862de533993fd7720"
+    resolved: "v0.4.2"
+    sha: "e8458eaa20c6b6635bd9dae01f14f2d35797de0f"
   "@ainova-systems/sync":
     requested: "0.13.0"
     url: "https://github.com/ainova-systems/intelligence.git"
