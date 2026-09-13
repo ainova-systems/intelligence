@@ -19,7 +19,15 @@ The floor is Bash 3.2: macOS ships it as `/bin/bash` and CI runs the suites ther
 so a construct that works on Bash 5 is not evidence. Pattern substitution is the
 sharp edge — 3.2 keeps the backslash of an escaped separator in the REPLACEMENT
 (`${p//\/.\//\/}` yields `a\/b`) — so build such a string by iterating over its
-parts instead. A local run on Git Bash cannot see this class of bug.
+parts instead. That host also brings BSD userland, where `sed -i` takes a suffix
+argument and GNU's `1i <text>` is a syntax error: edit through a temp file and
+`mv` instead of in place. A local run on Git Bash cannot see either class of bug.
+
+A reader that rewrites a file it does not own must round-trip the bytes it keeps.
+awk on Windows reads in text mode, so passing a CRLF file through it silently
+rewrites the whole file as LF — for a `.gitignore`, where a `\r` is part of the
+pattern Git matches, that is a content change. Read and write such a file with
+`read`/`printf`.
 
 Strip `\r` in awk readers: manifests, rules and frontmatter reach the engine from
 CRLF checkouts.

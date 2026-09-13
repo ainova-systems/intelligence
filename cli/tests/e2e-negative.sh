@@ -889,7 +889,9 @@ chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
 # must also converge it onto a single copy — without disturbing a line the
 # project itself wrote above the policy's header, and without giving up the
 # re-inclusion the chain exists for.
-sed -i.bak '1i !.claude/' "$PROJ/.gitignore" && rm -f "$PROJ/.gitignore.bak"
+# portable prepend (BSD sed has no GNU `1i <text>`) — write to temp, then move
+{ printf '%s\n' '!.claude/'; cat "$PROJ/.gitignore"; } > "$PROJ/.gitignore.tmp" \
+    && mv "$PROJ/.gitignore.tmp" "$PROJ/.gitignore"
 printf '%s\n' '!.claude/' '!.claude/settings.json' '!.claude/' '!.claude/settings.json' >> "$PROJ/.gitignore"
 residue_lines="$(grep -c '' "$PROJ/.gitignore")"
 xok "" "$PROJ" init --no-sync
