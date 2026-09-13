@@ -884,6 +884,29 @@ negations_after="$(grep -Fxc '!.claude/' "$PROJ/.gitignore")"
     || { echo "FAIL: '!.claude/' count moved from $gi_negations to $negations_after across repeated alignment"; fail=1; }
 chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
 
+# A project initialized under 0.12.0 or earlier carries one appended chain per
+# run it made. Stopping the growth left that residue in place, so alignment
+# must also converge it onto a single copy — without disturbing a line the
+# project itself wrote above the policy's header, and without giving up the
+# re-inclusion the chain exists for.
+sed -i.bak '1i !.claude/' "$PROJ/.gitignore" && rm -f "$PROJ/.gitignore.bak"
+printf '%s\n' '!.claude/' '!.claude/settings.json' '!.claude/' '!.claude/settings.json' >> "$PROJ/.gitignore"
+residue_lines="$(grep -c '' "$PROJ/.gitignore")"
+xok "" "$PROJ" init --no-sync
+collapsed="$(grep -Fxc '!.claude/' "$PROJ/.gitignore")"
+[ "$collapsed" -eq 2 ] \
+    || { echo "FAIL: residue not collapsed — '!.claude/' appears $collapsed times, want 2 (one managed, one hand-written)"; fail=1; }
+[ "$(sed -n '1p' "$PROJ/.gitignore")" = '!.claude/' ] \
+    || { echo "FAIL: the hand-written line above the header was rewritten"; fail=1; }
+collapsed_lines="$(grep -c '' "$PROJ/.gitignore")"
+[ "$collapsed_lines" -lt "$residue_lines" ] \
+    || { echo "FAIL: .gitignore did not shrink ($residue_lines -> $collapsed_lines)"; fail=1; }
+chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
+cp "$PROJ/.gitignore" "$OUT/gitignore-collapsed"
+xok "" "$PROJ" init --no-sync
+chk cmp -s "$OUT/gitignore-collapsed" "$PROJ/.gitignore"
+xok "all good" "$PROJ" status --check
+
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.
 xok "disabled: claude" "$PROJ" adapter disable claude
