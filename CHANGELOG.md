@@ -4,6 +4,14 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.16.1]
+
+### Fixed
+
+- Alignment now collapses the duplicate `!<dir>/` negations an older CLI appended: a project initialized under `0.12.0` or earlier converges on one copy of each line instead of keeping one chain per run it made.
+- Stopped the ignore files growing on every alignment in a CRLF checkout: a line was matched with its carriage return attached, so on Linux and macOS every existing line looked absent and an LF copy was appended. Presence now ignores the CR, and an append uses the ending the file already has.
+- The `.gitignore` rewrite preserves what it does not own — lines above the policy's header, CRLF line endings, and a missing final newline.
+
 ## [0.16.0]
 
 ### Added
