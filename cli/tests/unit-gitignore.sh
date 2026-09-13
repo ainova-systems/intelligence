@@ -19,6 +19,8 @@ source "$CLI_DIR/lib/cli-common.sh"
 
 HEADER='# Intelligence generated state and tool output'
 CHAIN=('!.claude/' '!.claude/settings.json')
+CR=$'\r'
+CRLF=$'\r\n'
 
 # fixture <name> — a git repo at $OUT/<name> whose .gitignore the caller writes.
 fixture() {
@@ -29,6 +31,18 @@ fixture() {
     printf '%s' "$dir"
 }
 count_of() { grep -Fxc -- "$2" "$1/.gitignore" || true; }
+# Count CR-terminated lines in bash: grep under MSYS reads in text mode and
+# never sees a CR, and `$'\r'` written inside a command substitution is not
+# expanded at all — either way a grep-based check here is silently always true.
+crlf_lines() {
+    local n=0 l
+    while IFS= read -r l || [ -n "$l" ]; do
+        case "$l" in *"$CR") n=$((n + 1)) ;; esac
+        l=""
+    done < "$1"
+    printf '%s' "$n"
+}
+total_lines() { grep -c '' "$1" || true; }
 
 echo "== residue collapses onto the last occurrence =="
 D="$(fixture residue)"
@@ -86,10 +100,10 @@ echo "== CRLF endings survive line for line =="
 D="$(fixture crlf)"
 printf '# hand\r\n\r\n%s\r\n.claude/*\r\n!.claude/\r\n!.claude/settings.json\r\n!.claude/\r\n!.claude/settings.json\r\n' "$HEADER" > "$D/.gitignore"
 gitignore_collapse_duplicates "$D" ".claude/settings.json" "${CHAIN[@]}"
-is "lines left" "6" "$(grep -c '' "$D/.gitignore")"
+is "lines left" "6" "$(total_lines "$D/.gitignore")"
 # Every remaining line still ends CRLF: awk on Windows reads in text mode and
 # would have rewritten the whole file as LF.
-is "CR endings kept" "6" "$(grep -c $'\r$' "$D/.gitignore")"
+is "CR endings kept" "6" "$(crlf_lines "$D/.gitignore")"
 
 echo "== a missing final newline is not invented =="
 D="$(fixture nonewline)"
@@ -97,6 +111,31 @@ printf '%s\n.claude/*\n!.claude/\n!.claude/settings.json\n!.claude/\n!.claude/se
 gitignore_collapse_duplicates "$D" ".claude/settings.json" "${CHAIN[@]}"
 is "still ends without a newline" "n" "$(tail -c 1 "$D/.gitignore")"
 is "collapsed anyway" "1" "$(count_of "$D" '!.claude/')"
+
+echo "== a CRLF file is recognized and appended to in its own ending =="
+D="$(fixture crlf-append)"
+printf '# hand\r\n%s\r\n.claude/*\r\n!.claude/\r\n' "$HEADER" > "$D/.gitignore"
+ignore_file_eol_var "$D/.gitignore"
+# Compared through a variable: `$'\r\n'` written inside a command substitution
+# is not expanded by bash, so the check would silently always fail.
+[ "$IS_IGNORE_EOL" = "$CRLF" ] || { echo "FAIL: CRLF ending not detected"; fail=1; }
+# A CR belongs to the pattern Git matches, so presence must ignore it while the
+# append keeps it: comparing with the CR attached made every existing line look
+# absent on Linux and macOS, and alignment appended an LF copy every run.
+chk ignore_file_has_line "$D/.gitignore" '!.claude/'
+chk ignore_file_has_line "$D/.gitignore" "$HEADER"
+gitignore_add_line "$D" '!.claude/'
+is "existing line not duplicated" "1" "$(count_of "$D" '!.claude/')"
+gitignore_add_line "$D" '.codex/*'
+is "new line appended as CRLF" "5" "$(crlf_lines "$D/.gitignore")"
+is "no LF-only line introduced" "5" "$(total_lines "$D/.gitignore")"
+
+echo "== repeated alignment leaves a CRLF file alone =="
+D="$(fixture crlf-stable)"
+printf '%s\r\n.claude/*\r\n!.claude/\r\n!.claude/settings.json\r\n' "$HEADER" > "$D/.gitignore"
+cp "$D/.gitignore" "$OUT/crlf-stable.before"
+for _ in 1 2 3; do gitignore_add_effective_include "$D" ".claude/settings.json"; done
+chk cmp -s "$OUT/crlf-stable.before" "$D/.gitignore"
 
 echo "== the full repair converges through the public entry point =="
 D="$(fixture repair)"

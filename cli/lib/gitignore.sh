@@ -6,12 +6,51 @@
 # it, so it is also the boundary of what the CLI may rewrite.
 IS_GITIGNORE_HEADER='# Intelligence generated state and tool output'
 
+# Line endings held in variables, never written as `$'\r'` at the point of use:
+# inside a command substitution bash does not expand that form, so the very same
+# expression stops stripping the CR depending on where it is called from.
+IS_CR=$'\r'
+IS_LF=$'\n'
+IS_CRLF=$'\r\n'
+
+# An ignore file checked out on Windows can hold CRLF, and a CR belongs to the
+# pattern Git matches — so these two helpers decide presence ignoring it, and
+# append in whatever ending the file already uses. Comparing with the CR
+# attached made every existing line look absent on Linux and macOS (where it is
+# part of the line, unlike under MSYS), so each alignment appended an LF copy of
+# a line that was already there and the file grew forever.
+
+# ignore_file_eol_var <file> — set IS_IGNORE_EOL from the file's first line.
+ignore_file_eol_var() {
+    local file="$1" first=""
+    IS_IGNORE_EOL="$IS_LF"
+    [ -s "$file" ] || return 0
+    IFS= read -r first < "$file" || true
+    case "$first" in
+        *"$IS_CR") IS_IGNORE_EOL="$IS_CRLF" ;;
+    esac
+}
+
+# ignore_file_has_line <file> <line> — true when the file lists exactly this
+# line, with or without a trailing CR.
+ignore_file_has_line() {
+    local file="$1" line="$2"
+    [ -f "$file" ] || return 1
+    grep -Fqx -- "$line" "$file" 2>/dev/null && return 0
+    grep -Fqx -- "$line$IS_CR" "$file" 2>/dev/null
+}
+
+# ignore_file_append_line <file> <line> — append in the file's own ending.
+ignore_file_append_line() {
+    local file="$1" line="$2"
+    ignore_file_eol_var "$file"
+    printf '%s%s' "$line" "$IS_IGNORE_EOL" >> "$file"
+}
+
 gitignore_add_line() {
     local root="$1" line="$2" file="$1/.gitignore"
-    if [ -f "$file" ] && grep -Fqx -- "$line" "$file"; then
-        return 0
-    fi
-    printf '%s\n' "$line" >> "$file"
+    ignore_file_has_line "$file" "$line" && return 0
+    ignore_file_append_line "$file" "$line"
 }
 
 gitignore_path_is_ignored() {
@@ -26,7 +65,9 @@ gitignore_tail_is() {
     [ -f "$file" ] || return 1
     local want tail_lines
     want="$(printf '%s\n' "$@")"
-    tail_lines="$(tail -n "$#" -- "$file")"
+    # CR stripped for the comparison only — the chain is the same chain whether
+    # the file is LF or CRLF.
+    tail_lines="$(tail -n "$#" -- "$file" | tr -d '\r')"
     [ "$tail_lines" = "$want" ]
 }
 
@@ -67,7 +108,7 @@ gitignore_collapse_duplicates() {
     fi
     n=${#lines[@]}
     for ((i = 0; i < n; i++)); do
-        if [ "${lines[i]%$'\r'}" = "$IS_GITIGNORE_HEADER" ]; then hdr=$i; break; fi
+        if [ "${lines[i]%"$IS_CR"}" = "$IS_GITIGNORE_HEADER" ]; then hdr=$i; break; fi
     done
     [ "$hdr" -ge 0 ] || return 0
 
@@ -76,7 +117,7 @@ gitignore_collapse_duplicates() {
     for ((mi = 0; mi < ${#managed[@]}; mi++)); do
         last_idx[mi]=-1
         for ((i = hdr + 1; i < n; i++)); do
-            [ "${lines[i]%$'\r'}" = "${managed[mi]}" ] && last_idx[mi]=$i
+            [ "${lines[i]%"$IS_CR"}" = "${managed[mi]}" ] && last_idx[mi]=$i
         done
     done
 
@@ -85,7 +126,7 @@ gitignore_collapse_duplicates() {
         for ((i = 0; i < n; i++)); do
             keep=1
             if [ "$i" -gt "$hdr" ]; then
-                key="${lines[i]%$'\r'}"
+                key="${lines[i]%"$IS_CR"}"
                 for ((mi = 0; mi < ${#managed[@]}; mi++)); do
                     if [ "$key" = "${managed[mi]}" ] && [ "$i" -ne "${last_idx[mi]}" ]; then
                         keep=0
@@ -163,7 +204,9 @@ gitignore_add_effective_include() {
     # `status --check` report the re-inclusion this policy could not make
     # effective rather than growing the file forever.
     if ! gitignore_tail_is "$root/.gitignore" "${negations[@]}"; then
-        printf '%s\n' "${negations[@]}" >> "$root/.gitignore"
+        for line in "${negations[@]}"; do
+            ignore_file_append_line "$root/.gitignore" "$line"
+        done
     fi
     # Either way the chain now stands last, so any earlier copy of it is the
     # residue an older CLI appended; collapsing runs on both paths so a project
@@ -173,11 +216,12 @@ gitignore_add_effective_include() {
 
 ensure_gitignore_header() {
     local root="$1" file="$1/.gitignore"
-    if [ ! -f "$file" ] || ! grep -Fqx -- "$IS_GITIGNORE_HEADER" "$file"; then
+    if ! ignore_file_has_line "$file" "$IS_GITIGNORE_HEADER"; then
         if [ -f "$file" ] && [ -s "$file" ] && [ -n "$(tail -c 1 "$file" 2>/dev/null)" ]; then
-            printf '\n' >> "$file"
+            ignore_file_eol_var "$file"
+            printf '%s' "$IS_IGNORE_EOL" >> "$file"
         fi
-        printf '%s\n' "$IS_GITIGNORE_HEADER" >> "$file"
+        ignore_file_append_line "$file" "$IS_GITIGNORE_HEADER"
     fi
 }
 
@@ -225,10 +269,8 @@ publisher_ignore_file_names() {
 
 publisher_ignore_add_line() {
     local file="$1" line="$2"
-    if grep -Fqx -- "$line" "$file" 2>/dev/null; then
-        return 0
-    fi
-    printf '%s\n' "$line" >> "$file"
+    ignore_file_has_line "$file" "$line" && return 0
+    ignore_file_append_line "$file" "$line"
     PUBLISH_IGNORE_FILE_CHANGED=1
 }
 
@@ -248,11 +290,12 @@ ensure_manifest_publisher_ignores() {
         file="$root/$rel"
         [ -f "$file" ] || continue
         PUBLISH_IGNORE_FILE_CHANGED=0
-        if ! grep -Fqx '# Intelligence development context and generated output' "$file" 2>/dev/null; then
+        if ! ignore_file_has_line "$file" '# Intelligence development context and generated output'; then
             if [ -s "$file" ] && [ -n "$(tail -c 1 "$file" 2>/dev/null)" ]; then
-                printf '\n' >> "$file"
+                ignore_file_eol_var "$file"
+                printf '%s' "$IS_IGNORE_EOL" >> "$file"
             fi
-            printf '%s\n' '# Intelligence development context and generated output' >> "$file"
+            ignore_file_append_line "$file" '# Intelligence development context and generated output'
             PUBLISH_IGNORE_FILE_CHANGED=1
         fi
         publisher_ignore_add_path "$file" '.intelligence'
