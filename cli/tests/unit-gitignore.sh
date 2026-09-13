@@ -30,10 +30,22 @@ fixture() {
     git -C "$dir" init --quiet
     printf '%s' "$dir"
 }
-count_of() { grep -Fxc -- "$2" "$1/.gitignore" || true; }
-# Count CR-terminated lines in bash: grep under MSYS reads in text mode and
-# never sees a CR, and `$'\r'` written inside a command substitution is not
-# expanded at all — either way a grep-based check here is silently always true.
+# Counting goes through bash, never grep: under MSYS grep reads in text mode and
+# never sees a CR, while on Linux and macOS a CR is part of the line — so the
+# same `grep -Fx` count answers differently per platform for the same file. The
+# CR is stripped for the comparison, which is exactly what the policy does.
+count_of() {
+    local file="$1/.gitignore" want="$2" n=0 l
+    [ -f "$file" ] || { printf '0'; return 0; }
+    while IFS= read -r l || [ -n "$l" ]; do
+        [ "${l%"$CR"}" = "$want" ] && n=$((n + 1))
+        l=""
+    done < "$file"
+    printf '%s' "$n"
+}
+# Count CR-terminated lines in bash, for the same reason — and because `$'\r'`
+# written inside a command substitution is not expanded at all, so a grep-based
+# check here is silently always true.
 crlf_lines() {
     local n=0 l
     while IFS= read -r l || [ -n "$l" ]; do
@@ -66,7 +78,7 @@ gitignore_collapse_duplicates "$D" ".claude/settings.json" "${CHAIN[@]}"
 # policy never rewrites, because the project wrote it before Intelligence did.
 is "negations after collapse" "2" "$(count_of "$D" '!.claude/')"
 is "include after collapse" "1" "$(count_of "$D" '!.claude/settings.json')"
-is "hand-written line kept" "1" "$(sed -n '3p' "$D/.gitignore" | grep -Fxc -- '!.claude/' || true)"
+is "hand-written line kept" '!.claude/' "$(sed -n '3p' "$D/.gitignore" | tr -d "$CR")"
 is "unmanaged lines kept" "1" "$(count_of "$D" '.claude/*')"
 chknot git -C "$D" check-ignore -q --no-index .claude/settings.json
 
