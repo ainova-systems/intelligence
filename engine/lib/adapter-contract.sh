@@ -19,6 +19,64 @@ adapter_contract_function() {
     printf 'adapter_contract_%s' "$1"
 }
 
+# --- cross-adapter ownership -------------------------------------------------
+#
+# `owned` is exclusive: one adapter writes and prunes that path. `managed` is
+# shared on purpose — .agents/skills is filled by Antigravity, Codex, Pi and
+# opencode from identical content — so two `managed` claims on one path are
+# legal. Any other collision means two adapters prune each other: whichever
+# runs last wins, the earlier adapter's output is gone, and both report
+# success. `intelligence sync codex` with codex output set to `.agents` did
+# exactly that to Antigravity's agents.
+#
+# State is one "adapter<TAB>kind<TAB>path" record per line in IS_ADAPTER_CLAIMS.
+# A conflict is reported through IS_ADAPTER_CLAIM_CONFLICT, never printed and
+# never captured in a subshell: the accumulator has to survive the call.
+# shellcheck disable=SC2034  # IS_ADAPTER_CLAIM_CONFLICT is read by callers in the engine and the CLI
+adapter_claims_reset() {
+    IS_ADAPTER_CLAIMS=""
+    IS_ADAPTER_CLAIM_CONFLICT=""
+}
+
+# adapter_claims_add <adapter> <kind> <path>
+# Registers the claim, or sets IS_ADAPTER_CLAIM_CONFLICT and returns 1.
+# shellcheck disable=SC2034  # the conflict text is consumed by the caller
+adapter_claims_add() {
+    local adapter="$1" kind="$2" path="$3"
+    local prev_adapter prev_kind prev_path
+    while IFS=$'\t' read -r prev_adapter prev_kind prev_path; do
+        [ -n "$prev_adapter" ] || continue
+        [ "$prev_adapter" = "$adapter" ] && continue
+        case "$path" in
+            "$prev_path"|"$prev_path"/*) ;;
+            *) case "$prev_path" in "$path"/*) ;; *) continue ;; esac ;;
+        esac
+        # Two `managed` claims agree by design; anything else prunes.
+        [ "$kind" = "owned" ] || [ "$prev_kind" = "owned" ] || continue
+        if [ "$path" = "$prev_path" ]; then
+            IS_ADAPTER_CLAIM_CONFLICT="adapters '$prev_adapter' ($prev_kind) and '$adapter' ($kind) both claim '$path'; an owned path belongs to one adapter, so whichever syncs last prunes the other's output"
+        else
+            IS_ADAPTER_CLAIM_CONFLICT="adapter '$adapter' claims '$path' ($kind) nested in '$prev_path' ($prev_kind) claimed by '$prev_adapter'; whichever syncs last prunes the other's output"
+        fi
+        return 1
+    done <<< "$IS_ADAPTER_CLAIMS"
+    IS_ADAPTER_CLAIMS="$IS_ADAPTER_CLAIMS$adapter"$'\t'"$kind"$'\t'"$path"$'\n'
+}
+
+# adapter_claims_add_records <adapter> <records>
+# Feeds every owned/managed record of one adapter through adapter_claims_add.
+# Returns 1 on the first conflict, which stays in IS_ADAPTER_CLAIM_CONFLICT.
+adapter_claims_add_records() {
+    local adapter="$1" records="$2" kind value
+    while IFS=$'\t' read -r kind value; do
+        case "$kind" in
+            owned|managed) ;;
+            *) continue ;;
+        esac
+        adapter_claims_add "$adapter" "$kind" "$value" || return 1
+    done <<< "$records"
+}
+
 # Reject records that could address anything outside the repository. Contract
 # paths are always repo-relative; ignore/include records may contain globs.
 adapter_contract_safe_path() {

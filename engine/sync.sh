@@ -214,23 +214,50 @@ finish_sync_transaction() {
 trap finish_sync_transaction EXIT
 trap 'exit 130' INT TERM
 
+# Ownership is checked across EVERY enabled adapter, not only the selected one:
+# `intelligence sync codex` still prunes a path another adapter owns, so a
+# filtered run that skipped the check would be the one that destroys output.
+adapter_claims_reset
+agents_dependents=""
+
+# note_agents_dependent <adapter> — collect the AGENTS.md consumers for the
+# root-path warning below. The list is built with its separators so no pattern
+# substitution is needed: Bash 3.2 is the floor, and its ${v//} keeps the
+# backslash of an escaped separator.
+note_agents_dependent() {
+    [ -n "$agents_dependents" ] && agents_dependents="$agents_dependents, "
+    agents_dependents="$agents_dependents$1"
+}
 preflight_idx=0
 while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     adapter="${ADAPTERS[$preflight_idx]}"
     adapter_file="${ADAPTER_FILES[$preflight_idx]}"
     preflight_idx=$((preflight_idx + 1))
-    if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
-        continue
-    fi
     target_enabled_var "$CONFIG_FILE" "$adapter"
     [ "$IS_TGT_ENABLED" = "1" ] || continue
     target_output_var "$CONFIG_FILE" "$adapter"
     output="$IS_TGT_OUTPUT"
     [ -n "$output" ] || output=".$adapter"
-    validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$REPO_ROOT/$output"
     records="$(adapter_contract_records "$adapter" "$adapter_file" "$output")" || exit 1
+
+    if ! adapter_claims_add_records "$adapter" "$records"; then
+        echo "ERROR: $IS_ADAPTER_CLAIM_CONFLICT." >&2
+        echo "       Give each adapter its own output: intelligence adapter list" >&2
+        exit 1
+    fi
+
+    if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
+        # Not selected: its claims are registered, its output is not touched.
+        while IFS=$'\t' read -r kind value; do
+            [ "$kind" = "requires" ] && [ "$value" = "agents" ] && note_agents_dependent "$adapter"
+        done <<< "$records"
+        continue
+    fi
+
+    validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$REPO_ROOT/$output"
     while IFS=$'\t' read -r kind value; do
         [ "$kind" = "requires" ] || continue
+        [ "$value" = "agents" ] && note_agents_dependent "$adapter"
         target_enabled_var "$CONFIG_FILE" "$value"
         if [ "$IS_TGT_ENABLED" != "1" ]; then
             echo "ERROR: targets.$adapter requires enabled target '$value'." >&2
@@ -244,6 +271,18 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
         esac
     done <<< "$records"
 done
+
+# Every adapter that requires `agents` skips always-on rules because AGENTS.md
+# carries them — and each of those tools reads AGENTS.md at the workspace root
+# only. Rendered anywhere else, the always-on rules reach no tool at all, and a
+# stale root copy from an earlier run is what they keep reading.
+if [ -n "$agents_dependents" ]; then
+    target_output_var "$CONFIG_FILE" "agents"
+    agents_rel="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+    if [ "$agents_rel" != "AGENTS.md" ]; then
+        echo "WARNING: targets.agents.output renders '$agents_rel', not the workspace-root AGENTS.md. These adapters skip always-on rules because AGENTS.md carries them, and they read it at the root only: $agents_dependents. No tool loads those rules from '$agents_rel'." >&2
+    fi
+fi
 SYNC_TX_ACTIVE=1
 
 synced=0
