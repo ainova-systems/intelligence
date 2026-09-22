@@ -29,6 +29,12 @@ adapter_contract_function() {
 # success. `intelligence sync codex` with codex output set to `.agents` did
 # exactly that to Antigravity's agents.
 #
+# Claims are compared by resolved path, never by spelling: `.agents`,
+# `./.agents` and `.agents//` name one directory, `validate_output_path`
+# resolves them alike, and a lexical comparison would miss the collision that
+# actually happens on disk. (normalize_path_var comes from lib/common.sh, which
+# both the engine and the CLI source before this file.)
+#
 # State is one "adapter<TAB>kind<TAB>path" record per line in IS_ADAPTER_CLAIMS.
 # A conflict is reported through IS_ADAPTER_CLAIM_CONFLICT, never printed and
 # never captured in a subshell: the accumulator has to survive the call.
@@ -38,11 +44,20 @@ adapter_claims_reset() {
     IS_ADAPTER_CLAIM_CONFLICT=""
 }
 
+# adapter_contract_rel_path <path> — the repo-relative spelling every claim and
+# every output comparison uses. Sets IS_ADAPTER_REL_PATH ("" for the repo root).
+adapter_contract_rel_path() {
+    normalize_path_var "$1"
+    IS_ADAPTER_REL_PATH="${IS_NORM_PATH#/}"
+}
+
 # adapter_claims_add <adapter> <kind> <path>
 # Registers the claim, or sets IS_ADAPTER_CLAIM_CONFLICT and returns 1.
 # shellcheck disable=SC2034  # the conflict text is consumed by the caller
 adapter_claims_add() {
-    local adapter="$1" kind="$2" path="$3"
+    local adapter="$1" kind="$2" path
+    adapter_contract_rel_path "$3"
+    path="$IS_ADAPTER_REL_PATH"
     local prev_adapter prev_kind prev_path
     while IFS=$'\t' read -r prev_adapter prev_kind prev_path; do
         [ -n "$prev_adapter" ] || continue

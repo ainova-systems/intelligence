@@ -257,8 +257,10 @@ antigravity_warn_unread_output() {
     local repo_root="$1"
     local output_dir="$2"
 
-    local rel="${output_dir#"$repo_root"/}"
-    rel="${rel%/}"
+    # Compare the resolved path, not its spelling: `.agents`, `./.agents` and
+    # `.agents//` are the same directory, and the writer reaches it either way.
+    adapter_contract_rel_path "${output_dir#"$repo_root"/}"
+    local rel="$IS_ADAPTER_REL_PATH"
     case "$rel" in
         .agents|.agent) return 0 ;;
     esac

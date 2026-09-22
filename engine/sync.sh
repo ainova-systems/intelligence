@@ -278,7 +278,10 @@ done
 # stale root copy from an earlier run is what they keep reading.
 if [ -n "$agents_dependents" ]; then
     target_output_var "$CONFIG_FILE" "agents"
-    agents_rel="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+    # Resolved, not lexical: `./` renders `./AGENTS.md`, which IS the
+    # workspace-root file every dependent adapter reads.
+    adapter_contract_rel_path "$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+    agents_rel="$IS_ADAPTER_REL_PATH"
     if [ "$agents_rel" != "AGENTS.md" ]; then
         echo "WARNING: targets.agents.output renders '$agents_rel', not the workspace-root AGENTS.md. These adapters skip always-on rules because AGENTS.md carries them, and they read it at the root only: $agents_dependents. No tool loads those rules from '$agents_rel'." >&2
     fi

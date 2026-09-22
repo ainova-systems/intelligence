@@ -547,6 +547,7 @@ sources:
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
   antigravity: { enabled: true, output: ".agents" }
+  cursor: { enabled: true, output: ".cursor" }
 EOF
 cat > "$AGR/intelligence/agents/auditor.md" <<'EOF'
 ---
@@ -587,8 +588,15 @@ chk grep -Fqx 'trigger: glob' "$AGR/.agents/rules/scoped.md"
 chk grep -Fqx 'globs:' "$AGR/.agents/rules/scoped.md"
 # The body keeps the key it documents; only the frontmatter is rewritten.
 chk grep -Fqx '  - "docs/**"' "$AGR/.agents/rules/scoped.md"
-body_paths="$(awk 'n >= 2 && /^paths:$/ { found = 1 } /^---$/ { n++ } END { exit(found ? 0 : 1) }' "$AGR/.agents/rules/scoped.md" && echo yes || echo no)"
-[ "$body_paths" = "yes" ] || { echo "FAIL: body 'paths:' line was rewritten as frontmatter"; fail=1; }
+# Cursor rewrites the same key through its own awk, so it carries its own
+# regression: the assertion pair must fail independently if either drifts.
+for rendered in "$AGR/.agents/rules/scoped.md" "$AGR/.cursor/rules/scoped.mdc"; do
+    body_paths="$(awk 'n >= 2 && /^paths:$/ { found = 1 } /^---$/ { n++ } END { exit(found ? 0 : 1) }' "$rendered" && echo yes || echo no)"
+    [ "$body_paths" = "yes" ] || { echo "FAIL: body 'paths:' line was rewritten in $rendered"; fail=1; }
+    chk grep -Fqx '  - "docs/**"' "$rendered"
+done
+chk grep -Fqx 'alwaysApply: false' "$AGR/.cursor/rules/scoped.mdc"
+chk grep -Fqx 'globs:' "$AGR/.cursor/rules/scoped.mdc"
 chknot grep -q 'limits a rule file' "$OUT/agr-sync.txt"
 
 {
@@ -598,9 +606,28 @@ chknot grep -q 'limits a rule file' "$OUT/agr-sync.txt"
 (cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-big.txt" 2>&1)
 chk grep -q 'Antigravity limits a rule file to 12000 characters' "$OUT/agr-big.txt"
 chk grep -q '.agents/rules/big.md' "$OUT/agr-big.txt"
-awk '{ sub(/\r$/, ""); if ($0 ~ /^  antigravity:/) print "  antigravity: { enabled: true, output: \".agents\", warn_rule_limit: false }"; else print }' \
-    "$AGR/intelligence.yaml" > "$AGR/intelligence.yaml.tmp"
-mv "$AGR/intelligence.yaml.tmp" "$AGR/intelligence.yaml"
+# agr_rule_limit <yaml-value> — repoint the setting through a temp file; BSD
+# sed -i takes a suffix argument, so in-place editing is not portable.
+agr_rule_limit() {
+    awk -v setting="$1" '{
+        sub(/\r$/, "")
+        if ($0 ~ /^  antigravity:/)
+            print "  antigravity: { enabled: true, output: \".agents\", warn_rule_limit: " setting " }"
+        else print
+    }' "$AGR/intelligence.yaml" > "$AGR/intelligence.yaml.tmp"
+    mv "$AGR/intelligence.yaml.tmp" "$AGR/intelligence.yaml"
+}
+
+# A positive count is the threshold itself, in both directions: below it the
+# same rule reports, above it the same rule is silent.
+agr_rule_limit 100
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-100.txt" 2>&1)
+chk grep -q 'Antigravity limits a rule file to 100 characters' "$OUT/agr-100.txt"
+agr_rule_limit 25000
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-25000.txt" 2>&1)
+chknot grep -q 'limits a rule file' "$OUT/agr-25000.txt"
+
+agr_rule_limit false
 (cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-off.txt" 2>&1)
 chknot grep -q 'limits a rule file' "$OUT/agr-off.txt"
 

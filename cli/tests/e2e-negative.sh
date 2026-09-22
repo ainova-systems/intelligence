@@ -993,6 +993,13 @@ claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
 xfail "both claim '.agents/agents'" "$CLAIMS" adapter enable codex
 chk grep -Fq 'codex: { enabled: false' "$CLAIMS/intelligence.yaml"
 
+# Spelling is not ownership: `./.agents` and `.agents//` resolve to the same
+# directory the writer reaches, so the claim comparison resolves them too.
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  codex: { enabled: true, output: "./.agents" }'
+xfail "both claim '.agents/agents'" "$CLAIMS" sync
+
 echo "== 15c. sync says when generated context lands where no tool reads it =="
 # Antigravity's paths are fixed, and every AGENTS.md-dependent adapter skips
 # always-on rules because AGENTS.md carries them. Rendered anywhere else, that
@@ -1010,6 +1017,21 @@ claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
   antigravity: { enabled: true, output: ".agents", warn_rule_limit: sometimes }'
 xfail "must be true, false, or a positive character count" "$CLAIMS" sync
 chk test -f "$CLAIMS/.agents/rules/scoped.md"
+
+# The same resolution applies to both warnings: an output spelled differently
+# still reaches the path the tool reads, so neither may cry wolf. (`./` alone is
+# not a spelling to test — it resolves to the repo root, which
+# validate_output_path refuses long before any warning.)
+claims_manifest '  agents: { enabled: true, output: "./AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents//" }'
+run_in "$CLAIMS" sync
+[ "$RC" -eq 0 ] || { echo "FAIL: sync failed on equivalent output spellings"; fail=1; }
+if printf '%s\n' "$OUTPUT" | grep -qE 'never a configured output|not the workspace-root AGENTS.md'; then
+    echo "FAIL: an equivalent output spelling raised the unread-output warning"
+    printf '%s\n' "$OUTPUT" | grep -E 'WARNING' | head -3
+    fail=1
+fi
+chk test -f "$CLAIMS/AGENTS.md"
 
 echo "== 16. removed public commands stay removed =="
 # `upgrade` is public again since 0.13.0, with the CLI itself as its only
