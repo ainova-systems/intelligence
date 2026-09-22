@@ -4,6 +4,20 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.17.0]
+
+### Added
+
+- An `owned` output path is exclusive across enabled adapters. Two adapters claiming the same path, or one nested inside another's, are refused by `sync`, `adapter enable` and `status --check`. Pointing Codex at `.agents` used to let it prune Antigravity's generated agents while both runs reported success, and a filtered `sync <adapter>` prunes those paths without ever loading the adapter whose output it destroys. Two `managed` claims on one path stay legal — that is how `.agents/skills` is shared.
+- `sync` warns when generated context lands where no tool reads it: a `targets.antigravity.output` outside `.agents`, whose paths Antigravity fixes and does not configure (the warning also names an earlier `.agents/` copy still on disk, because that copy is what the tool keeps loading), and a `targets.agents.output` away from the workspace-root `AGENTS.md` while adapters that skip always-on rules depend on it carrying them.
+- The Antigravity adapter reports a scoped rule that renders past the 12,000-character limit its documentation states. `targets.antigravity.warn_rule_limit` accepts `true` or omission for that limit, another positive character count, or `false`.
+
+### Fixed
+
+- Onboarding quarantines `.antigravity.md` beside `GEMINI.md`, and `init` detects Antigravity from it. The Antigravity CLI reads that workspace-root file ahead of `GEMINI.md`, which already outranks `AGENTS.md`, so one left in place silently overrode every synced rule.
+- A readonly Antigravity agent lists only tool names the vendor documents: `view_file` and `grep_search`. It also carried `search_web` and `read_url_content`, which no Antigravity page names, and the vendor warns that an unmapped or misspelled tool name may hang the subagent process.
+- A rule body line starting with `paths:` reaches Antigravity and Cursor output unchanged. The frontmatter rewrite ran over the whole file, so a rule documenting rule syntax had its own example silently turned into `globs:`.
+
 ## [0.16.1]
 
 ### Fixed

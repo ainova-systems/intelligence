@@ -233,6 +233,7 @@ else
     [ -d "$root/.pi" ] && targets="$targets pi"
     [ -d "$root/.opencode" ] && targets="$targets opencode"
     if [ -f "$root/GEMINI.md" ] \
+        || [ -f "$root/.antigravity.md" ] \
         || [ -d "$root/.agents/rules" ] \
         || [ -d "$root/.agents/agents" ] \
         || [ -d "$root/.agents/workflows" ]; then

@@ -333,6 +333,7 @@ By default, commit the manifest, lock, project-owned content, `AGENTS.md`, and s
 CLAUDE.md
 .cursorrules
 GEMINI.md
+.antigravity.md
 
 # Generated Claude and Cursor content; shared settings remain trackable
 .claude/*

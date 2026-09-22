@@ -84,6 +84,7 @@ touch "$FRESH/.cursorrules"
 printf "# Claude marker
 " > "$FRESH/CLAUDE.md"
 printf '# Gemini marker\n' > "$FRESH/GEMINI.md"
+printf '%s\n' '# Antigravity CLI marker' > "$FRESH/.antigravity.md"
 printf '%s\n' '# Legacy local skill' > "$FRESH/.claude/skills/legacy/SKILL.md"
 printf '# Existing project instructions\nCUSTOM_AGENTS_MARKER\n' > "$FRESH/AGENTS.md"
 printf '%s\n' '# Shell-special legacy file' > "$FRESH/$SPECIAL_TRACKED"
@@ -149,6 +150,7 @@ chk grep -Fqx '.cursor/*' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/' "$FRESH/.gitignore"
 chk grep -Fqx '!.cursor/settings.json' "$FRESH/.gitignore"
 chk grep -Fqx 'GEMINI.md' "$FRESH/.gitignore"
+chk grep -Fqx '.antigravity.md' "$FRESH/.gitignore"
 chk grep -Fqx '.agents/rules/' "$FRESH/.gitignore"
 chk grep -Fqx '.agents/agents/' "$FRESH/.gitignore"
 chk grep -Fqx '.agents/skills/' "$FRESH/.gitignore"
@@ -176,11 +178,15 @@ for policy in .vscodeignore .npmignore .dockerignore; do
 done
 chk grep -q '# Claude marker' "$FRESH/intelligence/_backup/CLAUDE.md"
 chk grep -q '# Gemini marker' "$FRESH/intelligence/_backup/GEMINI.md"
+chk grep -q '# Antigravity CLI marker' "$FRESH/intelligence/_backup/.antigravity.md"
 chk test -f "$FRESH/intelligence/_backup/.cursorrules"
 chknot test -e "$FRESH/CLAUDE.md"
-# GEMINI.md outranks AGENTS.md in Antigravity's rule precedence: left in place
-# it would silently override every synced rule, so onboarding quarantines it.
+# A workspace-root instruction file outranks AGENTS.md in Antigravity's rule
+# precedence — GEMINI.md over AGENTS.md, .antigravity.md over GEMINI.md in the
+# CLI. Left in place either silently overrides every synced rule, so onboarding
+# quarantines both.
 chknot test -e "$FRESH/GEMINI.md"
+chknot test -e "$FRESH/.antigravity.md"
 chknot test -e "$FRESH/.cursorrules"
 chknot test -e "$FRESH/.claude/commands"
 chknot test -e "$FRESH/.cursor/commands"
@@ -192,6 +198,7 @@ chk grep -Fqx $'legacy\tAGENTS.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\tCLAUDE.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\t.cursorrules' "$FRESH/intelligence/_backup/manifest.tsv"
 chk grep -Fqx $'legacy\tGEMINI.md' "$FRESH/intelligence/_backup/manifest.tsv"
+chk grep -Fqx $'legacy\t.antigravity.md' "$FRESH/intelligence/_backup/manifest.tsv"
 chknot test -e "$FRESH/intelligence/_backup/.quarantine-pending"
 chk grep -q 'CUSTOM_AGENTS_MARKER' "$FRESH/intelligence/_backup/AGENTS.md"
 chk grep -q 'intelligence/_backup/AGENTS.md' "$FRESH/AGENTS.md"
@@ -514,6 +521,115 @@ for pattern in '.intelligence/' 'CLAUDE.md' '.claude/*' '!.claude/settings.json'
     count="$(grep -Fxc -- "$pattern" "$LEG/.gitignore" || true)"
     [ "$count" -eq 1 ] || { echo "FAIL: gitignore pattern duplicated or missing: $pattern"; fail=1; }
 done
+
+echo "== Antigravity renders what its docs describe =="
+# Three claims the vendor documents, asserted on real output: a readonly agent
+# carries only documented tool names (an unmapped name may hang the subagent),
+# `paths:` becomes `globs:` inside frontmatter and nowhere else, and a rule
+# past the documented 12,000-character limit is reported rather than shipped
+# silently.
+AGR="$OUT/antigravity-render"
+mkdir -p "$AGR/intelligence/rules" "$AGR/intelligence/agents"
+git -C "$AGR" init --quiet
+cat > "$AGR/intelligence.yaml" <<EOF
+project:
+  name: antigravity-render
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+    - "intelligence/agents"
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  cursor: { enabled: true, output: ".cursor" }
+EOF
+cat > "$AGR/intelligence/agents/auditor.md" <<'EOF'
+---
+name: auditor
+description: "Reviews without writing"
+tier: heavy
+access: readonly
+---
+
+# Auditor
+
+Reads and reports.
+EOF
+cat > "$AGR/intelligence/agents/builder.md" <<'EOF'
+---
+name: builder
+description: "Implements changes"
+tier: standard
+access: full
+---
+
+# Builder
+
+Writes code.
+EOF
+{
+    printf -- '---\npaths:\n  - "src/**"\ndescription: "scoped"\n---\n\n# Scoped\n\n'
+    printf 'A rule that teaches rule syntax quotes the key itself:\n\n```yaml\npaths:\n  - "docs/**"\n```\n'
+} > "$AGR/intelligence/rules/scoped.md"
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-sync.txt" 2>&1)
+chk grep -Fqx '  - view_file' "$AGR/.agents/agents/auditor.md"
+chk grep -Fqx '  - grep_search' "$AGR/.agents/agents/auditor.md"
+chknot grep -Eq 'search_web|read_url_content' "$AGR/.agents/agents/auditor.md"
+chk grep -Fqx 'model: "pro"' "$AGR/.agents/agents/auditor.md"
+# access: full inherits the main agent's tools, which is Antigravity's default.
+chknot grep -q '^tools:' "$AGR/.agents/agents/builder.md"
+chk grep -Fqx 'trigger: glob' "$AGR/.agents/rules/scoped.md"
+chk grep -Fqx 'globs:' "$AGR/.agents/rules/scoped.md"
+# The body keeps the key it documents; only the frontmatter is rewritten.
+chk grep -Fqx '  - "docs/**"' "$AGR/.agents/rules/scoped.md"
+# Cursor rewrites the same key through its own awk, so it carries its own
+# regression: the assertion pair must fail independently if either drifts.
+for rendered in "$AGR/.agents/rules/scoped.md" "$AGR/.cursor/rules/scoped.mdc"; do
+    body_paths="$(awk 'n >= 2 && /^paths:$/ { found = 1 } /^---$/ { n++ } END { exit(found ? 0 : 1) }' "$rendered" && echo yes || echo no)"
+    [ "$body_paths" = "yes" ] || { echo "FAIL: body 'paths:' line was rewritten in $rendered"; fail=1; }
+    chk grep -Fqx '  - "docs/**"' "$rendered"
+done
+chk grep -Fqx 'alwaysApply: false' "$AGR/.cursor/rules/scoped.mdc"
+chk grep -Fqx 'globs:' "$AGR/.cursor/rules/scoped.mdc"
+chknot grep -q 'limits a rule file' "$OUT/agr-sync.txt"
+
+{
+    printf -- '---\npaths:\n  - "big/**"\n---\n\n'
+    awk 'BEGIN { for (i = 0; i < 300; i++) printf "%s\n", sprintf("%060d", i) }'
+} > "$AGR/intelligence/rules/big.md"
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-big.txt" 2>&1)
+chk grep -q 'Antigravity limits a rule file to 12000 characters' "$OUT/agr-big.txt"
+chk grep -q '.agents/rules/big.md' "$OUT/agr-big.txt"
+# agr_rule_limit <yaml-value> — repoint the setting through a temp file; BSD
+# sed -i takes a suffix argument, so in-place editing is not portable.
+agr_rule_limit() {
+    awk -v setting="$1" '{
+        sub(/\r$/, "")
+        if ($0 ~ /^  antigravity:/)
+            print "  antigravity: { enabled: true, output: \".agents\", warn_rule_limit: " setting " }"
+        else print
+    }' "$AGR/intelligence.yaml" > "$AGR/intelligence.yaml.tmp"
+    mv "$AGR/intelligence.yaml.tmp" "$AGR/intelligence.yaml"
+}
+
+# A positive count is the threshold itself, in both directions: below it the
+# same rule reports, above it the same rule is silent.
+agr_rule_limit 100
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-100.txt" 2>&1)
+chk grep -q 'Antigravity limits a rule file to 100 characters' "$OUT/agr-100.txt"
+agr_rule_limit 25000
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-25000.txt" 2>&1)
+chknot grep -q 'limits a rule file' "$OUT/agr-25000.txt"
+
+agr_rule_limit false
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-off.txt" 2>&1)
+chknot grep -q 'limits a rule file' "$OUT/agr-off.txt"
 
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A

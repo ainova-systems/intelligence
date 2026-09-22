@@ -62,7 +62,10 @@ sync_cursor_rules() {
     done < <(frontmatter_index "paths#" "${files[@]}")
     [ "${#scoped[@]}" -gt 0 ] || return 0
 
-    # Path-scoped rule -> Auto Attached (paths -> globs)
+    # Path-scoped rule -> Auto Attached (paths -> globs). The rewrite is
+    # anchored inside the frontmatter block: a body line may legitimately start
+    # with `paths:` (a rule documenting rule syntax does exactly that), and
+    # rewriting it would corrupt the text it teaches.
     is_fin_awk_vars
     awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
         FNR == 1 {
@@ -70,12 +73,17 @@ sync_cursor_rules() {
             nm = base_name(FILENAME)
             sub(/\.md$/, ".mdc", nm)
             out = dst "/" nm
+            fm = 0
         }
-        {
-            sub(/\r$/, "")
-            sub(/^paths:/, "globs:")
+        { sub(/\r$/, "") }
+        FNR == 1 {
+            if ($0 == "---") fm = 1
+            print fin_line($0) > out
+            print fin_line("alwaysApply: false") > out
+            next
         }
-        FNR == 1 { print fin_line($0) > out; print fin_line("alwaysApply: false") > out; next }
+        fm == 1 && $0 == "---" { fm = 2; print fin_line($0) > out; next }
+        fm == 1 { sub(/^paths:/, "globs:") }
         { print fin_line($0) > out }
     ' "${scoped[@]}"
     for f in "${scoped[@]}"; do

@@ -89,6 +89,15 @@ or unsupported contracts before enabling or syncing an adapter. `owned` and
 `managed` paths form the transactional write-set: if any adapter fails, the
 engine restores every selected adapter path to its pre-sync state.
 
+`owned` is exclusive across enabled adapters. Two adapters may declare the same
+`managed` path — that is how Antigravity, Codex, Pi and OpenCode share
+`.agents/skills` — but an `owned` path that another enabled adapter also claims,
+or that nests inside one, is refused by `sync`, `adapter enable` and
+`status --check`. Without that refusal the adapter that syncs last prunes the
+other's output and both runs report success. A filtered `sync <adapter>` is
+checked the same way: it prunes the same paths while never loading the adapter
+whose output it destroys.
+
 For an existing `.vscodeignore`, `.npmignore`, or `.dockerignore`, enable/init
 also excludes the configured adapter output plus its `owned`, `managed`, and
 `legacy` paths from published or build artifacts. This packaging policy is
@@ -176,6 +185,21 @@ If a new adapter relies on `AGENTS.md` for always-on rules, its target must requ
 Every successful sync prints an adapter-agnostic `CONTEXT:` summary with source byte totals and file counts. It separates always-on rules from custom context (scoped rules, agent prompts and skill entry points), then reports a numeric `agents-md` byte count and `generated`, `not-generated`, or `disabled` status; supporting skill assets are excluded until explicitly read. Adapter-specific hard limits and suppression controls stay inside the adapter that owns them.
 
 The Codex adapter checks its `project_doc_max_bytes` default (32 KiB). When generated `AGENTS.md` exceeds it, sync prints the byte count and a sufficient Codex setting. The warning says "may truncate" because a developer can already have a larger override. `targets.codex.warn_project_doc_limit` accepts `true` or omission for the default threshold, a positive byte count to match another effective limit, or `false` to disable the Intelligence warning. Both inline and block target forms work, and the field does not change Codex configuration. The warning remains visible in `sync --compact`.
+
+The Antigravity adapter checks the 12,000-character limit its documentation
+states for a rule file. A generated scoped rule above it is reported with its
+rendered character count, because the tool decides what to do with the excess
+and never says so. `targets.antigravity.warn_rule_limit` accepts `true` or
+omission for the documented limit, a positive character count to match another
+effective limit, or `false` to disable the warning.
+
+Antigravity also reads `.agents/rules` and `.agents/agents` only — its paths are
+fixed, not configurable — so a `targets.antigravity.output` anywhere else warns
+that nothing will load the result, and names an earlier `.agents/` copy still on
+disk. The same applies to `AGENTS.md`: every adapter that requires the `agents`
+target skips always-on rules because `AGENTS.md` carries them, and each reads it
+at the workspace root, so a `targets.agents.output` elsewhere warns and lists the
+adapters whose always-on rules then reach no tool.
 
 ### Skills
 
