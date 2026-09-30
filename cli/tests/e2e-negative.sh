@@ -1068,7 +1068,8 @@ for s in alpha beta "gam ma[1]"; do
 done
 git -C "$E17" init --quiet
 xok "" "$E17" init --bare --targets agents
-run_in "$E17" sync
+# Exercise the renderer's enumeration (init may have primed the unchanged cache).
+run_in "$E17" sync --force
 [ "$RC" -eq 0 ] || { echo "FAIL: e17 baseline sync failed"; fail=1; }
 chk grep -q 'alpha' "$E17/AGENTS.md"
 chk grep -q 'beta' "$E17/AGENTS.md"

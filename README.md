@@ -88,7 +88,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | Command | Purpose |
 |---|---|
 | `init [--preview\|--apply]` | Create, convert, restore or align the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
-| `sync [adapter] [--compact]` | Restore missing locked content, align the project when safe, then render enabled adapters. Compact mode shows context sizes, warnings and final status on success, and full diagnostics on failure. |
+| `sync [adapter] [--compact] [--force]` | Restore missing locked content, align the project when safe, then render enabled adapters or reuse verified unchanged output. `--force` renders and refreshes repository discovery. Compact mode shows context sizes, warnings and final status on success, and full diagnostics on failure. |
 | `update [@scope/name] [--latest] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. `--latest` moves one named package past its range to the newest version. |
 | `upgrade [--next] [--preview\|--apply]` | Replace the installed CLI with the newest version on its npm channel (`--next` for the prerelease line); ask before installing by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |

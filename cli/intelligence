@@ -46,8 +46,9 @@ Usage: intelligence <command> [args]
   init [--preview|--apply]  Initialize, convert, restore or align this project
     --targets a,b --dir name --bare --no-sync   New-project options
     --force               Accept a dirty worktree during legacy project conversion
-  sync [adapter] [--compact]  Restore locked content, then render enabled adapters
+  sync [adapter] [--compact] [--force]  Restore locked content, then render enabled adapters
     --compact            On success show context, warnings and final status; on failure show diagnostics
+    --force              Render again and refresh discovery of unconfigured source directories
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking

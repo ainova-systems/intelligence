@@ -85,14 +85,16 @@ are reported by Git as normal deletions instead.
 ### `intelligence sync`
 
 ```text
-intelligence sync [adapter] [--compact]
+intelligence sync [adapter] [--compact] [--force]
 ```
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 1. Validate any existing lock, then align tracked project schema/content with the installed CLI when safe.
 2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
-3. Validate each selected adapter's versioned ownership contract and required
+3. When inputs and outputs match a previous successful sync, reuse its result
+   without rewriting outputs or taking snapshots. Otherwise validate each
+   selected adapter's versioned ownership contract and required
    targets before writing.
 4. Snapshot every declared owned or shared managed path, then run every enabled
    adapter or only the named enabled adapter.
@@ -101,6 +103,21 @@ For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 A filtered adapter must be enabled explicitly; naming it does not bypass target
 state. Project adapters without a valid contract are refused before sync.
+
+For built-in adapters, unchanged sync compares file contents and filesystem
+entries, including skill resources, generated outputs, manifest/lock, and the
+installed CLI/engine. An edited or missing output triggers rendering even when
+sources have not changed. Output modification times stay untouched on a hit.
+The disposable state lives in `.intelligence/sync-cache/`; it is gitignored
+with the package store. Full and filtered invocations do not reuse each other's
+results. Project adapters and filesystem layouts that cannot be fingerprinted
+safely use ordinary sync. Missing or damaged cache data also uses ordinary sync.
+
+`--force` always renders and refreshes diagnostics, including the search for
+unconfigured source directories elsewhere in the repository. A cache hit replays
+the last full run's useful warnings and context summary, and skips that repository
+scan. Use `intelligence sync --force` to discover newly added directories outside
+the configured sources. It can be combined with a target and `--compact`.
 
 A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
@@ -131,8 +148,10 @@ these cross-version empty-SHA entries. `engine_version` records the lock writer
 and can differ from a preserved bundle pin. A missing cross-version bundle still
 needs a valid SHA: the metadata exception never authorizes fetching an unpinned ref.
 Repeated validation prints each development-bundle metadata warning once per command.
-This verifies acquisition identity, not every byte of an already installed store:
-ordinary sync and `status --check` do not rehash installed packages.
+This verifies acquisition identity, not every byte of an already installed store.
+Sync fingerprints local source contents to detect changes since a successful
+render; those fingerprints do not authenticate a package against its upstream
+commit. `status --check` does not rehash installed package contents.
 
 The output rollback in steps 4–5 covers adapter-declared paths. Package restoration
 publishes one verified package at a time before rendering; a later fetch or render

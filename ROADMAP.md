@@ -47,7 +47,8 @@ scoped rules and custom agents remain distinct capabilities.
 
 **Problem.** Exact locked acquisition and lock-metadata validation are in place, so
 what remains is everything they deliberately did not cover. Installed package bytes
-are never rehashed, manifest intent is validated only where the lock forced it, and
+are not authenticated against their locked source by sync's local change detection,
+manifest intent is validated only where the lock forced it, and
 rollback still spans one operation at a time rather than the package store, manifest,
 lock and rendered output together. Git and authentication failures reach the user as
 raw transport errors.
