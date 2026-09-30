@@ -110,6 +110,9 @@ done < <(qmap_keys "$manifest" "packages")
 # onboarding backup and Git policy. Validate every declared target, including
 # disabled ones, so a later enable cannot reveal a stale custom adapter.
 content_dir="$(manifest_intelligence_dir "$manifest")"
+# Ownership across enabled adapters: two adapters claiming one owned path prune
+# each other silently, and sync reports success for both.
+adapter_claims_reset
 while IFS= read -r target; do
     [ -n "$target" ] || continue
     output="$(get_target_output "$manifest" "$target")"
@@ -123,6 +126,10 @@ while IFS= read -r target; do
     if ! printf '%s\n' "$records" | grep -Fqx $'version\t1'; then
         warn "adapter '$target' has an invalid ownership contract"
         continue
+    fi
+    if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
+        adapter_claims_add_records "$target" "$records" \
+            || warn "$IS_ADAPTER_CLAIM_CONFLICT"
     fi
     while IFS=$'\t' read -r kind value; do
         if [ "$kind" = "requires" ] \

@@ -222,10 +222,12 @@ intelligence sync mytool
 
 ### Related links
 
-Official references for the currently supported adapters, checked September 7, 2026.
+Official references for the currently supported adapters, checked September 20, 2026.
 These describe the tools' native capabilities; Intelligence's generated paths and
 supported mappings are documented in [Built-in outputs](packages/sync/references/adapters.md#built-in-outputs)
 and [Artifact conventions](packages/sync/references/conventions.md#generated-output-and-version-control).
+A vendor page can describe less than its tool accepts — where an adapter renders
+something its vendor does not document, the adapter file says so at the top.
 
 | Adapter | Official references |
 |---|---|

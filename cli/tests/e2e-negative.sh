@@ -940,6 +940,99 @@ xok "myide" "$PROJ" adapter list
 xok "removed: intelligence/adapters/myide.sh" "$PROJ" adapter remove myide --apply
 chknot test -f "$PROJ/intelligence/adapters/myide.sh"
 
+echo "== 15b. one output path belongs to one adapter =="
+# `.agents/` is a shared workspace root: Antigravity owns `rules` and `agents`
+# under it, while Codex, Pi and opencode share `.agents/skills`. Point Codex's
+# output at `.agents` and both adapters own `.agents/agents` — the one that
+# synced last pruned the other's files, and both runs reported success.
+CLAIMS="$OUT/claims"
+mkdir -p "$CLAIMS/intelligence/rules"
+printf -- '---\npaths:\n  - "src/**"\n---\n\n# Scoped\n\nscoped body\n' \
+    > "$CLAIMS/intelligence/rules/scoped.md"
+git -C "$CLAIMS" init --quiet
+
+# claims_manifest <targets-block> — rewrite the fixture's targets.
+claims_manifest() {
+    cat > "$CLAIMS/intelligence.yaml" <<EOF
+project:
+  name: e2e-claims
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+
+targets:
+$1
+EOF
+}
+
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  codex: { enabled: true, output: ".codex" }'
+xok "" "$CLAIMS" sync
+printf 'keep\n' > "$CLAIMS/.agents/agents/keep.md"
+
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  codex: { enabled: true, output: ".agents" }'
+xfail "both claim '.agents/agents'" "$CLAIMS" sync
+# A filtered run is the dangerous one: it prunes a path another adapter owns
+# while never loading that adapter, so the check cannot depend on selection.
+xfail "both claim '.agents/agents'" "$CLAIMS" sync codex
+chk test -f "$CLAIMS/.agents/agents/keep.md"
+xfail "both claim '.agents/agents'" "$CLAIMS" status --check
+
+# The manifest is the only thing that has to change, so enable refuses too.
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  codex: { enabled: false, output: ".agents" }'
+xfail "both claim '.agents/agents'" "$CLAIMS" adapter enable codex
+chk grep -Fq 'codex: { enabled: false' "$CLAIMS/intelligence.yaml"
+
+# Spelling is not ownership: `./.agents` and `.agents//` resolve to the same
+# directory the writer reaches, so the claim comparison resolves them too.
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  codex: { enabled: true, output: "./.agents" }'
+xfail "both claim '.agents/agents'" "$CLAIMS" sync
+
+echo "== 15c. sync says when generated context lands where no tool reads it =="
+# Antigravity's paths are fixed, and every AGENTS.md-dependent adapter skips
+# always-on rules because AGENTS.md carries them. Rendered anywhere else, that
+# context reaches nothing — a warning, not a refusal: rendering elsewhere for
+# inspection stays legitimate.
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".ag-custom" }'
+xok "never a configured output" "$CLAIMS" sync
+
+claims_manifest '  agents: { enabled: true, output: "docs/AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }'
+xok "not the workspace-root AGENTS.md" "$CLAIMS" sync
+
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents", warn_rule_limit: sometimes }'
+xfail "must be true, false, or a positive character count" "$CLAIMS" sync
+chk test -f "$CLAIMS/.agents/rules/scoped.md"
+
+# The same resolution applies to both warnings: an output spelled differently
+# still reaches the path the tool reads, so neither may cry wolf. (`./` alone is
+# not a spelling to test — it resolves to the repo root, which
+# validate_output_path refuses long before any warning.)
+claims_manifest '  agents: { enabled: true, output: "./AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents//" }'
+run_in "$CLAIMS" sync
+[ "$RC" -eq 0 ] || { echo "FAIL: sync failed on equivalent output spellings"; fail=1; }
+if printf '%s\n' "$OUTPUT" | grep -qE 'never a configured output|not the workspace-root AGENTS.md'; then
+    echo "FAIL: an equivalent output spelling raised the unread-output warning"
+    printf '%s\n' "$OUTPUT" | grep -E 'WARNING' | head -3
+    fail=1
+fi
+chk test -f "$CLAIMS/AGENTS.md"
+
 echo "== 16. removed public commands stay removed =="
 # `upgrade` is public again since 0.13.0, with the CLI itself as its only
 # meaning; the legacy project-upgrade names stay unknown.

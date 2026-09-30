@@ -29,13 +29,32 @@ if [ "$action" = "enable" ]; then
     [ -n "$output" ] || output="$(default_target_output "$name")"
     validate_adapter_contract_for "$IP_ROOT" "$content_dir" "$name" "$output" \
         || die "adapter '$name' has an invalid ownership contract"
+    records="$(adapter_records_for "$IP_ROOT" "$content_dir" "$name" "$output")" \
+        || die "adapter '$name' has an invalid ownership contract"
     while IFS= read -r required; do
         [ -n "$required" ] || continue
         if [ "$(is_target_enabled "$manifest" "$required")" != "1" ]; then
             die "target '$name' requires target '$required' — enable it first"
         fi
-    done < <(adapter_records_for "$IP_ROOT" "$content_dir" "$name" "$output" \
-        | awk -F '\t' '$1 == "requires" { print $2 }')
+    done < <(awk -F '\t' '$1 == "requires" { print $2 }' <<< "$records")
+
+    # Two adapters claiming one owned path prune each other's output, and both
+    # syncs still report success. Refuse here, while the manifest is the only
+    # thing that would have to change.
+    adapter_claims_reset
+    while IFS= read -r enabled_target; do
+        [ -n "$enabled_target" ] || continue
+        [ "$enabled_target" = "$name" ] && continue
+        [ "$(is_target_enabled "$manifest" "$enabled_target")" = "1" ] || continue
+        enabled_output="$(get_target_output "$manifest" "$enabled_target")"
+        [ -n "$enabled_output" ] || enabled_output="$(default_target_output "$enabled_target")"
+        enabled_records="$(adapter_records_for "$IP_ROOT" "$content_dir" "$enabled_target" "$enabled_output" 2>/dev/null)" \
+            || continue
+        adapter_claims_add_records "$enabled_target" "$enabled_records" || true
+    done < <(target_names "$manifest")
+    adapter_claims_add_records "$name" "$records" \
+        || die "$IS_ADAPTER_CLAIM_CONFLICT"
+
     target_set_enabled "$manifest" "$name" true "$output"
     ensure_target_gitignore "$IP_ROOT" "$manifest" "$name"
     ensure_manifest_publisher_ignores "$IP_ROOT" "$manifest"
