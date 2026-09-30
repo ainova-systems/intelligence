@@ -33,7 +33,7 @@ intelligence sync
 | Command | What it does |
 |---|---|
 | `intelligence init [--preview\|--apply]` | Create, convert, restore or align a project |
-| `intelligence sync [adapter]` | Restore locked content if needed, then render all or one enabled adapter |
+| `intelligence sync [adapter] [--compact] [--force]` | Restore locked content, then render or reuse verified unchanged output; `--force` renders and refreshes repository discovery |
 | `intelligence update [@scope/name] [--latest] [--preview\|--apply]` | Plan or apply project and ranged-package updates; `--latest` crosses one package's range |
 | `intelligence upgrade [--next] [--preview\|--apply]` | Replace the installed CLI with the newest version on its npm channel |
 | `intelligence package add\|remove\|list\|search` | Manage versioned Intelligence Packages |

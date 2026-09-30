@@ -8,6 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
+- Unchanged local `sync` verifies inputs and outputs, then skips rendering, output snapshots and repository discovery; `sync --force` regenerates outputs and refreshes diagnostics.
 - An `owned` output path is exclusive across enabled adapters. Two adapters claiming the same path, or one nested inside another's, are refused by `sync`, `adapter enable` and `status --check`. Pointing Codex at `.agents` used to let it prune Antigravity's generated agents while both runs reported success, and a filtered `sync <adapter>` prunes those paths without ever loading the adapter whose output it destroys. Two `managed` claims on one path stay legal — that is how `.agents/skills` is shared.
 - `sync` warns when generated context lands where no tool reads it: a `targets.antigravity.output` outside `.agents`, whose paths Antigravity fixes and does not configure (the warning also names an earlier `.agents/` copy still on disk, because that copy is what the tool keeps loading), and a `targets.agents.output` away from the workspace-root `AGENTS.md` while adapters that skip always-on rules depend on it carrying them.
 - The Antigravity adapter reports a scoped rule that renders past the 12,000-character limit its documentation states. `targets.antigravity.warn_rule_limit` accepts `true` or omission for that limit, another positive character count, or `false`.

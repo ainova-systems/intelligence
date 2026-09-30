@@ -89,6 +89,13 @@ The development-bundle metadata exception permits alignment and installed
 same-major compatibility; locked restore still requires an exact commit or the
 matching current bundle. Metadata validation does not verify installed bytes.
 
+Sync reuse is CLI-owned disposable state, after lifecycle and lock preflight.
+Verify input and output contents before skipping the engine; timestamps alone
+cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.
+Publish cache state only for a successful render with stable inputs, and preserve
+failure exit codes and rollback. `sync --force` refreshes output and repository
+discovery; a cache hit retains useful diagnostics from the last full run.
+
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —
 and the command proceeds behind one warning; only a newer major refuses

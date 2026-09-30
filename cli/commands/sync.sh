@@ -1,16 +1,18 @@
 #!/bin/bash
-# intelligence sync [target] [--compact] - render intelligence to enabled tools.
+# intelligence sync [target] [--compact] [--force] - render intelligence to enabled tools.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 compact=0
+force=0
 target=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --compact) compact=1 ;;
+        --force) force=1 ;;
         -*) die "unknown option '$1'" ;;
         *)
-            [ -z "$target" ] || die "usage: intelligence sync [adapter] [--compact]"
+            [ -z "$target" ] || die "usage: intelligence sync [adapter] [--compact] [--force]"
             target="$1"
             ;;
     esac
@@ -28,13 +30,10 @@ run_sync() {
             ensure_project_current "$IP_ROOT" || return $?
             restore_project_store_if_missing "$IP_ROOT" || return $?
             export_engine_env "$IP_ROOT" || return $?
-            if [ -n "$target" ]; then
-                bash "$IS_ENGINE_DIR/sync.sh" "$target" || return $?
-            else
-                bash "$IS_ENGINE_DIR/sync.sh" || return $?
-            fi
+            sync_with_cache "$target" "$force" || return $?
             ;;
         legacy)
+            [ "$force" -eq 0 ] || die "--force is unavailable for a legacy Intelligence Sync project - run 'intelligence init' to convert it first"
             [ "$compact" -eq 0 ] || die "--compact is unavailable for a legacy Intelligence Sync project - run 'intelligence init' to convert it first"
             # A vendored project syncs with its own engine: its pin is the
             # contract, and a newer bundled engine must not generate against an
