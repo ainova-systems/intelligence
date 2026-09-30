@@ -401,9 +401,10 @@ ORIGINAL_PATH="$PATH"
 export PATH="$TMP/bin:$PATH"
 miss
 hit
-package_rule="$(find "$PROJECT/.intelligence/packages" -type f -name '*.md')"
-package_rule="${package_rule%%$'\n'*}"
-check test -n "$package_rule"
+# Change a configured source, not whichever Markdown file find happens to
+# enumerate first: package references are outside the rendered source trees.
+package_rule="$PROJECT/.intelligence/packages/@ainova-systems/sync/rules/intelligence-authoring.md"
+check test -f "$package_rule"
 printf '\nChanged local package\n' >> "$package_rule"
 miss
 hit
