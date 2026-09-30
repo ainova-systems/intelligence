@@ -140,6 +140,7 @@ sync_antigravity_rules() {
         FNR == 1 {
             if (out != "") close(out)
             out = dst "/" base_name(FILENAME)
+            chars[out] = 0
             fm = 0
         }
         { sub(/\r$/, "") }

@@ -14,6 +14,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
+- Antigravity rule-limit warnings measure the final rendered override instead of adding the sizes of same-named rules from earlier sources.
 - Onboarding quarantines `.antigravity.md` beside `GEMINI.md`, and `init` detects Antigravity from it. The Antigravity CLI reads that workspace-root file ahead of `GEMINI.md`, which already outranks `AGENTS.md`, so one left in place silently overrode every synced rule.
 - A readonly Antigravity agent lists only tool names the vendor documents: `view_file` and `grep_search`. It also carried `search_web` and `read_url_content`, which no Antigravity page names, and the vendor warns that an unmapped or misspelled tool name may hang the subagent process.
 - A rule body line starting with `paths:` reaches Antigravity and Cursor output unchanged. The frontmatter rewrite ran over the whole file, so a rule documenting rule syntax had its own example silently turned into `globs:`.

@@ -631,6 +631,20 @@ agr_rule_limit false
 (cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-off.txt" 2>&1)
 chknot grep -q 'limits a rule file' "$OUT/agr-off.txt"
 
+# A later source replaces the file and its measured size, even when the
+# earlier rule exceeded the limit. Measure the actual output for the warning.
+mkdir -p "$AGR/project-rules"
+printf -- '---\npaths:\n  - "big/**"\n---\n\nShort override.\n' > "$AGR/project-rules/big.md"
+(cd "$AGR" && bash "$CLI" source add rules project-rules > "$OUT/agr-source.txt" 2>&1)
+agr_rule_limit true
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-override.txt" 2>&1)
+chk grep -Fqx 'Short override.' "$AGR/.agents/rules/big.md"
+chknot grep -q 'limits a rule file' "$OUT/agr-override.txt"
+agr_rule_limit 10
+(cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-override-10.txt" 2>&1)
+override_chars="$(wc -c < "$AGR/.agents/rules/big.md" | tr -d '[:space:]')"
+chk grep -Fq ".agents/rules/big.md renders $override_chars;" "$OUT/agr-override-10.txt"
+
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A
 git -C "$LEG" -c user.email=t@t -c user.name=t commit --quiet -m migrated
