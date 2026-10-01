@@ -236,10 +236,23 @@ legacy_content_dir=""
 case "$umbrella_rel" in
     "$umbrella"|intelligence|*/*|.intelligence*|*[\"\'\\]*|*[[:cntrl:]]*) ;;
     *)
+        # Only content that stays counts: the vendored module and pack mirrors
+        # move into the store and leave, so a config-only umbrella is not one.
         if [ -z "$(get_yaml_field "$config" "project" "intelligence_dir")" ]; then
             for section in rules agents skills; do
                 while IFS= read -r src; do
-                    case "$src" in "$umbrella_rel"/*) legacy_content_dir="$umbrella_rel" ;; esac
+                    case "$src" in ""|git+*|@*) continue ;; esac
+                    src_canon="$(normalize_path "$root/$src")"
+                    case "$src_canon" in "$root"/*) src_rel="${src_canon#"$root"/}" ;; *) continue ;; esac
+                    case "$src_rel" in "$module_rel"|"$module_rel"/*) continue ;; esac
+                    leaving=0
+                    while IFS="$LOCK_SEP" read -r _ _ _ _ mirror; do
+                        [ -n "$mirror" ] || continue
+                        mirror="$(normalize_path "$root/$mirror")"
+                        case "$src_canon" in "$mirror"|"$mirror"/*) leaving=1 ;; esac
+                    done < "$pack_rows"
+                    [ "$leaving" -eq 0 ] || continue
+                    case "$src_rel" in "$umbrella_rel"|"$umbrella_rel"/*) legacy_content_dir="$umbrella_rel" ;; esac
                 done < <(read_yaml_list "$config" "$section")
             done
         fi
