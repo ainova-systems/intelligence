@@ -16,6 +16,7 @@ for a in "$@"; do
 done
 
 require_cli_project
+project_lock_hold "$IP_ROOT"
 
 # Removing the engine-content package guts the outputs (meta-skills, the
 # authoring rule, both engine agents disappear) while everything still

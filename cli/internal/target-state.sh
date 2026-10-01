@@ -15,6 +15,7 @@ case "$action" in enable|disable) ;; *) die "internal target state: expected <en
 assert_valid_target_name "$name"
 
 require_cli_project
+project_lock_hold "$IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 content_dir="$(manifest_intelligence_dir "$manifest")"
 

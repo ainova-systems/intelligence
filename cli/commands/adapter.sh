@@ -118,6 +118,8 @@ adapter_remove() {
         read -r answer
         case "$answer" in y|Y|yes|YES) ;; *) echo "removal cancelled"; exit 0 ;; esac
     fi
+    # A render sources project adapters: never remove one under it.
+    project_lock_hold "$IP_ROOT"
     rm -f "$file"
     echo "removed: $content_dir/adapters/$name.sh"
     echo "  generated output was kept"
@@ -136,6 +138,8 @@ case "$action" in
         [ -n "$name" ] && [ $# -eq 2 ] || die "usage: intelligence adapter <enable|disable> <name>"
         assert_valid_target_name "$name"
         require_cli_project
+        # Held through the final render: target-state and sync join it.
+        project_lock_hold "$IP_ROOT"
         ensure_project_current "$IP_ROOT"
         if [ "$action" = "enable" ]; then
             state_stage="$(mktemp -d -t intelligence-adapter-state-XXXXXX)"
