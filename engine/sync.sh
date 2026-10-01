@@ -41,8 +41,11 @@ if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi
 # so the CLI lifecycle preflight must align the project first. An ABSENT stamp
 # means the same thing — a manifest with no
 # `schema_version` must not silently sync past a schema change.
-_stamp="$(read_schema_version "$_cf")"
-_eng="$(engine_version)"
+read_schema_version_var "$_cf"
+_stamp="$IS_SCHEMA_VERSION"
+engine_version_var
+[ "$IS_ENGINE_VERSION_FOUND" = 1 ] || exit 1
+_eng="$IS_ENGINE_VERSION"
 if [ -z "$_stamp" ]; then
     is_status needs-update "stamped= engine=$_eng (no schema_version)"
     echo "ERROR: the manifest has no schema_version — schema un-applied." >&2
@@ -62,7 +65,12 @@ fi
 REPO_ROOT_RAW="${REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || dirname "$CONFIG_FILE")}"
 REPO_ROOT="$(cd "$REPO_ROOT_RAW" && pwd)"
 unset REPO_ROOT_RAW
-CONFIG_FILE="$(cd "$(dirname "$CONFIG_FILE")" && pwd)/$(basename "$CONFIG_FILE")"
+case "$CONFIG_FILE" in
+    */*) _cf_dir="${CONFIG_FILE%/*}"; [ -n "$_cf_dir" ] || _cf_dir="/" ;;
+    *) _cf_dir="." ;;
+esac
+CONFIG_FILE="$(cd "$_cf_dir" && pwd)/${CONFIG_FILE##*/}"
+unset _cf_dir
 
 # Layout tokens for generated output (see finalize_output_file in common.sh).
 # Package-shipped rules/agents cannot hardcode the content dir's name — the
@@ -92,13 +100,12 @@ echo ""
 # adapter process substitutions — hits the in-memory copy instead of
 # spawning awk.
 load_targets_cache "$CONFIG_FILE"
-for section in rules agents skills ignore submodules; do
-    load_yaml_list "$CONFIG_FILE" "$section"
-done
+load_yaml_lists "$CONFIG_FILE" rules agents skills ignore submodules
 
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
 LINT_FILES=()
+LINT_SKILL_DIRS=()
 for section in rules agents skills; do
     load_yaml_list "$CONFIG_FILE" "$section"
     while IFS= read -r src; do
@@ -106,9 +113,7 @@ for section in rules agents skills; do
         src_dir="$REPO_ROOT/$src"
         [ -d "$src_dir" ] || continue
         if [ "$section" = "skills" ]; then
-            while IFS= read -r f; do
-                [ -n "$f" ] && LINT_FILES+=("$f")
-            done < <(find "$src_dir" -mindepth 2 -maxdepth 2 -name 'SKILL.md' 2>/dev/null)
+            LINT_SKILL_DIRS+=("$src_dir")
         else
             for f in "$src_dir"/*.md; do
                 [ -f "$f" ] && LINT_FILES+=("$f")
@@ -116,9 +121,24 @@ for section in rules agents skills; do
         fi
     done <<< "$IS_YAML_LIST"
 done
+# One find for every skills source: it walks its start points in order.
+if [ "${#LINT_SKILL_DIRS[@]}" -gt 0 ]; then
+    while IFS= read -r f; do
+        [ -n "$f" ] && LINT_FILES+=("$f")
+    done < <(find "${LINT_SKILL_DIRS[@]}" -mindepth 2 -maxdepth 2 -name 'SKILL.md' 2>/dev/null)
+fi
 if [ "${#LINT_FILES[@]}" -gt 0 ]; then
     lint_frontmatter_files "${LINT_FILES[@]}"
 fi
+
+# Sources stay read-only for the whole run (validate_output_path refuses an
+# output inside one), so enumerate each section once, in this shell, and let
+# every adapter and the context report replay it.
+# shellcheck disable=SC2034  # read by read_source_artifact_files in lib/common.sh
+IS_SOURCE_FILES_MEMO=1
+for section in rules agents skills; do
+    read_source_artifact_files "$REPO_ROOT" "$CONFIG_FILE" "$section"
+done
 
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):
@@ -152,7 +172,8 @@ for adapters_dir in "$SCRIPT_DIR/adapters" "$INTELLIGENCE_DIR/adapters"; do
     [ -d "$adapters_dir" ] || continue
     for adapter_file in "$adapters_dir"/*.sh; do
         [ -f "$adapter_file" ] || continue
-        adapter_name="$(basename "$adapter_file" .sh)"
+        adapter_name="${adapter_file##*/}"
+        adapter_name="${adapter_name%.sh}"
         [ "$adapter_name" = "_template" ] && continue
         register_adapter "$adapter_name" "$adapter_file"
     done
@@ -280,7 +301,8 @@ if [ -n "$agents_dependents" ]; then
     target_output_var "$CONFIG_FILE" "agents"
     # Resolved, not lexical: `./` renders `./AGENTS.md`, which IS the
     # workspace-root file every dependent adapter reads.
-    adapter_contract_rel_path "$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+    agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+    adapter_contract_rel_path "$IS_AGENTS_OUTPUT_PATH"
     agents_rel="$IS_ADAPTER_REL_PATH"
     if [ "$agents_rel" != "AGENTS.md" ]; then
         echo "WARNING: targets.agents.output renders '$agents_rel', not the workspace-root AGENTS.md. These adapters skip always-on rules because AGENTS.md carries them, and they read it at the root only: $agents_dependents. No tool loads those rules from '$agents_rel'." >&2

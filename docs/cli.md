@@ -481,6 +481,6 @@ bash cli/tests/verify.sh
 bash cli/tests/verify.sh all
 ```
 
-The `tests` scope runs the hermetic suites listed in the runner (`unit-semver`, `unit-manifest`, `unit-release`, `unit-fetch`, `unit-upgrade`, `e2e-packages`, `e2e-lifecycle`, `e2e-negative`, `e2e-lock-validation`, `e2e-compat`); the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
+The `tests` scope runs every hermetic suite named in the runner's `SUITES` list; the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
 
 Build the npm payload with `bash npm/build.sh 0.0.0-dev`. To release, create and push a tag from `main`, then publish a GitHub Release for it. Prerelease tag `vX.Y.Z-rc.N` goes to npm dist-tag `next`; stable tag `vX.Y.Z` goes to `latest` and advances a stale `next` without replacing a newer preview line. Mark an RC Release as a prerelease; the workflow rejects a tag outside `main`, a base version that differs from `engine/VERSION`, or a mismatched prerelease flag.

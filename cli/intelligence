@@ -7,15 +7,21 @@
 
 set -euo pipefail
 
-CLI_DIR="$(cd "$(dirname "$0")" && pwd)"
+case "$0" in
+    */*) CLI_DIR="${0%/*}"; [ -n "$CLI_DIR" ] || CLI_DIR="/" ;;
+    *) CLI_DIR="." ;;
+esac
+CLI_DIR="$(cd "$CLI_DIR" && pwd)"
 export CLI_DIR
 
 # Engine discovery, by role (sync.sh + VERSION). The repo and the npm package
 # ship one layout — <root>/{cli,engine,packages/sync} — so there is a single
-# candidate rather than a per-distribution list.
+# candidate rather than a per-distribution list. CLI_DIR is already the logical
+# `pwd` spelling, so its textual parent is what `cd "$CLI_DIR/.."` would print.
+CLI_ROOT="${CLI_DIR%/*}"
 IS_ENGINE_DIR=""
 if [ -f "$CLI_DIR/../engine/sync.sh" ] && [ -f "$CLI_DIR/../engine/VERSION" ]; then
-    IS_ENGINE_DIR="$(cd "$CLI_DIR/../engine" && pwd)"
+    IS_ENGINE_DIR="$CLI_ROOT/engine"
 fi
 if [ -z "$IS_ENGINE_DIR" ]; then
     echo "ERROR: bundled sync engine not found next to the CLI ($CLI_DIR)." >&2
@@ -29,7 +35,7 @@ export IS_ENGINE_DIR
 # engine dir: the store must receive rules/agents/skills, never engine scripts.
 IS_BUNDLED_PKG_DIR=""
 if [ -d "$CLI_DIR/../packages/sync" ]; then
-    IS_BUNDLED_PKG_DIR="$(cd "$CLI_DIR/../packages/sync" && pwd)"
+    IS_BUNDLED_PKG_DIR="$CLI_ROOT/packages/sync"
 fi
 export IS_BUNDLED_PKG_DIR
 

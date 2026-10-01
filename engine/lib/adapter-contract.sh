@@ -15,10 +15,6 @@ adapter_contract_preserve() { printf 'preserve\t%s\n' "$1"; }
 adapter_contract_ignore()   { printf 'ignore\t%s\n' "$1"; }
 adapter_contract_include()  { printf 'include\t%s\n' "$1"; }
 
-adapter_contract_function() {
-    printf 'adapter_contract_%s' "$1"
-}
-
 # --- cross-adapter ownership -------------------------------------------------
 #
 # `owned` is exclusive: one adapter writes and prunes that path. `managed` is
@@ -118,7 +114,7 @@ adapter_contract_records() (
     local name="$1" file="$2" output="$3" fn line kind value saw_version=0
     # shellcheck source=/dev/null
     source "$file"
-    fn="$(adapter_contract_function "$name")"
+    printf -v fn 'adapter_contract_%s' "$name"
     declare -F "$fn" >/dev/null 2>&1 || {
         echo "ERROR: adapter '$name' has no $fn contract" >&2
         return 1

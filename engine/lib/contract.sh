@@ -20,19 +20,40 @@
 # schema is this?" before parsing the rest.
 IS_SCHEMA_VERSION_KEY="schema_version"
 
+# read_schema_version_var <config_file> — set IS_SCHEMA_VERSION to the applied
+# version, "" if absent; IS_SCHEMA_VERSION_FOUND=1 when the key exists. Read in
+# this shell, not by awk: every lifecycle command and the engine ask before
+# anything else, and on Git Bash each spawned reader costs tens of milliseconds.
+# The value is the text after the first colon, minus surrounding whitespace, one
+# leading quote and one trailing quote.
+read_schema_version_var() {
+    local cf="$1" line v
+    IS_SCHEMA_VERSION=""
+    IS_SCHEMA_VERSION_FOUND=0
+    [ -f "$cf" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        case "$line" in
+            "$IS_SCHEMA_VERSION_KEY:"*) ;;
+            *) continue ;;
+        esac
+        v="${line#*:}"
+        v="${v#"${v%%[![:space:]]*}"}"
+        case "$v" in \"*|\'*) v="${v#?}" ;; esac
+        v="${v%"${v##*[![:space:]]}"}"
+        case "$v" in *\"|*\') v="${v%?}" ;; esac
+        v="${v%"${v##*[![:space:]]}"}"
+        IS_SCHEMA_VERSION="$v"
+        IS_SCHEMA_VERSION_FOUND=1
+        return 0
+    done < "$cf"
+}
+
 # read_schema_version <config_file> → applied version, or "" if absent.
 read_schema_version() {
-    local cf="$1"
-    [ -f "$cf" ] || return 0
-    awk -v k="$IS_SCHEMA_VERSION_KEY" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" k ":" {
-            v = $0; sub(/^[^:]*:[[:space:]]*/, "", v)
-            gsub(/^["\047]|["\047][[:space:]]*$/, "", v)
-            sub(/[[:space:]]+$/, "", v)
-            print v; exit
-        }
-    ' "$cf"
+    read_schema_version_var "$1"
+    [ "$IS_SCHEMA_VERSION_FOUND" = 1 ] || return 0
+    printf '%s\n' "$IS_SCHEMA_VERSION"
 }
 
 # stamp_schema_version <config_file> <version> — idempotent, transactional upsert of
@@ -74,12 +95,29 @@ is_status() {
     fi
 }
 
-# Engine version = scripts/VERSION next to this lib (BASH_SOURCE works when
+# Engine version = VERSION one level above this lib (BASH_SOURCE works when
 # sourced). Empty if unreadable — callers treat empty as "no guard".
+# engine_version_var sets IS_ENGINE_VERSION, and IS_ENGINE_VERSION_FOUND=1 when
+# the file exists; it reads the file once per process.
+engine_version_var() {
+    [ -z "${IS_ENGINE_VERSION_FOUND:-}" ] || return 0
+    local lib="${BASH_SOURCE[0]}" vf content=""
+    case "$lib" in
+        */*) lib="${lib%/*}" ;;
+        *) lib="." ;;
+    esac
+    vf="$lib/../VERSION"
+    IS_ENGINE_VERSION=""
+    IS_ENGINE_VERSION_FOUND=0
+    [ -f "$vf" ] || return 0
+    IFS= read -r -d '' content < "$vf" || true
+    IS_ENGINE_VERSION="${content//[$' \t\r\n']/}"
+    IS_ENGINE_VERSION_FOUND=1
+}
+
 engine_version() {
-    local vf
-    vf="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/VERSION"
-    [ -f "$vf" ] && tr -d ' \t\r\n' < "$vf"
+    engine_version_var
+    [ "$IS_ENGINE_VERSION_FOUND" = 1 ] && printf '%s' "$IS_ENGINE_VERSION"
 }
 
 # _ver_gt A B → true if semver A is strictly greater than B (numeric x.y.z;
@@ -118,9 +156,11 @@ _ver_major() {
 #     a project stamped ahead exactly as it found it (project_needs_upgrade).
 check_version_compat() {
     local cf="$1" stamp eng
-    stamp="$(read_schema_version "$cf")"
+    read_schema_version_var "$cf"
+    stamp="$IS_SCHEMA_VERSION"
     [ -n "$stamp" ] || return 0
-    eng="$(engine_version)"
+    engine_version_var
+    eng="$IS_ENGINE_VERSION"
     [ -n "$eng" ] || return 0
     _ver_gt "$stamp" "$eng" || return 0
     if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then

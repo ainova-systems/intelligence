@@ -97,12 +97,21 @@ source "$CLI_DIR/lib/sync-cache.sh"
 # Its identity is DATA shipped with the distribution (cli/engine-package.yaml),
 # never a name compiled into cli code — a fork edits the file.
 _EPKG="$CLI_DIR/engine-package.yaml"
-SYNC_PKG_NAME="$(top_scalar "$_EPKG" "name")"
-SYNC_PKG_URL="$(top_scalar "$_EPKG" "url")"
-SYNC_PKG_PATH="$(top_scalar "$_EPKG" "path")"
+SYNC_PKG_NAME="" SYNC_PKG_URL="" SYNC_PKG_PATH=""
 # Read by commands (init seeds it) — per-file shellcheck cannot see that.
 # shellcheck disable=SC2034
-DEFAULT_REGISTRY_URL="$(top_scalar "$_EPKG" "default_registry")"
+DEFAULT_REGISTRY_URL=""
+# Every command loads this file first: read the four fields in one pass.
+# shellcheck disable=SC2034  # DEFAULT_REGISTRY_URL is read by commands, as above
+while IFS="$LOCK_SEP" read -r _epkg_key _epkg_value; do
+    case "$_epkg_key" in
+        name) SYNC_PKG_NAME="$_epkg_value" ;;
+        url) SYNC_PKG_URL="$_epkg_value" ;;
+        path) SYNC_PKG_PATH="$_epkg_value" ;;
+        default_registry) DEFAULT_REGISTRY_URL="$_epkg_value" ;;
+    esac
+done <<< "$(_qmap_read tops "$_EPKG" '' 'name url path default_registry')"
+unset _epkg_key _epkg_value
 [ -n "$SYNC_PKG_NAME" ] || die "corrupt CLI installation: $_EPKG is missing or has no 'name'"
 SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
 
@@ -116,15 +125,18 @@ SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
 # by role — scripts/sync.sh + scripts/VERSION — never by name.
 detect_project() {
     IP_MODE="none"; IP_ROOT=""; IP_UMBRELLA=""; IP_MODULE_DIR=""
-    local dir="$PWD"
+    # PWD is already the logical `pwd` spelling, and so is each textual parent.
+    local dir="$PWD" parent
     while :; do
         if [ -f "$dir/intelligence.yaml" ]; then
             IP_MODE="cli"
-            IP_ROOT="$(cd "$dir" && pwd)"
+            IP_ROOT="$dir"
             return 0
         fi
-        [ "$dir" = "$(dirname "$dir")" ] && break
-        dir="$(dirname "$dir")"
+        parent="${dir%/*}"
+        [ -n "$parent" ] || parent="/"
+        [ "$dir" = "$parent" ] && break
+        dir="$parent"
     done
     local root
     root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
@@ -257,10 +269,23 @@ default_target_output() {
     esac
 }
 
+# bundled_engine_version_var sets IS_BUNDLED_ENGINE_VERSION, reading VERSION
+# once per process; lifecycle preflight compares against it several times.
+bundled_engine_version_var() {
+    [ -z "${IS_BUNDLED_ENGINE_VERSION_READ:-}" ] || return 0
+    local version=""
+    [ -r "$IS_ENGINE_DIR/VERSION" ] || {
+        echo "ERROR: cannot read $IS_ENGINE_DIR/VERSION" >&2
+        return 1
+    }
+    IFS= read -r -d '' version < "$IS_ENGINE_DIR/VERSION" || true
+    IS_BUNDLED_ENGINE_VERSION="${version//[$' \t\r\n']/}"
+    IS_BUNDLED_ENGINE_VERSION_READ=1
+}
+
 bundled_engine_version() {
-    local version
-    version="$(< "$IS_ENGINE_DIR/VERSION")"
-    printf '%s' "${version//[$' \t\r\n']/}"
+    bundled_engine_version_var
+    printf '%s' "$IS_BUNDLED_ENGINE_VERSION"
 }
 
 # --- The sync package's manifest/lock plumbing ---------------------------
@@ -345,15 +370,19 @@ assert_safe_content_dir() {
 # the admitted minor/patch gap; the predicate itself does not re-judge the gap.
 project_stamped_ahead() {
     local stamp
-    stamp="$(read_schema_version "$1/intelligence.yaml")"
-    [ -n "$stamp" ] && _ver_gt "$stamp" "$(bundled_engine_version)"
+    read_schema_version_var "$1/intelligence.yaml"
+    stamp="$IS_SCHEMA_VERSION"
+    bundled_engine_version_var
+    [ -n "$stamp" ] && _ver_gt "$stamp" "$IS_BUNDLED_ENGINE_VERSION"
 }
 
 project_needs_upgrade() {
-    local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name
+    local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name url path rows
     [ -f "$manifest" ] || return 1
-    stamp="$(read_schema_version "$manifest")"
-    eng="$(bundled_engine_version)"
+    read_schema_version_var "$manifest"
+    stamp="$IS_SCHEMA_VERSION"
+    bundled_engine_version_var
+    eng="$IS_BUNDLED_ENGINE_VERSION"
     [ -z "$stamp" ] && return 0
     # A project stamped ahead belongs to a newer CLI. Aligning it here would
     # restamp the schema and re-pin the engine content DOWNWARD, and the next
@@ -363,14 +392,15 @@ project_needs_upgrade() {
     _ver_gt "$eng" "$stamp" && return 0
     [ -d "$root/.intelligence/engine" ] && return 0
 
-    while IFS= read -r name; do
+    # One manifest pass for every package's fields, not a reader per field.
+    rows="$(_qmap_read fieldrows "$manifest" packages '' 'url path version')"
+    while IFS="$LOCK_SEP" read -r name url path pinned; do
         [ -n "$name" ] || continue
         # Early RC manifests mixed requested intent with resolved source
         # details. Source URL/path now live only in the required lockfile.
-        [ -n "$(qmap_field "$manifest" "packages" "$name" "url")" ] && return 0
-        [ -n "$(qmap_field "$manifest" "packages" "$name" "path")" ] && return 0
+        [ -n "$url" ] && return 0
+        [ -n "$path" ] && return 0
         if [ "$name" = "$SYNC_PKG_NAME" ]; then
-            pinned="$(qmap_field "$manifest" "packages" "$name" "version")"
             locked="$(qmap_field "$root/intelligence.lock" "packages" "$name" "resolved")"
             [ "$pinned" = "$eng" ] || return 0
             if [ -f "$root/intelligence.lock" ]; then
@@ -378,7 +408,7 @@ project_needs_upgrade() {
                 [ "${locked#v}" = "$eng" ] || return 0
             fi
         fi
-    done < <(qmap_keys "$manifest" "packages")
+    done <<< "$rows"
     return 1
 }
 
@@ -402,8 +432,10 @@ ensure_project_current() {
         die "manifest declares packages but intelligence.lock is absent — restore the committed lock before running project lifecycle commands"
     fi
     project_needs_upgrade "$root" || return 0
-    stamp="$(read_schema_version "$manifest")"
-    eng="$(bundled_engine_version)"
+    read_schema_version_var "$manifest"
+    stamp="$IS_SCHEMA_VERSION"
+    bundled_engine_version_var
+    eng="$IS_BUNDLED_ENGINE_VERSION"
     if is_ci_environment && [ "$explicit" != "--explicit" ]; then
         die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
     fi

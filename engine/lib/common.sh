@@ -820,32 +820,36 @@ has_paths() {
 # When you bump these, re-run sync in projects; any project whose config.yaml
 # `models:` section diverges from these will print a drift warning so users
 # know their override is now stale.
-get_model_default() {
-    local ide="$1"
-    local tier="$2"
-    case "$ide:$tier" in
-        claude:heavy)     echo "opus" ;;
-        claude:standard)  echo "sonnet" ;;
-        claude:light)     echo "haiku" ;;
-        cursor:heavy)     echo "inherit" ;;
-        cursor:standard)  echo "inherit" ;;
-        cursor:light)     echo "fast" ;;
-        copilot:heavy)    echo "gpt-5.6-sol" ;;
-        copilot:standard) echo "gpt-5.6-terra" ;;
-        copilot:light)    echo "gpt-5.6-luna" ;;
-        codex:heavy)      echo "gpt-5.6-sol" ;;
-        codex:standard)   echo "gpt-5.6-terra" ;;
-        codex:light)      echo "gpt-5.6-luna" ;;
+# get_model_default_var sets IS_MODEL_DEFAULT; get_model_default prints it.
+get_model_default_var() {
+    case "$1:$2" in
+        claude:heavy)     IS_MODEL_DEFAULT="opus" ;;
+        claude:standard)  IS_MODEL_DEFAULT="sonnet" ;;
+        claude:light)     IS_MODEL_DEFAULT="haiku" ;;
+        cursor:heavy)     IS_MODEL_DEFAULT="inherit" ;;
+        cursor:standard)  IS_MODEL_DEFAULT="inherit" ;;
+        cursor:light)     IS_MODEL_DEFAULT="fast" ;;
+        copilot:heavy)    IS_MODEL_DEFAULT="gpt-5.6-sol" ;;
+        copilot:standard) IS_MODEL_DEFAULT="gpt-5.6-terra" ;;
+        copilot:light)    IS_MODEL_DEFAULT="gpt-5.6-luna" ;;
+        codex:heavy)      IS_MODEL_DEFAULT="gpt-5.6-sol" ;;
+        codex:standard)   IS_MODEL_DEFAULT="gpt-5.6-terra" ;;
+        codex:light)      IS_MODEL_DEFAULT="gpt-5.6-luna" ;;
         # Antigravity accepts only inherit|flash|pro, so standard and light
         # share `flash` — there is no third tier to map onto.
-        antigravity:heavy)     echo "pro" ;;
-        antigravity:standard)  echo "flash" ;;
-        antigravity:light)     echo "flash" ;;
-        opencode:heavy)    echo "anthropic/claude-opus-4-8" ;;
-        opencode:standard) echo "anthropic/claude-sonnet-5" ;;
-        opencode:light)    echo "anthropic/claude-haiku-4-5-20251001" ;;
-        *)                echo "" ;;
+        antigravity:heavy)     IS_MODEL_DEFAULT="pro" ;;
+        antigravity:standard)  IS_MODEL_DEFAULT="flash" ;;
+        antigravity:light)     IS_MODEL_DEFAULT="flash" ;;
+        opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-4-8" ;;
+        opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5" ;;
+        opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-haiku-4-5-20251001" ;;
+        *)                IS_MODEL_DEFAULT="" ;;
     esac
+}
+
+get_model_default() {
+    get_model_default_var "$1" "$2"
+    echo "$IS_MODEL_DEFAULT"
 }
 
 # Read a nested key from config.yaml: section -> sub -> key.
@@ -859,12 +863,16 @@ get_model_default() {
 # The sub-key is matched LITERALLY (`index(...) == 1`), never interpolated into
 # a regex: a pack name may contain `.`, which as a pattern is any character, so
 # `packs.a.b` would happily read a pack named `axb`.
-get_nested_yaml_value() {
-    local file="$1"
-    local section="$2"
-    local sub="$3"
-    local key="$4"
-    awk -v section="$section" -v subname="$sub" -v key="$key" '
+#
+# _nested_yaml_values <plain|tagged> <file> <section> <sub> <key>... — one pass
+# for any number of keys, first occurrence of each. `plain` prints the value
+# alone (one key); `tagged` prints `key<US>value`, US being \037.
+_nested_yaml_values() {
+    local tagged=0 file="$2" section="$3" sub="$4"
+    [ "$1" = tagged ] && tagged=1
+    shift 4
+    awk -v section="$section" -v subname="$sub" -v keys="$*" -v tagged="$tagged" '
+        BEGIN { n = split(keys, want, " "); left = n }
         { sub(/\r$/, "") }
         $0 ~ "^" section ":[[:space:]]*$" { in_section=1; in_sub=0; next }
         in_section && /^[a-zA-Z]/ && $0 !~ "^" section ":" { in_section=0; in_sub=0 }
@@ -872,22 +880,32 @@ get_nested_yaml_value() {
             if (substr($0, length(subname) + 4) ~ /^[[:space:]]*$/) { in_sub=1; next }
         }
         in_section && in_sub && /^  [A-Za-z0-9_]/ { in_sub=0 }
-        in_section && in_sub && index($0, "    " key ":") == 1 {
-            val = $0
-            sub(/^[[:space:]]*[^:]*:[[:space:]]*/, "", val)
-            if (val ~ /^"/ || val ~ /^\047/) {
-                q = substr(val, 1, 1)
-                val = substr(val, 2)
-                i = index(val, q)
-                if (i > 0) val = substr(val, 1, i - 1)
-            } else {
-                sub(/[[:space:]]+#.*$/, "", val)
-                sub(/[[:space:]]+$/, "", val)
+        in_section && in_sub {
+            for (k = 1; k <= n; k++) {
+                if ((k in done) || index($0, "    " want[k] ":") != 1) continue
+                val = $0
+                sub(/^[[:space:]]*[^:]*:[[:space:]]*/, "", val)
+                if (val ~ /^"/ || val ~ /^\047/) {
+                    q = substr(val, 1, 1)
+                    val = substr(val, 2)
+                    i = index(val, q)
+                    if (i > 0) val = substr(val, 1, i - 1)
+                } else {
+                    sub(/[[:space:]]+#.*$/, "", val)
+                    sub(/[[:space:]]+$/, "", val)
+                }
+                if (tagged) printf "%s\037%s\n", want[k], val
+                else print val
+                done[k] = 1
+                if (--left == 0) exit
+                break
             }
-            print val
-            exit
         }
     ' "$file"
+}
+
+get_nested_yaml_value() {
+    _nested_yaml_values plain "$1" "$2" "$3" "$4"
 }
 
 # Resolve a model: config.yaml `models:` override wins, otherwise default.
@@ -911,14 +929,27 @@ get_model() {
 # once per adapter run (IS_MODEL_HEAVY / IS_MODEL_STANDARD / IS_MODEL_LIGHT)
 # so per-file loops map tier -> model without forking. resolve_model_var
 # consumes them; a non-standard tier value still goes through get_model so a
-# `models:` override for it keeps working.
+# `models:` override for it keeps working. One manifest pass reads all three.
 load_model_tiers() {
-    local config_file="$1" ide="$2"
+    local config_file="$1" ide="$2" overrides="" tier val heavy="" standard="" light=""
     IS_MODEL_CFG="$config_file"
     IS_MODEL_IDE="$ide"
-    IS_MODEL_HEAVY="$(get_model "$config_file" "$ide" "heavy")"
-    IS_MODEL_STANDARD="$(get_model "$config_file" "$ide" "standard")"
-    IS_MODEL_LIGHT="$(get_model "$config_file" "$ide" "light")"
+    if [ -n "$config_file" ] && [ -f "$config_file" ]; then
+        overrides="$(_nested_yaml_values tagged "$config_file" "models" "$ide" heavy standard light)"
+    fi
+    while IFS=$'\037' read -r tier val; do
+        case "$tier" in
+            heavy) heavy="$val" ;;
+            standard) standard="$val" ;;
+            light) light="$val" ;;
+        esac
+    done <<< "$overrides"
+    get_model_default_var "$ide" heavy
+    IS_MODEL_HEAVY="${heavy:-$IS_MODEL_DEFAULT}"
+    get_model_default_var "$ide" standard
+    IS_MODEL_STANDARD="${standard:-$IS_MODEL_DEFAULT}"
+    get_model_default_var "$ide" light
+    IS_MODEL_LIGHT="${light:-$IS_MODEL_DEFAULT}"
 }
 
 # resolve_model_var <tier> — set IS_MODEL from the tiers load_model_tiers
@@ -968,7 +999,8 @@ report_model_drift() {
     while IFS=$'\t' read -r ide tier from_config; do
         [ -z "$from_config" ] && continue
         local default
-        default=$(get_model_default "$ide" "$tier")
+        get_model_default_var "$ide" "$tier"
+        default="$IS_MODEL_DEFAULT"
         [ "$from_config" = "$default" ] && continue
         if [ $printed_header -eq 0 ]; then
             echo ""
@@ -1361,13 +1393,32 @@ warn_unsynced() {
 # its writer's exit status entirely. Assembling in the caller's shell leaves no
 # writer whose failure can be lost, and the remaining pipeline is checked. An
 # enumeration that cannot answer must stop the run, never shorten the answer.
+#
+# With IS_SOURCE_FILES_MEMO=1 a section is enumerated once and later calls
+# replay that answer. Only the engine sets it: a sync never writes into a
+# source (validate_output_path refuses), so every adapter would otherwise
+# re-run the same find and sort for every source directory.
 read_source_artifact_files() {
     local repo_root="$1"
     local config_file="$2"
     local section="$3"
-    local src f dir listing
+    local src f dir listing memo_key="" key_var="" list_var="" joined=""
 
     IS_SOURCE_FILES=()
+    case "${IS_SOURCE_FILES_MEMO:-0}:$section" in
+        1:rules|1:agents|1:skills)
+            key_var="IS_SF_${section}_KEY"
+            list_var="IS_SF_${section}_LIST"
+            memo_key="$repo_root"$'\n'"$config_file"
+            if [ "${!key_var:-}" = "$memo_key" ]; then
+                listing="${!list_var:-}"
+                while IFS= read -r f; do
+                    [ -n "$f" ] && IS_SOURCE_FILES+=("$f")
+                done <<< "$listing"
+                return 0
+            fi
+            ;;
+    esac
     load_yaml_list "$config_file" "$section"
     while IFS= read -r src; do
         [ -n "$src" ] || continue
@@ -1400,18 +1451,28 @@ read_source_artifact_files() {
                 f="$f/SKILL.md"
             fi
             IS_SOURCE_FILES+=("$f")
+            joined="$joined$f"$'\n'
         done <<< "$listing"
     done <<< "$IS_YAML_LIST"
+    if [ -n "$memo_key" ]; then
+        printf -v "$list_var" '%s' "$joined"
+        printf -v "$key_var" '%s' "$memo_key"
+    fi
 }
 
 # Apply the agents adapter's lexical output rule without consulting filesystem
 # state. An omitted output uses the generic adapter default directory.
-agents_output_path() {
+agents_output_path_var() {
     local output="${1:-.agents}"
     if [[ "$output" == */ ]] || [[ "$output" != *.md ]]; then
         output="${output%/}/AGENTS.md"
     fi
-    printf '%s\n' "$output"
+    IS_AGENTS_OUTPUT_PATH="$output"
+}
+
+agents_output_path() {
+    agents_output_path_var "$@"
+    printf '%s\n' "$IS_AGENTS_OUTPUT_PATH"
 }
 
 # Report source prompt pressure independently of adapter formats. "Always-on"
@@ -1420,6 +1481,43 @@ agents_output_path() {
 # them only when a skill explicitly reads them. When the shared agents target
 # exists, also report its rendered size; policy for any tool-specific limit
 # stays in that tool's adapter.
+# count_matching_files <dir> <name-glob> [<dir> <name-glob>]... — fill
+# IS_FILE_COUNTS with one count per pair, what `find <dir> -name <glob> | wc -l`
+# reports for each, from a single find. The directories must be siblings, not
+# nested in one another; a missing one fails the call, as find would.
+count_matching_files() {
+    local -a dirs=() globs=() expr=()
+    local listing path base i n
+    while [ "$#" -ge 2 ]; do
+        dirs+=("$1")
+        globs+=("$2")
+        shift 2
+    done
+    n=${#dirs[@]}
+    IS_FILE_COUNTS=()
+    for ((i = 0; i < n; i++)); do
+        IS_FILE_COUNTS[i]=0
+        [ "$i" -eq 0 ] || expr+=(-o)
+        expr+=(-name "${globs[i]}")
+    done
+    [ "$n" -gt 0 ] || return 0
+    listing="$(find "${dirs[@]}" \( "${expr[@]}" \) -print 2>/dev/null)" || return 1
+    [ -n "$listing" ] || return 0
+    while IFS= read -r path; do
+        base="${path##*/}"
+        for ((i = 0; i < n; i++)); do
+            case "$path" in
+                "${dirs[i]}"|"${dirs[i]}"/*) ;;
+                *) continue ;;
+            esac
+            # shellcheck disable=SC2254  # the glob is the pattern being matched
+            case "$base" in
+                ${globs[i]}) IS_FILE_COUNTS[i]=$((IS_FILE_COUNTS[i] + 1)) ;;
+            esac
+        done
+    done <<< "$listing"
+}
+
 context_files_bytes() {
     if [ "$#" -eq 0 ]; then
         echo 0
@@ -1453,21 +1551,42 @@ report_context_source_sizes() {
     read_source_artifact_files "$repo_root" "$config_file" "skills"
     [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
 
-    local always_bytes custom_bytes agents_output agents_bytes=0 agents_status="disabled"
-    always_bytes="$(context_files_bytes "${always_on_rules[@]+"${always_on_rules[@]}"}")"
-    custom_bytes="$(context_files_bytes \
-        "${scoped_rules[@]+"${scoped_rules[@]}"}" \
-        "${agent_files[@]+"${agent_files[@]}"}" \
-        "${skill_files[@]+"${skill_files[@]}"}")"
+    local always_bytes=0 custom_bytes=0 agents_output agents_bytes=0 agents_status="disabled"
+    local always_n custom_n listing size rest idx=0
+    local -a measured=()
+    always_n=${#always_on_rules[@]}
+    custom_n=$(( ${#scoped_rules[@]} + ${#agent_files[@]} + ${#skill_files[@]} ))
+    measured=(
+        "${always_on_rules[@]+"${always_on_rules[@]}"}"
+        "${scoped_rules[@]+"${scoped_rules[@]}"}"
+        "${agent_files[@]+"${agent_files[@]}"}"
+        "${skill_files[@]+"${skill_files[@]}"}")
     target_enabled_var "$config_file" "agents"
     if [ "$IS_TGT_ENABLED" = "1" ]; then
         agents_status="not-generated"
         target_output_var "$config_file" "agents"
-        agents_output="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+        agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+        agents_output="$IS_AGENTS_OUTPUT_PATH"
         if [ -f "$repo_root/$agents_output" ]; then
-            agents_bytes="$(context_files_bytes "$repo_root/$agents_output")"
+            measured+=("$repo_root/$agents_output")
             agents_status="generated"
         fi
+    fi
+    # One wc for every group: its per-file lines come back in argument order,
+    # and each group's sum is what a separate `wc` total would have reported.
+    if [ "${#measured[@]}" -gt 0 ]; then
+        listing="$(LC_ALL=C wc -c "${measured[@]}")"
+        while read -r size rest; do
+            [ "$idx" -lt "${#measured[@]}" ] || break
+            if [ "$idx" -lt "$always_n" ]; then
+                always_bytes=$((always_bytes + size))
+            elif [ "$idx" -lt $((always_n + custom_n)) ]; then
+                custom_bytes=$((custom_bytes + size))
+            else
+                agents_bytes=$((agents_bytes + size))
+            fi
+            idx=$((idx + 1))
+        done <<< "$listing"
     fi
 
     printf 'CONTEXT: always-on=%s bytes (%s rules); custom=%s bytes (%s scoped rules, %s agents, %s skills); agents-md=%s bytes; agents-md-status=%s\n' \
@@ -1552,6 +1671,56 @@ load_yaml_list() {
             IS_YAML_LIST="$(read_yaml_list "$file" "$section")"
             ;;
     esac
+}
+
+# load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
+# sections in one manifest pass. Each section runs read_yaml_list's own state
+# machine, so every cached value is what load_yaml_list would have stored.
+load_yaml_lists() {
+    local file="$1" out line s v j
+    shift
+    for s in "$@"; do
+        case "$s" in
+            rules|agents|skills|ignore|submodules) ;;
+            *) return 1 ;;
+        esac
+    done
+    out="$(awk -v sections="$*" '
+        BEGIN { n = split(sections, want, " ") }
+        { sub(/\r$/, "") }
+        {
+            for (k = 1; k <= n; k++) {
+                s = want[k]
+                if ($0 ~ /^[a-z]/) { cur[k] = ""; dep[k] = 0 }
+                if ($0 ~ /^  [a-z]/) { cur[k] = ""; dep[k] = 0 }
+                if ($0 ~ "^" s ":") { cur[k] = s; dep[k] = 0; continue }
+                if ($0 ~ "^  " s ":") { cur[k] = s; dep[k] = 2; continue }
+                if (cur[k] == s && dep[k] == 0 && /^  - /) {
+                    val = $0
+                    sub(/^  - /, "", val)
+                    gsub(/["\047]/, "", val)
+                    print s "\037" val
+                }
+                if (cur[k] == s && dep[k] == 2 && /^    - /) {
+                    val = $0
+                    sub(/^    - /, "", val)
+                    gsub(/["\047]/, "", val)
+                    print s "\037" val
+                }
+            }
+        }
+    ' "$file")"
+    for s in "$@"; do
+        j=""
+        while IFS= read -r line; do
+            [ "${line%%$'\037'*}" = "$s" ] || continue
+            v="${line#*$'\037'}"
+            j="$j$v"$'\n'
+        done <<< "$out"
+        while [[ "$j" == *$'\n' ]]; do j="${j%$'\n'}"; done
+        printf -v "IS_YL_${s}_FILE" '%s' "$file"
+        printf -v "IS_YL_${s}_VAL" '%s' "$j"
+    done
 }
 
 # load_targets_cache <file> — parse the whole targets: section once into the

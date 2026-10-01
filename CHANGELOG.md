@@ -4,6 +4,16 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.17.2]
+
+### Changed
+
+- A full `sync` starts far fewer processes, which on Windows/Git Bash is where its time went. The engine enumerates each source section once per run instead of once per adapter, and reads manifest lists, model tiers, the schema stamp and the engine version in single passes. Lifecycle preflight reads every package's fields in one pass. After rendering, the input recheck and the output fingerprint run side by side. Generated output, diagnostics and exit codes are unchanged.
+
+### Fixed
+
+- The Claude Code and Cursor summaries print `Rules: 21`, where macOS `wc` padded the counts with spaces.
+
 ## [0.17.1]
 
 ### Fixed
