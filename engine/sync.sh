@@ -191,6 +191,14 @@ SYNC_TX_ACTIVE=0
 SYNC_TX_SEEN_LIST=$'\n'
 SYNC_TX_COUNT=0
 
+# Independent work runs concurrently unless INTELLIGENCE_SYNC_SERIAL=1 asks for
+# the one-at-a-time order every earlier engine used (decision 0011). Every
+# background job is listed in SYNC_BG_PIDS so an early exit stops it before
+# anything is restored or removed.
+SYNC_PARALLEL=1
+[ "${INTELLIGENCE_SYNC_SERIAL:-0}" != "1" ] || SYNC_PARALLEL=0
+SYNC_BG_PIDS=()
+
 snapshot_sync_path() {
     local adapter_name="$1" rel="$2" src index present=0
     case "$SYNC_TX_SEEN_LIST" in
@@ -201,7 +209,14 @@ snapshot_sync_path() {
     index="$SYNC_TX_COUNT"
     src="$REPO_ROOT/$rel"
     if [ -e "$src" ] || [ -L "$src" ]; then
-        cp -a "$src" "$SYNC_TX_DIR/data/$index"
+        # Copies of distinct paths into distinct slots: they can overlap, and
+        # wait_sync_snapshots collects every status before any adapter runs.
+        if [ "$SYNC_PARALLEL" = 1 ]; then
+            cp -a "$src" "$SYNC_TX_DIR/data/$index" &
+            SYNC_BG_PIDS+=("$!")
+        else
+            cp -a "$src" "$SYNC_TX_DIR/data/$index"
+        fi
         present=1
     fi
     printf '%s\t%s\t%s\n' "$index" "$rel" "$present" >> "$SYNC_TX_INDEX"
@@ -221,10 +236,36 @@ restore_sync_snapshot() {
     done < "$SYNC_TX_INDEX"
 }
 
+# stop_sync_jobs — reap every background job before restoring or removing
+# anything, so no copy or adapter can write after that point. It waits rather
+# than kills: killing a job's shell would leave its cp or awk still writing.
+# Ctrl-C already reaches every job through the terminal's process group.
+stop_sync_jobs() {
+    local pid
+    for pid in "${SYNC_BG_PIDS[@]+"${SYNC_BG_PIDS[@]}"}"; do
+        wait "$pid" 2>/dev/null
+    done
+    SYNC_BG_PIDS=()
+}
+
+# wait_sync_jobs — collect every background job's status; the first failure
+# becomes this shell's, as it would have had the work run in the foreground.
+wait_sync_jobs() {
+    local pid rc=0 first=0
+    for pid in "${SYNC_BG_PIDS[@]+"${SYNC_BG_PIDS[@]}"}"; do
+        rc=0
+        wait "$pid" || rc=$?
+        [ "$first" -ne 0 ] || first="$rc"
+    done
+    SYNC_BG_PIDS=()
+    return "$first"
+}
+
 finish_sync_transaction() {
     local rc=$?
     trap - EXIT INT TERM
     set +e
+    stop_sync_jobs
     if [ "${SYNC_TX_ACTIVE:-0}" = "1" ] && [ "$rc" -ne 0 ]; then
         restore_sync_snapshot
         echo "ERROR: sync failed; all adapter-owned paths were restored to their pre-sync state." >&2
@@ -249,6 +290,8 @@ note_agents_dependent() {
     [ -n "$agents_dependents" ] && agents_dependents="$agents_dependents, "
     agents_dependents="$agents_dependents$1"
 }
+SELECTED_RECORDS=()
+RENDER_PARALLEL="$SYNC_PARALLEL"
 preflight_idx=0
 while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     adapter="${ADAPTERS[$preflight_idx]}"
@@ -276,6 +319,14 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     fi
 
     validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$REPO_ROOT/$output"
+    # The scheduler below reads ownership and requirements from these records.
+    # A project adapter is executable code whose reads no contract declares, so
+    # its presence keeps the whole render serial.
+    SELECTED_RECORDS+=("$records")
+    case "$adapter_file" in
+        "$SCRIPT_DIR/adapters/"*) ;;
+        *) RENDER_PARALLEL=0 ;;
+    esac
     while IFS=$'\t' read -r kind value; do
         [ "$kind" = "requires" ] || continue
         [ "$value" = "agents" ] && note_agents_dependent "$adapter"
@@ -308,9 +359,15 @@ if [ -n "$agents_dependents" ]; then
         echo "WARNING: targets.agents.output renders '$agents_rel', not the workspace-root AGENTS.md. These adapters skip always-on rules because AGENTS.md carries them, and they read it at the root only: $agents_dependents. No tool loads those rules from '$agents_rel'." >&2
     fi
 fi
+# Every snapshot copy has landed before any adapter writes.
+wait_sync_jobs
 SYNC_TX_ACTIVE=1
 
-synced=0
+# The run list: selected, enabled adapters in discovery order, refused with the
+# same messages the one-at-a-time loop gave. Preflight validated every output.
+RUN_NAMES=()
+RUN_FILES=()
+RUN_DIRS=()
 adapter_count=${#ADAPTERS[@]}
 adapter_idx=0
 
@@ -350,14 +407,177 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
     # output, and `agents` overwrites whatever single file it is handed. Both
     # turn a bad config line into a destructive write.
     validate_output_path "$REPO_ROOT" "$CONFIG_FILE" "$adapter" "$output_dir"
-
-    # Source adapter and run.
-    # shellcheck source=/dev/null
-    source "$adapter_file"
-    "sync_to_$adapter" "$REPO_ROOT" "$CONFIG_FILE" "$output_dir"
-    echo ""
-    synced=$((synced + 1))
+    RUN_NAMES+=("$adapter")
+    RUN_FILES+=("$adapter_file")
+    RUN_DIRS+=("$output_dir")
 done
+synced=${#RUN_NAMES[@]}
+
+# run_adapter <index> — source one adapter and render it.
+run_adapter() {
+    # shellcheck source=/dev/null
+    source "${RUN_FILES[$1]}"
+    "sync_to_${RUN_NAMES[$1]}" "$REPO_ROOT" "$CONFIG_FILE" "${RUN_DIRS[$1]}"
+    echo ""
+}
+
+# managed_paths_meet <a> <b> — two resolved paths are one tree: equal, or one
+# inside the other.
+managed_paths_meet() {
+    [ "$1" = "$2" ] && return 0
+    case "$1" in "$2"/*) return 0 ;; esac
+    case "$2" in "$1"/*) return 0 ;; esac
+    return 1
+}
+
+# plan_concurrent_render — fill RUN_CHAIN (each adapter's chain, named by its
+# first member) and CHAIN_WAVE (when that chain may start), from the contract
+# records preflight kept. Adapters that manage one tree form a chain and run in
+# list order inside one job: they share that tree, and sync_open_skill_dirs
+# replays the first one's work in the same shell. An adapter that requires
+# another starts in a later wave than the chain holding it — Codex reads the
+# rendered AGENTS.md. Returns 1 when no safe plan exists; the render is then
+# serial.
+plan_concurrent_render() {
+    local n="$synced" i j k kind value old value_chain
+    local -a paths=() path_chain=()
+    [ "${#SELECTED_RECORDS[@]}" -eq "$n" ] || return 1
+    RUN_CHAIN=()
+    CHAIN_WAVE=()
+    for ((i = 0; i < n; i++)); do
+        RUN_CHAIN[i]=$i
+        CHAIN_WAVE[i]=0
+    done
+    for ((i = 0; i < n; i++)); do
+        while IFS=$'\t' read -r kind value; do
+            [ "$kind" = managed ] || continue
+            normalize_path_var "$REPO_ROOT/$value"
+            value="$IS_NORM_PATH"
+            for ((k = 0; k < ${#paths[@]}; k++)); do
+                managed_paths_meet "${paths[k]}" "$value" || continue
+                old="${RUN_CHAIN[i]}"
+                [ "$old" != "${path_chain[k]}" ] || continue
+                # Merge into the chain whose first member comes earlier.
+                if [ "$old" -lt "${path_chain[k]}" ]; then
+                    old="${path_chain[k]}"
+                    value_chain="${RUN_CHAIN[i]}"
+                else
+                    value_chain="${path_chain[k]}"
+                fi
+                for ((j = 0; j < n; j++)); do
+                    [ "${RUN_CHAIN[j]}" != "$old" ] || RUN_CHAIN[j]="$value_chain"
+                done
+                for ((j = 0; j < ${#paths[@]}; j++)); do
+                    [ "${path_chain[j]}" != "$old" ] || path_chain[j]="$value_chain"
+                done
+            done
+            paths+=("$value")
+            path_chain+=("${RUN_CHAIN[i]}")
+        done <<< "${SELECTED_RECORDS[i]}"
+    done
+    # Relax requirement edges; a plan still moving after n rounds has a cycle.
+    local round changed want
+    for ((round = 0; round <= n; round++)); do
+        changed=0
+        for ((i = 0; i < n; i++)); do
+            while IFS=$'\t' read -r kind value; do
+                [ "$kind" = requires ] || continue
+                for ((j = 0; j < n; j++)); do
+                    [ "${RUN_NAMES[j]}" = "$value" ] || continue
+                    [ "${RUN_CHAIN[j]}" != "${RUN_CHAIN[i]}" ] || continue
+                    want=$(( CHAIN_WAVE[RUN_CHAIN[j]] + 1 ))
+                    if [ "${CHAIN_WAVE[RUN_CHAIN[i]]}" -lt "$want" ]; then
+                        CHAIN_WAVE[RUN_CHAIN[i]]="$want"
+                        changed=1
+                    fi
+                done
+            done <<< "${SELECTED_RECORDS[i]}"
+        done
+        [ "$changed" = 1 ] || return 0
+    done
+    return 1
+}
+
+# render_concurrently — run each wave's chains as background jobs, one output
+# buffer per adapter. Buffers print in list order as soon as every earlier
+# adapter's has printed, so progress still streams adapter by adapter. A failed
+# adapter ends the run with its own status after the buffers of the adapters
+# that completed before it in the list; the EXIT handler then restores every
+# snapshot, exactly as when the adapters ran one at a time.
+render_concurrently() {
+    local n="$synced" buf="$SYNC_TX_DIR/out" wave last_wave=0 c k pid rc
+    local printed=0 failed=-1 failed_rc=0
+    local -a wave_pids=() wave_chains=() files=() job_rc=()
+    mkdir -p "$buf"
+    for ((c = 0; c < n; c++)); do
+        [ "${CHAIN_WAVE[c]}" -le "$last_wave" ] || last_wave="${CHAIN_WAVE[c]}"
+    done
+    for ((wave = 0; wave <= last_wave; wave++)); do
+        wave_pids=()
+        wave_chains=()
+        for ((c = 0; c < n; c++)); do
+            [ "${RUN_CHAIN[c]}" = "$c" ] && [ "${CHAIN_WAVE[c]}" = "$wave" ] || continue
+            (
+                for ((k = 0; k < n; k++)); do
+                    [ "${RUN_CHAIN[k]}" = "$c" ] || continue
+                    run_adapter "$k" > "$buf/$k" 2>&1
+                    : > "$buf/$k.ok"
+                done
+            ) &
+            wave_pids+=("$!")
+            wave_chains+=("$c")
+            SYNC_BG_PIDS+=("$!")
+        done
+        for ((k = 0; k < ${#wave_pids[@]}; k++)); do
+            rc=0
+            wait "${wave_pids[k]}" || rc=$?
+            job_rc[wave_chains[k]]="$rc"
+        done
+        SYNC_BG_PIDS=()
+        # The first adapter in list order that started and did not finish.
+        for ((k = 0; k < n; k++)); do
+            if [ -f "$buf/$k" ] && [ ! -f "$buf/$k.ok" ]; then
+                failed=$k
+                failed_rc="${job_rc[RUN_CHAIN[k]]:-1}"
+                [ "$failed_rc" != 0 ] || failed_rc=1
+                break
+            fi
+        done
+        # A job that failed outside any adapter still fails the run.
+        if [ "$failed" -lt 0 ]; then
+            for ((k = 0; k < ${#wave_chains[@]}; k++)); do
+                rc="${job_rc[wave_chains[k]]}"
+                [ "$rc" = 0 ] && continue
+                failed="${wave_chains[k]}"
+                failed_rc="$rc"
+                break
+            done
+        fi
+        files=()
+        if [ "$failed" -ge 0 ]; then
+            for ((k = printed; k <= failed; k++)); do
+                [ -f "$buf/$k" ] && files+=("$buf/$k")
+            done
+            [ "${#files[@]}" -eq 0 ] || cat "${files[@]}"
+            exit "$failed_rc"
+        fi
+        while [ "$printed" -lt "$n" ] && [ -f "$buf/$printed.ok" ]; do
+            files+=("$buf/$printed")
+            printed=$((printed + 1))
+        done
+        [ "${#files[@]}" -eq 0 ] || cat "${files[@]}"
+    done
+}
+
+if [ "$RENDER_PARALLEL" = 1 ] && [ "$synced" -gt 1 ] && plan_concurrent_render; then
+    render_concurrently
+else
+    adapter_idx=0
+    while [ "$adapter_idx" -lt "$synced" ]; do
+        run_adapter "$adapter_idx"
+        adapter_idx=$((adapter_idx + 1))
+    done
+fi
 
 if [ $synced -eq 0 ]; then
     if [ -n "$TARGET_FILTER" ]; then
@@ -370,18 +590,35 @@ if [ $synced -eq 0 ]; then
 fi
 
 SYNC_TX_ACTIVE=0
-rm -rf "$SYNC_TX_DIR"
-trap - EXIT INT TERM
 
-# Warn about unsynced directories
-warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
-
-# Report adapter-agnostic source context pressure on every successful sync.
-report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
-
-# Report model overrides that drift from intelligence-sync defaults
-# (helpful when defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
-report_model_drift "$CONFIG_FILE"
+# After rendering, three read-only reports, in this order:
+#   - directories that look like sources but are not wired in (a repository-wide
+#     scan, so it runs only once every output exists);
+#   - adapter-agnostic source context pressure;
+#   - model overrides that drift from intelligence-sync defaults (helpful when
+#     defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
+# Concurrently, the scan runs beside the other two and beside removing the
+# snapshots; the buffers print in the order above.
+if [ "$SYNC_PARALLEL" = 1 ]; then
+    rm -rf "$SYNC_TX_DIR/data" &
+    SYNC_BG_PIDS+=("$!")
+    warn_unsynced "$REPO_ROOT" "$CONFIG_FILE" > "$SYNC_TX_DIR/unsynced" 2>&1 &
+    SYNC_BG_PIDS+=("$!")
+    {
+        report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
+        report_model_drift "$CONFIG_FILE"
+    } > "$SYNC_TX_DIR/reports" 2>&1
+    wait_sync_jobs
+    cat "$SYNC_TX_DIR/unsynced" "$SYNC_TX_DIR/reports"
+    rm -rf "$SYNC_TX_DIR"
+    trap - EXIT INT TERM
+else
+    rm -rf "$SYNC_TX_DIR"
+    trap - EXIT INT TERM
+    warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
+    report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
+    report_model_drift "$CONFIG_FILE"
+fi
 
 echo ""
 # sync.sh never changes project schemas (the CLI preflight owns that), so

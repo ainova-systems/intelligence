@@ -98,6 +98,13 @@ other's output and both runs report success. A filtered `sync <adapter>` is
 checked the same way: it prunes the same paths while never loading the adapter
 whose output it destroys.
 
+The contract also orders rendering. Built-in adapters render concurrently:
+adapters whose `managed` paths meet run one after another in list order, and an
+adapter starts only after every target it `requires` has finished. An adapter
+that reads another adapter's output while it renders therefore declares
+`requires` on it. A project adapter keeps the whole render serial, because its
+reads are not part of any contract.
+
 For an existing `.vscodeignore`, `.npmignore`, or `.dockerignore`, enable/init
 also excludes the configured adapter output plus its `owned`, `managed`, and
 `legacy` paths from published or build artifacts. This packaging policy is
