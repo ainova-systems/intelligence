@@ -159,9 +159,10 @@ sync_to_myide() {
     echo "  -> copied"
 }
 EOF
-    printf '  myide:\n    enabled: true\n    output: .myide\n' > "$TMP/myide-target"
-    awk -v add="$(cat "$TMP/myide-target")" '{ print } /^targets:$/ { print add }' \
+    # One print per line: BSD awk refuses a newline inside a -v value.
+    awk '{ print } /^targets:$/ { print "  myide:"; print "    enabled: true"; print "    output: .myide" }' \
         "$TMP/$side/intelligence.yaml" > "$TMP/manifest" && mv "$TMP/manifest" "$TMP/$side/intelligence.yaml"
+    check grep -q '^  myide:$' "$TMP/$side/intelligence.yaml"
 done
 same_run "project adapter" --force
 check test "$RC" -eq 0
