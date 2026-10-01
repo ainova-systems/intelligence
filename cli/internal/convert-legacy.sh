@@ -227,7 +227,25 @@ rewrite_source_value() {
     esac
     printf '%s' "$v"
 }
-in_packs=0 in_sources=0
+# The project's own content stays where the legacy layout kept it. When that
+# directory is not `intelligence/`, the manifest names it: the content directory
+# is where project adapters live, what no output may overwrite, and the source of
+# truth AGENTS.md points readers at. Left at the default, all three name a
+# directory that only a case-insensitive filesystem confuses with the real one.
+legacy_content_dir=""
+case "$umbrella_rel" in
+    "$umbrella"|intelligence|*/*|.intelligence*|*[\"\'\\]*|*[[:cntrl:]]*) ;;
+    *)
+        if [ -z "$(get_yaml_field "$config" "project" "intelligence_dir")" ]; then
+            for section in rules agents skills; do
+                while IFS= read -r src; do
+                    case "$src" in "$umbrella_rel"/*) legacy_content_dir="$umbrella_rel" ;; esac
+                done < <(read_yaml_list "$config" "$section")
+            done
+        fi
+        ;;
+esac
+in_packs=0 in_sources=0 project_key=0 content_dir_written=0
 while IFS= read -r line || [ -n "$line" ]; do
     line="${line%$'\r'}"
     case "$line" in
@@ -236,6 +254,18 @@ while IFS= read -r line || [ -n "$line" ]; do
         sources:*) in_sources=1; in_packs=0; echo "$line"; continue ;;
         [!\ \#]*) in_packs=0; in_sources=0 ;;
     esac
+    case "$line" in project:*) project_key=1 ;; esac
+    if [ -n "$legacy_content_dir" ] && [ "$content_dir_written" -eq 0 ]; then
+        # Only the block form takes a child line; `project: {...}` does not.
+        key_part="${line%%#*}"
+        key_part="${key_part%"${key_part##*[![:space:]]}"}"
+        if [ "$key_part" = "project:" ]; then
+            echo "$line"
+            echo "  intelligence_dir: \"$legacy_content_dir\""
+            content_dir_written=1
+            continue
+        fi
+    fi
     [ "$in_packs" -eq 1 ] && continue
     if [ "$in_sources" -eq 1 ]; then
         case "$line" in
@@ -261,6 +291,9 @@ while IFS= read -r line || [ -n "$line" ]; do
     fi
     echo "$line"
 done < "$config" > "$manifest_stage"
+if [ -n "$legacy_content_dir" ] && [ "$content_dir_written" -eq 0 ] && [ "$project_key" -eq 0 ]; then
+    printf 'project:\n  intelligence_dir: "%s"\n' "$legacy_content_dir" >> "$manifest_stage"
+fi
 stamp_schema_version "$manifest_stage" "$eng"
 
 # packages: requested pins only; resolved source details live in the lock.

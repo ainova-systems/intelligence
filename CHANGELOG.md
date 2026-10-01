@@ -14,6 +14,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Fixed
 
 - Only one `sync` runs per project at a time. Two overlapping runs, from two terminals or an editor task beside a commit hook, interleaved their writes into the same outputs and both reported success; the second now refuses and names the running one. A lock left by a process that no longer runs is taken over.
+- Converting a legacy project whose content lives in a directory other than `intelligence/` — `Intelligence/`, for example — records that directory as `project.intelligence_dir`. The default pointed `AGENTS.md`, output protection and project adapters at `intelligence/`, which only a case-insensitive filesystem confused with the real directory.
 - The Claude Code and Cursor summaries print `Rules: 21`, where macOS `wc` padded the counts with spaces.
 
 ## [0.17.1]

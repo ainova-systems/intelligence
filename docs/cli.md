@@ -54,7 +54,7 @@ failure restores them exactly, while success leaves them inactive for
 repository learning. The backup is removed only after separate approval and
 verified output.
 
-Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
+Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state. When the legacy content directory is not `intelligence/` and holds project sources, the converted manifest records it as `project.intelligence_dir`.
 
 Each mirrored package must retain its `.pack` ownership stamp with a valid recorded
 commit SHA. A valid stamped mirror converts offline; an absent or invalid SHA
