@@ -89,6 +89,12 @@ The development-bundle metadata exception permits alignment and installed
 same-major compatibility; locked restore still requires an exact commit or the
 matching current bundle. Metadata validation does not verify installed bytes.
 
+One sync per project: `commands/sync.sh` takes `.intelligence/sync.lock` (`cli/lib/sync-lock.sh`)
+before lifecycle preflight and holds it through restore and render, because
+overlapping runs interleave writes into one output tree and both report success.
+A command that renders reaches it by running `commands/sync.sh`, never the engine
+directly.
+
 Sync reuse is CLI-owned disposable state, after lifecycle and lock preflight.
 Verify input and output contents before skipping the engine; timestamps alone
 cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.

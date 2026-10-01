@@ -29,6 +29,11 @@ run_sync() {
     detect_project || return $?
     case "$IP_MODE" in
         cli)
+            # One sync per project at a time: the store restore and the
+            # render below both rewrite shared state (sync-lock.sh).
+            sync_lock_acquire "$IP_ROOT"
+            trap 'sync_lock_release' EXIT
+            trap 'exit 130' INT TERM
             # `sync` is the normal fresh-clone command. A newer globally installed
             # CLI aligns the current Intelligence project first (except in CI, where a
             # tracked migration must be reviewed and committed locally), and a

@@ -13,6 +13,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
+- Only one `sync` runs per project at a time. Two overlapping runs, from two terminals or an editor task beside a commit hook, interleaved their writes into the same outputs and both reported success; the second now refuses and names the running one. A lock left by a process that no longer runs is taken over.
 - The Claude Code and Cursor summaries print `Rules: 21`, where macOS `wc` padded the counts with spaces.
 
 ## [0.17.1]

@@ -131,6 +131,11 @@ the last full run's useful warnings and context summary, and skips that reposito
 scan. Use `intelligence sync --force` to discover newly added directories outside
 the configured sources. It can be combined with a target and `--compact`.
 
+One sync runs per project at a time. A run holds `.intelligence/sync.lock` across
+store restore and rendering, and a second run refuses, naming the holder's process
+and host. A lock whose holder no longer runs on this machine, or an ownerless one
+older than a minute, is taken over.
+
 A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored
 engine until conversion.
