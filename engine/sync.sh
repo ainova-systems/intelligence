@@ -132,8 +132,10 @@ if [ "${#LINT_FILES[@]}" -gt 0 ]; then
 fi
 
 # Sources stay read-only for the whole run (validate_output_path refuses an
-# output inside one), so enumerate each section once, in this shell, and let
-# every adapter and the context report replay it.
+# output inside one), so read_source_artifact_files enumerates each section
+# once, in this shell, and its later callers — the agents adapter, the shared
+# skill directory, the context report — replay it. Adapters that list sources
+# with in-shell globs spawn nothing and keep their own, locale-ordered listing.
 # shellcheck disable=SC2034  # read by read_source_artifact_files in lib/common.sh
 IS_SOURCE_FILES_MEMO=1
 for section in rules agents skills; do

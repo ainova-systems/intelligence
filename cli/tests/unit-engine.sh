@@ -213,5 +213,26 @@ done
 touch "$P/r/m.md"
 chk eq "$(fresh rules | tr '\n' ',')" "$P/r/a.md,$P/r/m.md,$P/r/z.md,"
 
+echo "== report_context_source_sizes: one wc, the sums each group's own wc gave =="
+R="$OUT/report"
+mkdir -p "$R/rules" "$R/agents" "$R/skills/a" "$R/skills/b"
+printf '%s\n' '---' 'description: always' '---' 'always-on body' > "$R/rules/always.md"
+printf '%s\n' '---' 'description: always too' '---' 'second always-on rule, longer body' > "$R/rules/again.md"
+printf '%s\n' '---' 'paths:' '  - "src/**"' '---' 'scoped body' > "$R/rules/scoped.md"
+printf '%s\n' '---' 'description: agent' '---' 'agent body' > "$R/agents/one.md"
+printf '%s\n' '---' 'name: a' '---' 'skill a' > "$R/skills/a/SKILL.md"
+printf '%s\n' '---' 'name: b' '---' 'skill b, a little longer' > "$R/skills/b/SKILL.md"
+printf '# AGENTS\nrendered\n' > "$R/AGENTS.md"
+printf 'sources:\n  rules:\n    - rules\n  agents:\n    - agents\n  skills:\n    - skills\ntargets:\n  agents:\n    enabled: true\n    output: AGENTS.md\n' > "$R/intelligence.yaml"
+bytes() { cat "$@" | wc -c | tr -d ' '; }
+want="CONTEXT: always-on=$(bytes "$R/rules/again.md" "$R/rules/always.md") bytes (2 rules); custom=$(bytes "$R/rules/scoped.md" "$R/agents/one.md" "$R/skills/a/SKILL.md" "$R/skills/b/SKILL.md") bytes (1 scoped rules, 1 agents, 2 skills); agents-md=$(bytes "$R/AGENTS.md") bytes; agents-md-status=generated"
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE"; done
+unset IS_TGT_FILE
+chk eq "$(report_context_source_sizes "$R" "$R/intelligence.yaml")" "$want"
+# No always-on rules and no generated AGENTS.md: zero groups still report 0.
+rm "$R/rules/always.md" "$R/rules/again.md" "$R/AGENTS.md"
+want="CONTEXT: always-on=0 bytes (0 rules); custom=$(bytes "$R/rules/scoped.md" "$R/agents/one.md" "$R/skills/a/SKILL.md" "$R/skills/b/SKILL.md") bytes (1 scoped rules, 1 agents, 2 skills); agents-md=0 bytes; agents-md-status=not-generated"
+chk eq "$(report_context_source_sizes "$R" "$R/intelligence.yaml")" "$want"
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"
