@@ -89,6 +89,13 @@ The development-bundle metadata exception permits alignment and installed
 same-major compatibility; locked restore still requires an exact commit or the
 matching current bundle. Metadata validation does not verify installed bytes.
 
+One writer per project: a script that writes the store, the manifest or rendered
+output calls `project_lock_hold` (`cli/lib/sync-lock.sh`) before its first write,
+because overlapping writers interleave and both report success. A script started
+by the holder joins its lock through `INTELLIGENCE_SYNC_LOCK`; one that `exec`s
+keeps the holder's pid and takes over releasing it. A command that renders reaches
+the engine through `commands/sync.sh`, never directly.
+
 Sync reuse is CLI-owned disposable state, after lifecycle and lock preflight.
 Verify input and output contents before skipping the engine; timestamps alone
 cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.

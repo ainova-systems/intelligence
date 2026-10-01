@@ -54,7 +54,7 @@ failure restores them exactly, while success leaves them inactive for
 repository learning. The backup is removed only after separate approval and
 verified output.
 
-Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state.
+Legacy-project conversion requires final Intelligence Sync schema `0.10.0`. Older projects first bring themselves to that schema using their archived engine. Conversion remains transactional: stage, verify manifest/source/adapter equivalence, run a staged sync, then replace old state. When the legacy content directory is not `intelligence/` and holds project sources, the converted manifest records it as `project.intelligence_dir`.
 
 Each mirrored package must retain its `.pack` ownership stamp with a valid recorded
 commit SHA. A valid stamped mirror converts offline; an absent or invalid SHA
@@ -130,6 +130,15 @@ unconfigured source directories elsewhere in the repository. A cache hit replays
 the last full run's useful warnings and context summary, and skips that repository
 scan. Use `intelligence sync --force` to discover newly added directories outside
 the configured sources. It can be combined with a target and `--compact`.
+
+One command writes a project at a time. `sync`, `update`, package add, remove and
+update, adapter enable, disable and removal, alignment and store restore hold
+`.intelligence/sync.lock` while they write, and the commands they run join it. A
+second writer refuses, naming the holder's process and host. A lock is taken over
+only when no process of its holder's process group remains on this machine — a
+killed wrapper whose render still runs keeps it — or when it never got an owner
+and is older than a minute. An abandoned takeover is reported for a person to
+remove rather than recovered automatically.
 
 A missing store with no lock fails and directs the user to restore the committed
 lock. In a legacy Intelligence Sync project, sync delegates to that project's own vendored

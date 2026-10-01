@@ -653,5 +653,55 @@ git clone --quiet "file://$LEG" "$CLONE2"
 (cd "$CLONE2" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)
 chk grep -q 'LEGACY_PACK_MARKER' "$CLONE2/AGENTS.md"
 
+echo "== legacy content kept outside intelligence/ stays the content directory =="
+# The converted manifest names the legacy directory, so AGENTS.md, protected
+# outputs and project adapters point at the directory that exists on disk. The
+# lowercase layout above keeps the default and writes nothing.
+chknot grep -q 'intelligence_dir' "$LEG/intelligence.yaml"
+for layout in block absent dotted; do
+    CAP="$OUT/legacy-capital-$layout"
+    mkdir -p "$CAP/Intelligence/project/rules" "$CAP/Intelligence/adapters"
+    stage_vendored "$CAP/Intelligence"
+    printf '# Ctx\n\nCAPITAL_CONTEXT_MARKER\n' > "$CAP/Intelligence/project/rules/context.md"
+    {
+        if [ "$layout" = block ]; then
+            printf 'project:  # the project\n  name: capital-fixture\n\n'
+        fi
+        printf 'sync_version: "%s"\n\n' "$ENGINE_VER"
+        if [ "$layout" = dotted ]; then
+            printf 'sources:\n  rules:\n    - "./Intelligence/project/rules/"\n    - "Intelligence/sync/rules"\n'
+        else
+            printf 'sources:\n  rules:\n    - "Intelligence/project/rules"\n    - "Intelligence/sync/rules"\n'
+        fi
+        printf '  agents:\n    - "Intelligence/sync/agents"\n  skills:\n    - "Intelligence/sync/skills"\n\n'
+        printf 'targets:\n  agents: { enabled: true, output: "AGENTS.md" }\n  claude: { enabled: true, output: ".claude" }\n'
+    } > "$CAP/Intelligence/config.yaml"
+    git -C "$CAP" init --quiet
+    run_in "$CAP" init --apply --force
+    chk test "$RC" -eq 0
+    chk test "$(grep -c '^  intelligence_dir: "Intelligence"$' "$CAP/intelligence.yaml")" -eq 1
+    chk test "$(grep -c '^project:' "$CAP/intelligence.yaml")" -eq 1
+    chk grep -qF 'Source of truth: `Intelligence/`' "$CAP/AGENTS.md"
+    chk grep -q 'CAPITAL_CONTEXT_MARKER' "$CAP/AGENTS.md"
+    run_in "$CAP" status --check
+    chk test "$RC" -eq 0
+done
+chk grep -q '^  name: capital-fixture$' "$OUT/legacy-capital-block/intelligence.yaml"
+# Config-only: every source is the vendored module, which conversion moves into
+# the store and removes, so no project content stays to name.
+CFG="$OUT/legacy-capital-config-only"
+mkdir -p "$CFG"
+stage_vendored "$CFG/Intelligence"
+{
+    printf 'sync_version: "%s"\n\n' "$ENGINE_VER"
+    printf 'sources:\n  rules:\n    - "Intelligence/sync/rules"\n'
+    printf '  agents:\n    - "Intelligence/sync/agents"\n  skills:\n    - "Intelligence/sync/skills"\n\n'
+    printf 'targets:\n  agents: { enabled: true, output: "AGENTS.md" }\n'
+} > "$CFG/Intelligence/config.yaml"
+git -C "$CFG" init --quiet
+run_in "$CFG" init --apply --force
+chk test "$RC" -eq 0
+chknot grep -q 'intelligence_dir' "$CFG/intelligence.yaml"
+
 [ "$fail" -eq 0 ] && echo "MIGRATE-E2E: ALL OK"
 exit "$fail"

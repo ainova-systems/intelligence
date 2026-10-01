@@ -25,6 +25,7 @@ done
     || die "--latest needs the package to move: intelligence update @scope/name --latest"
 
 require_cli_project
+[ "$preview" -eq 1 ] || project_lock_hold "$IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 

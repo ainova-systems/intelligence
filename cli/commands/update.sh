@@ -105,6 +105,9 @@ if [ "$mode" = "ask" ]; then
     esac
 fi
 
+# Held from alignment through the final render: the package pass and the sync
+# it execs join this lock instead of taking their own.
+project_lock_hold "$IP_ROOT"
 ensure_project_current "$IP_ROOT"
 apply_args=(--no-sync)
 [ -z "$only" ] || apply_args+=("$only")

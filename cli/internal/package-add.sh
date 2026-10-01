@@ -24,6 +24,7 @@ while [ $# -gt 0 ]; do
 done
 
 require_cli_project
+project_lock_hold "$IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
 lock="$IP_ROOT/intelligence.lock"
 

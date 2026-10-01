@@ -87,6 +87,7 @@ source "$CLI_DIR/lib/adapter-lifecycle.sh"
 source "$CLI_DIR/lib/gitignore.sh"
 source "$CLI_DIR/lib/onboarding.sh"
 source "$CLI_DIR/lib/sync-cache.sh"
+source "$CLI_DIR/lib/sync-lock.sh"
 
 # The engine-content package: OPTIONAL but auto-selected at init. Package by
 # UX (manifest entry, lockfile row, list/search/remove), bundle by mechanics —
