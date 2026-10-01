@@ -200,6 +200,7 @@ SYNC_TX_COUNT=0
 SYNC_PARALLEL=1
 [ "${INTELLIGENCE_SYNC_SERIAL:-0}" != "1" ] || SYNC_PARALLEL=0
 SYNC_BG_PIDS=()
+SYNC_COPY_INDEXES=()
 
 snapshot_sync_path() {
     local adapter_name="$1" rel="$2" src index present=0
@@ -212,10 +213,11 @@ snapshot_sync_path() {
     src="$REPO_ROOT/$rel"
     if [ -e "$src" ] || [ -L "$src" ]; then
         # Copies of distinct paths into distinct slots: they can overlap, and
-        # wait_sync_snapshots collects every status before any adapter runs.
+        # The snapshot wait before the render collects every status.
         if [ "$SYNC_PARALLEL" = 1 ]; then
-            cp -a "$src" "$SYNC_TX_DIR/data/$index" &
+            cp -a "$src" "$SYNC_TX_DIR/data/$index" 2> "$SYNC_TX_DIR/copy.$index.err" &
             SYNC_BG_PIDS+=("$!")
+            SYNC_COPY_INDEXES+=("$index")
         else
             cp -a "$src" "$SYNC_TX_DIR/data/$index"
         fi
@@ -361,8 +363,16 @@ if [ -n "$agents_dependents" ]; then
         echo "WARNING: targets.agents.output renders '$agents_rel', not the workspace-root AGENTS.md. These adapters skip always-on rules because AGENTS.md carries them, and they read it at the root only: $agents_dependents. No tool loads those rules from '$agents_rel'." >&2
     fi
 fi
-# Every snapshot copy has landed before any adapter writes.
-wait_sync_jobs
+# Every snapshot copy has landed before any adapter writes. Their diagnostics
+# print in path order once all have finished, so a failed copy reads the same
+# whichever finished first; it reports after preflight checked every adapter,
+# where the serial order stopped at that adapter (decision 0011).
+snapshot_rc=0
+wait_sync_jobs || snapshot_rc=$?
+for index in "${SYNC_COPY_INDEXES[@]+"${SYNC_COPY_INDEXES[@]}"}"; do
+    [ ! -s "$SYNC_TX_DIR/copy.$index.err" ] || cat "$SYNC_TX_DIR/copy.$index.err" >&2
+done
+[ "$snapshot_rc" -eq 0 ] || exit "$snapshot_rc"
 SYNC_TX_ACTIVE=1
 
 # The run list: selected, enabled adapters in discovery order, refused with the
@@ -534,6 +544,15 @@ render_concurrently() {
             rc=0
             wait "${wave_pids[k]}" || rc=$?
             job_rc[wave_chains[k]]="$rc"
+            # Stream while the wave runs: every buffer whose predecessors have
+            # all printed goes out now. Only completed adapters are marked, so
+            # nothing printed here can precede a failure in list order.
+            files=()
+            while [ "$printed" -lt "$n" ] && [ -f "$buf/$printed.ok" ]; do
+                files+=("$buf/$printed")
+                printed=$((printed + 1))
+            done
+            [ "${#files[@]}" -eq 0 ] || cat "${files[@]}"
         done
         SYNC_BG_PIDS=()
         # The first adapter in list order that started and did not finish.
@@ -545,12 +564,18 @@ render_concurrently() {
                 break
             fi
         done
-        # A job that failed outside any adapter still fails the run.
+        # A job that failed before its adapter's buffer existed still fails
+        # the run, charged to the first member of that chain not marked done.
         if [ "$failed" -lt 0 ]; then
             for ((k = 0; k < ${#wave_chains[@]}; k++)); do
                 rc="${job_rc[wave_chains[k]]}"
                 [ "$rc" = 0 ] && continue
-                failed="${wave_chains[k]}"
+                for ((c = 0; c < n; c++)); do
+                    [ "${RUN_CHAIN[c]}" = "${wave_chains[k]}" ] && [ ! -f "$buf/$c.ok" ] || continue
+                    failed=$c
+                    break
+                done
+                [ "$failed" -ge 0 ] || failed="${wave_chains[k]}"
                 failed_rc="$rc"
                 break
             done
