@@ -1396,8 +1396,8 @@ warn_unsynced() {
 #
 # With IS_SOURCE_FILES_MEMO=1 a section is enumerated once and later calls
 # replay that answer. Only the engine sets it: a sync never writes into a
-# source (validate_output_path refuses), so every adapter would otherwise
-# re-run the same find and sort for every source directory.
+# source (validate_output_path refuses), so each caller would otherwise re-run
+# the same find and sort for every source directory.
 read_source_artifact_files() {
     local repo_root="$1"
     local config_file="$2"

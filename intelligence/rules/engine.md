@@ -86,9 +86,11 @@ project adapters.
 takes has a `_var` form that returns through a variable — `read_schema_version_var`,
 `engine_version_var`, `get_model_default_var`, `agents_output_path_var`,
 `count_matching_files`, `load_model_tiers` — and callers there use it; the printing
-form wraps it, so there is still one parser. A run enumerates each source section
-once: `read_source_artifact_files` replays its answer while the engine sets
-`IS_SOURCE_FILES_MEMO`, which is safe only because no output may land in a source.
+form wraps it, so there is still one parser. `read_source_artifact_files` runs its
+`find | sort` once per section and replays the answer to later callers while the
+engine sets `IS_SOURCE_FILES_MEMO`, which is safe only because no output may land in
+a source. Adapters that list sources with in-shell globs spawn nothing; moving them
+onto the helper would change their locale-ordered listing to byte order.
 
 `engine/adapters/_template.sh` is excluded from shellcheck because its `<name>`
 placeholders parse as input redirection until they are scaffolded.

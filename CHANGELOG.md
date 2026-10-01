@@ -8,7 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Changed
 
-- A full `sync` starts far fewer processes, which on Windows/Git Bash is where its time went. The engine enumerates each source section once per run instead of once per adapter, and reads manifest lists, model tiers, the schema stamp and the engine version in single passes. Lifecycle preflight reads every package's fields in one pass. After rendering, the input recheck and the output fingerprint run side by side. Generated output, diagnostics and exit codes are unchanged.
+- A full `sync` starts far fewer processes, which on Windows/Git Bash is where its time went. The engine runs its `find`/`sort` source enumeration once per section instead of once per caller, and reads manifest lists, model tiers, the schema stamp and the engine version in single passes. Lifecycle preflight reads every package's fields in one pass. After rendering, the input recheck and the output fingerprint run side by side. Generated output, diagnostics and exit codes are unchanged.
 
 ### Fixed
 
