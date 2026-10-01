@@ -9,6 +9,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Changed
 
 - A full `sync` starts far fewer processes, which on Windows/Git Bash is where its time went. The engine runs its `find`/`sort` source enumeration once per section instead of once per caller, and reads manifest lists, model tiers, the schema stamp and the engine version in single passes. Lifecycle preflight reads every package's fields in one pass. After rendering, the input recheck and the output fingerprint run side by side. Generated output, diagnostics and exit codes are unchanged.
+- Built-in adapters render concurrently where their contracts allow it: adapters sharing a managed directory run in order together, and an adapter starts after every target it `requires`. Rollback snapshots and the post-render reports overlap as well. Output still prints in adapter order and a failure restores every path with the same status; a project adapter keeps the render serial, and `INTELLIGENCE_SYNC_SERIAL=1` restores the serial order for any run.
 
 ### Fixed
 

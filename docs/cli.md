@@ -104,8 +104,15 @@ For Intelligence projects, sync performs lifecycle preflight before rendering:
 A filtered adapter must be enabled explicitly; naming it does not bypass target
 state. Project adapters without a valid contract are refused before sync.
 
-Normal sync announces its checks immediately and streams rendering progress as it
-happens. An unchanged run separates retained warnings from the result and ends
+Built-in adapters render concurrently where their contracts allow it: adapters
+that share a managed directory run in order together, and an adapter that
+requires another starts after it. Each adapter's output still prints in list
+order, once its job and every adapter listed before it have finished. A selected
+project adapter keeps the whole render serial, and `INTELLIGENCE_SYNC_SERIAL=1`
+restores the one-at-a-time order for any run.
+
+Normal sync announces its checks immediately and streams rendering progress as
+adapters finish. An unchanged run separates retained warnings from the result and ends
 with `Unchanged: no files needed updating`. Cached results still require reading
 source and output contents; the check is not a timestamp-only shortcut.
 

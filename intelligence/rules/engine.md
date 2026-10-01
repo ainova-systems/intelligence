@@ -92,6 +92,14 @@ engine sets `IS_SOURCE_FILES_MEMO`, which is safe only because no output may lan
 a source. Adapters that list sources with in-shell globs spawn nothing; moving them
 onto the helper would change their locale-ordered listing to byte order.
 
+Built-in adapters render concurrently (decision 0011): the plan comes from the
+contract, so the contract has to tell the truth about order. Adapters whose
+`managed` paths meet run as one chain; an adapter that reads another adapter's
+output during sync declares `requires` on it, or it can run before that output
+exists. Background work in `sync.sh` goes on `SYNC_BG_PIDS` and is reaped, never
+killed, before anything is restored. `INTELLIGENCE_SYNC_SERIAL=1` is the serial
+escape hatch.
+
 `engine/adapters/_template.sh` is excluded from shellcheck because its `<name>`
 placeholders parse as input redirection until they are scaffolded.
 
