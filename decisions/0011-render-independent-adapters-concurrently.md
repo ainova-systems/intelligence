@@ -32,9 +32,9 @@ already declares, which the engine rule forbids.
    chains as background jobs; Bash 3.2 has no `wait -n`, so a wave ends when
    all of its jobs end.
 2. Each adapter writes one buffer, standard output and error together — the CLI
-   already joins them. Buffers print in list order as soon as every earlier
-   adapter's has printed, so the output of a successful run is byte-identical to
-   the serial order and progress still appears adapter by adapter.
+   already joins them. As each job ends, every buffer whose predecessors have
+   all printed goes out, so the output of a successful run is byte-identical to
+   the serial order and progress still appears as jobs finish.
 3. A failed adapter ends the run with its own exit status after the buffers of
    the adapters that completed before it in the list; the EXIT handler first
    waits for every background job, then restores every snapshot. Jobs are
@@ -58,7 +58,10 @@ already declares, which the engine rule forbids.
 - On failure the repository ends in the same restored state with the same exit
   status and error text. What can differ is which earlier adapters' progress
   lines precede the error: an adapter listed before the failed one but planned
-  for a later wave never ran, so its lines are absent.
+  for a later wave never ran, so its lines are absent. A snapshot copy that
+  fails reports once preflight has checked every adapter, with its diagnostic
+  printed in path order, where the serial order stopped at that adapter; the
+  exit status is the copy's either way.
 - A new built-in adapter that reads another adapter's output must declare
   `requires` on it; the contract is what orders the render.
 
