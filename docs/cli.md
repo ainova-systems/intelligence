@@ -104,6 +104,11 @@ For Intelligence projects, sync performs lifecycle preflight before rendering:
 A filtered adapter must be enabled explicitly; naming it does not bypass target
 state. Project adapters without a valid contract are refused before sync.
 
+Normal sync announces its checks immediately and streams rendering progress as it
+happens. An unchanged run separates retained warnings from the result and ends
+with `Unchanged: no files needed updating`. Cached results still require reading
+source and output contents; the check is not a timestamp-only shortcut.
+
 For built-in adapters, unchanged sync compares file contents and filesystem
 entries, including skill resources, generated outputs, manifest/lock, and the
 installed CLI/engine. An edited or missing output triggers rendering even when

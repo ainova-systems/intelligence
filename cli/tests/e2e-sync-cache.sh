@@ -13,12 +13,33 @@ CLI="$TMP/runtime/cli/intelligence"
 PROJECT="$TMP/project with spaces"
 STATE="$PROJECT/.intelligence/sync-cache/state"
 mkdir "$TMP/instrumentation"
-for command in bash cp find; do
+for command in bash cp find tee; do
     {
         printf '#!/bin/bash\nLOG=%q\nREAL=%q\nPROJECT=%q\n' "$TMP/operations" "$(command -v "$command")" "$PROJECT"
         case "$command" in
             bash) cat <<'WRAPPER'
-case "${1:-}" in */engine/sync.sh) echo engine >> "$LOG" ;; esac
+case "${1:-}" in
+    */engine/sync.sh)
+        echo engine >> "$LOG"
+        if [ -e "$LOG.stream" ]; then
+            echo 'Renderer progress handshake'
+            attempts=0
+            until [ -e "$LOG.ack" ]; do
+                attempts=$((attempts + 1))
+                [ "$attempts" -lt 300 ] || { echo 'stream handshake timed out' >&2; exit 92; }
+                sleep 0.1
+            done
+            [ ! -e "$LOG.fail-engine" ] || { echo 'Renderer failure diagnostic' >&2; exit 42; }
+        fi
+        ;;
+esac
+WRAPPER
+                ;;
+            tee) cat <<'WRAPPER'
+if [ -e "$LOG.fail-tee" ]; then
+    "$REAL" "$@"
+    exit 73
+fi
 WRAPPER
                 ;;
             cp) cat <<'WRAPPER'
@@ -53,8 +74,8 @@ run() {
     RC=0
     OUTPUT="$(cd "$PROJECT" && bash "$CLI" sync "$@" 2>&1)" || RC=$?
 }
-miss() { run "$@"; check test "$RC" -eq 0; check lacks 'Unchanged: verified'; }
-hit() { run "$@"; check test "$RC" -eq 0; check has 'Unchanged: verified'; }
+miss() { run "$@"; check test "$RC" -eq 0; check lacks 'Unchanged:'; }
+hit() { run "$@"; check test "$RC" -eq 0; check has 'Unchanged:'; }
 cat > "$PROJECT/intelligence.yaml" <<EOF
 schema_version: "$VERSION"
 project:
@@ -110,6 +131,7 @@ check test "$(wc -l < "$TMP/warning-report" | tr -d ' ')" -eq 2
 echo '== Six built-ins, first/full sync and unchanged bytes/mtimes =='
 miss
 check test -f "$STATE"
+check test "$(tail -1 <<< "$OUTPUT")" = '=== Sync complete ==='
 cp "$PROJECT/AGENTS.md" "$TMP/expected"
 touch -t 200201010000 "$TMP/marker"
 find "$PROJECT/.agents" "$PROJECT/.claude" "$PROJECT/.codex" "$PROJECT/.github" "$PROJECT/.cursor" "$PROJECT/.pi" "$PROJECT/AGENTS.md" -type f -exec touch -t 200101010000 {} +
@@ -122,7 +144,62 @@ check test -z "$changed"
 check has 'IS_STATUS=ok IS_DETAIL=synced=6'
 check has '=== Done: 6 target(s) synced ==='
 
+echo '== Normal progress reaches the reader before the renderer can finish =='
+: > "$TMP/operations.stream"
+cp "$TMP/runtime/cli/lib/cli-common.sh" "$TMP/common-before"
+{
+    printf 'feedback_ack=%q\n' "$TMP/operations.early-ack"
+    cat <<'PREFLIGHT'
+attempts=0
+until [ -e "$feedback_ack" ]; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 300 ] || { echo 'initial feedback handshake timed out' >&2; exit 93; }
+    sleep 0.1
+done
+PREFLIGHT
+    cat "$TMP/common-before"
+} > "$TMP/runtime/cli/lib/cli-common.sh"
+stream_rc=0
+(cd "$PROJECT" && bash "$CLI" sync --force 2>&1) | while IFS= read -r line; do
+    printf '%s\n' "$line"
+    if [ "$line" = 'Checking project...' ]; then
+        : > "$TMP/operations.early-ack"
+    fi
+    if [ "$line" = 'Renderer progress handshake' ]; then
+        : > "$TMP/operations.ack"
+    fi
+done > "$TMP/stream-output" || stream_rc=$?
+check test "$stream_rc" -eq 0
+check test -e "$TMP/operations.ack"
+check test -e "$TMP/operations.early-ack"
+cp "$TMP/common-before" "$TMP/runtime/cli/lib/cli-common.sh"
+check grep -qx 'Checking project...' "$TMP/stream-output"
+check test -f "$STATE"
+# A distinct renderer failure must survive the tee pipeline unchanged.
+: > "$TMP/operations.fail-engine"
+run --force
+check test "$RC" -eq 42
+check has 'Renderer failure diagnostic'
+check test ! -f "$STATE"
+run --compact --force
+check test "$RC" -eq 42
+check has 'Renderer failure diagnostic'
+check test ! -f "$STATE"
+rm "$TMP/operations.stream" "$TMP/operations.ack" "$TMP/operations.fail-engine"
+miss
+: > "$TMP/operations.fail-tee"
+run --force
+check test "$RC" -eq 73
+check test ! -f "$STATE"
+run --compact --force
+check test "$RC" -eq 73
+check test ! -f "$STATE"
+rm "$TMP/operations.fail-tee"
+miss
+hit
+
 echo '== Compact hit, force, and target-filter isolation =='
+
 run --compact
 check test "$RC" -eq 0
 check lacks 'Unchanged:'
@@ -150,7 +227,7 @@ cp "$PROJECT/AGENTS.md" "$TMP/enumeration-before"
 : > "$TMP/operations.fail-find"
 run
 check test "$RC" -ne 0
-check lacks 'Unchanged: verified'
+check lacks 'Unchanged:'
 check lacks 'IS_STATUS=ok'
 check has 'cannot enumerate skills'
 check grep -qx engine "$TMP/operations"
@@ -260,6 +337,8 @@ miss
 check has 'WARNING: Codex may truncate'
 hit
 check has 'WARNING: Codex may truncate'
+check test "$(tail -1 <<< "$OUTPUT")" = '=== Unchanged: no files needed updating ==='
+check awk '/^WARNING: Codex/ { if (previous != "") exit 1; found=1 } { previous=$0 } END { if (!found) exit 1 }' <<< "$OUTPUT"
 run --compact
 check test "$RC" -eq 0
 check has 'WARNING: Codex may truncate'
@@ -307,6 +386,11 @@ cp "$PROJECT/intelligence.yaml" "$TMP/manifest"
 cp "$PROJECT/AGENTS.md" "$TMP/rollback"
 printf '\nNew content\n' >> "$PROJECT/intelligence/rules/base.md"
 awk '{ print; if ($0 == "  codex:") print "    warn_project_doc_limit: 0" }' "$TMP/manifest" > "$PROJECT/intelligence.yaml"
+run --force
+check test "$RC" -eq 1
+check has 'restored to their pre-sync state'
+check cmp "$TMP/rollback" "$PROJECT/AGENTS.md"
+check test ! -f "$STATE"
 run --compact
 check test "$RC" -eq 1
 check has 'restored to their pre-sync state'

@@ -44,6 +44,9 @@ after a source edit is a later, separate improvement.
 7. Cache publication is atomic and follows successful rendering. Recheck inputs
    after rendering; an input change during the run must not bless outputs as
    current. Failure preserves the existing engine's rollback and exit status.
+   Capture diagnostics while streaming renderer progress; capture failure cannot
+   publish a success record. Normal output announces validation before preflight
+   and ends with a clear result, separated from retained warnings on a cache hit.
 8. Fingerprints detect changes relative to a successful local render. They do
    not authenticate installed package contents against an upstream release or
    replace the locked-acquisition integrity work.
@@ -99,6 +102,22 @@ The fixture omitted the application's unrelated build and dependency trees, so
 this comparison does not include the extra discovery cost in a full checkout.
 Absolute timings vary with host load; regression tests assert skipped operations
 and correct bytes rather than a timing threshold.
+
+### Progress and fingerprint follow-up
+
+Version 0.17.0 buffered renderer output until completion. Sync now streams that
+output while capturing diagnostics, announces validation phases, and separates
+retained warnings from its final unchanged result. Fingerprint list descriptors
+stay open through enumeration instead of reopening a file for every entry;
+content hashes and filesystem checks are unchanged.
+
+On the same six-adapter Windows fixture, four additional timing pairs alternated
+which implementation ran first. Released sync measured 10.27, 24.79, 14.66 and
+11.82 seconds; the descriptor change measured 8.28, 7.49, 6.72 and 6.27 seconds
+(medians 13.24 and 7.11 seconds). Five earlier pairs also favored the change,
+but unrelated host activity made timings variable; these figures are observations,
+not a latency guarantee. All 566 generated files matched the released output,
+and a subsequent candidate cache hit preserved every file's bytes and mtime.
 
 ## Rejected
 
