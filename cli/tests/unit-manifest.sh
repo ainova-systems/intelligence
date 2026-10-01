@@ -83,6 +83,34 @@ chk eq "$(qmap_value "$M1" registries "@beta")" "beta-unquoted"
 chk eq "$(qmap_value "$M1" registries "@none")" ""
 chk eq "$(qmap_value "$M1" other "@ghost")" "nope"
 
+echo "== fieldrows / tops: one pass answers what the per-field readers answer =="
+# Every row repeats what qmap_keys lists and qmap_field decodes, empty fields
+# included, so preflight can read all packages in one pass.
+fieldrows_match() {
+    local file="$1" name url path version
+    while IFS="$SEP" read -r name url path version; do
+        [ "$url" = "$(qmap_field "$file" packages "$name" url)" ] || return 1
+        [ "$path" = "$(qmap_field "$file" packages "$name" path)" ] || return 1
+        [ "$version" = "$(qmap_field "$file" packages "$name" version)" ] || return 1
+    done <<< "$(_qmap_read fieldrows "$file" packages '' 'url path version')"
+    [ "$(_qmap_read fieldrows "$file" packages '' 'url' | cut -d"$SEP" -f1)" = "$(qmap_keys "$file" packages)" ]
+}
+chk fieldrows_match "$M1"
+chk eq "$(_qmap_read fieldrows "$M1" packages '' 'url path version' | sed -n 2p)" "@acme/two${SEP}git+file:///tmp/pack.git${SEP}${SEP}2.0.0"
+chk eq "$(_qmap_read fieldrows "$OUT/absent.yaml" packages '' 'url')" ""
+M1D="$OUT/m1-duplicate.yaml"
+printf 'packages:\n  "@a/x":\n    version: "1"\n  "@a/x":\n    version: "2"\n' > "$M1D"
+chk fieldrows_match "$M1D"
+# Several top-level scalars in one pass, first occurrence like top_scalar.
+TOPS="$OUT/tops.yaml"
+printf 'name: "first"\nurl: https://h/r.git # note\nname: "second"\nblock:\n  "k": "v"\n' > "$TOPS"
+chk eq "$(_qmap_read tops "$TOPS" '' 'name url absent' | tr '\n' ',')" "name${SEP}first,url${SEP}https://h/r.git,"
+chk eq "$(_qmap_read tops "$TOPS" '' 'url' | cut -d"$SEP" -f2)" "$(top_scalar "$TOPS" url)"
+chk eq "$SYNC_PKG_NAME" "$(top_scalar "$CLI_DIR/engine-package.yaml" name)"
+chk eq "$SYNC_PKG_URL" "$(top_scalar "$CLI_DIR/engine-package.yaml" url)"
+chk eq "$SYNC_PKG_PATH" "$(top_scalar "$CLI_DIR/engine-package.yaml" path)"
+chk eq "$DEFAULT_REGISTRY_URL" "$(top_scalar "$CLI_DIR/engine-package.yaml" default_registry)"
+
 echo "== qmap_set =="
 M2A="$OUT/m2a.yaml"
 cat > "$M2A" <<'EOF'

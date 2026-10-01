@@ -111,14 +111,17 @@ sync_cache_dependencies() {
 }
 
 sync_cache_input_hash() {
-    local fingerprint
+    local fingerprint payload
     fingerprint="$(sync_cache_fingerprint "$1" "${SC_INPUTS[@]}")" || return 1
+    [ -n "${SC_UMASK:-}" ] || SC_UMASK="$(umask)"
     # Explicit environment values that affect rendering, discovery or parsing.
     # No secrets or inherited environment dump are persisted.
-    printf '%s\n' "$fingerprint" "$2" "$REPO_ROOT" "$CONFIG_FILE" \
+    printf -v payload '%s\n' "$fingerprint" "$2" "$REPO_ROOT" "$CONFIG_FILE" \
         "$IS_CONTENT_REL" "$IS_MODULE_REL" "$IS_SYNC_CMD" "$IS_MANIFEST_NAME" \
         "$IS_PROTECTED_DIRS" "$BASH_VERSION" "${OSTYPE:-}" "${LANG:-}" \
-        "${LC_ALL:-}" "${LC_CTYPE:-}" "${LC_COLLATE:-}" "${PATH:-}" "$(umask)" | git hash-object --stdin
+        "${LC_ALL:-}" "${LC_CTYPE:-}" "${LC_COLLATE:-}" "${PATH:-}" "$SC_UMASK"
+    # A here-string appends the final newline the payload already ends with.
+    git hash-object --stdin <<< "${payload%$'\n'}"
 }
 
 sync_cache_directory() {
@@ -164,6 +167,8 @@ sync_with_cache() (
     work="$(mktemp -d -t intelligence-cache-XXXXXX)" || return 1
     trap 'rm -rf "$work"' EXIT
     echo "Checking source files..."
+    # Read once here so both input hashes, one in a background job, reuse it.
+    SC_UMASK="$(umask)"
     if sync_cache_dependencies && sync_cache_directory; then
         before="$(sync_cache_input_hash "$work" "$target")" || before=""
         [ -z "$before" ] || cacheable=1
@@ -197,11 +202,19 @@ sync_with_cache() (
     if [ "$cacheable" = 1 ]; then
         (
             echo "Checking sync results..."
-            after="$(sync_cache_input_hash "$work" "$target")" || return 0
+            # The input recheck and the output fingerprint only read files, so
+            # they run side by side, each in its own scratch directory.
+            local after_pid after_rc=0
+            mkdir "$work/after" "$work/outputs" || return 0
+            sync_cache_input_hash "$work/after" "$target" > "$work/after/hash" &
+            after_pid=$!
+            outputs="$(sync_cache_fingerprint "$work/outputs" "${SC_OUTPUTS[@]}")" || outputs=""
+            sync_cache_report "$work/log" > "$work/report" || outputs=""
+            report_hash="$(git hash-object --stdin < "$work/report")" || outputs=""
+            wait "$after_pid" || after_rc=$?
+            [ "$after_rc" = 0 ] && [ -n "$outputs" ] || return 0
+            IFS= read -r after < "$work/after/hash" || return 0
             [ "$before" = "$after" ] || return 0
-            outputs="$(sync_cache_fingerprint "$work" "${SC_OUTPUTS[@]}")" || return 0
-            sync_cache_report "$work/log" > "$work/report" || return 0
-            report_hash="$(git hash-object --stdin < "$work/report")" || return 0
             # Recheck containment before publishing. mktemp+rename avoids following a
             # pre-existing state-file link, and readers see only complete records.
             sync_cache_directory create || return 0

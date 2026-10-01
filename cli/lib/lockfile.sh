@@ -24,7 +24,8 @@ lock_validate() (
     # The same tokenizer supplies ordinary lock rows and strict metadata. Buffer
     # before consumption: a failed parser must never yield a partial package set.
     rows="$(_qmap_read lock "$lock" packages '' '' "$LOCKFILE_VERSION")" || return $?
-    current="$(bundled_engine_version)"
+    bundled_engine_version_var
+    current="$IS_BUNDLED_ENGINE_VERSION"
     while IFS="$LOCK_SEP" read -r kind name requested url path resolved sha line; do
         case "$kind" in
             V)

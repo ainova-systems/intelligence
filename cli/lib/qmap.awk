@@ -177,7 +177,17 @@ END {
         exit 1
     }
     if (mode == "lock") print "V" sep top_value["lockfile_version"] sep top_value["engine_version"]
-    if (mode == "rows" || mode == "lock" || mode == "keys") {
+    if (mode == "fieldrows") {
+        # One row per package key, as `keys` lists them: the name, then each
+        # field QMAP_FIELD names (space separated), as qmap_field decodes it.
+        count = split(wanted_field, fields, " ")
+        for (i = 1; i <= row_count; i++) {
+            name = row_name[i]
+            row = name
+            for (f = 1; f <= count; f++) row = row sep field_value[name SUBSEP fields[f]]
+            print row
+        }
+    } else if (mode == "rows" || mode == "lock" || mode == "keys") {
         for (i = 1; i <= row_count; i++) {
             name = row_name[i]
             if (mode == "keys") print name
@@ -187,5 +197,10 @@ END {
                 else print row
             }
         }
+    } else if (mode == "tops") {
+        # Several top-level scalars in one pass: QMAP_KEY lists them, space
+        # separated; each present one prints as key<US>value.
+        count = split(wanted_key, tops, " ")
+        for (i = 1; i <= count; i++) if (tops[i] in top_value) print tops[i] sep top_value[tops[i]]
     } else if (found) print result
 }

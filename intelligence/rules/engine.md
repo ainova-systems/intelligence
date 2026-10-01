@@ -78,9 +78,19 @@ costs tens of milliseconds, so per-file awk/cp/mv turned large projects into
 minutes of pure process creation. Batch the loop through the helpers built for
 this — `finalize_output_files`, `finalize_copy_files`, `frontmatter_index`,
 `emit_wrapped_bodies`, `copy_skill_bundle_dirs`, `lint_frontmatter_files` — and
-read the manifest through `load_yaml_list` / the targets cache so a section is
-parsed once per run. The single-file forms remain for cold paths and project
-adapters.
+read the manifest through `load_yaml_lists` / `load_yaml_list` / the targets cache so
+a section is parsed once per run. The single-file forms remain for cold paths and
+project adapters.
+
+`$(...)` forks too, even around a shell function. A reader on a path every sync
+takes has a `_var` form that returns through a variable — `read_schema_version_var`,
+`engine_version_var`, `get_model_default_var`, `agents_output_path_var`,
+`count_matching_files`, `load_model_tiers` — and callers there use it; the printing
+form wraps it, so there is still one parser. `read_source_artifact_files` runs its
+`find | sort` once per section and replays the answer to later callers while the
+engine sets `IS_SOURCE_FILES_MEMO`, which is safe only because no output may land in
+a source. Adapters that list sources with in-shell globs spawn nothing; moving them
+onto the helper would change their locale-ordered listing to byte order.
 
 `engine/adapters/_template.sh` is excluded from shellcheck because its `<name>`
 placeholders parse as input redirection until they are scaffolded.

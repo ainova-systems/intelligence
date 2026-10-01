@@ -173,9 +173,7 @@ sync_to_claude() {
     sync_claude_skills "$repo_root" "$config_file" "$output_dir"
     sync_claude_agents "$repo_root" "$config_file" "$output_dir"
 
-    local rules_count skills_count agents_count
-    rules_count=$(find "$output_dir/rules" -name "*.md" 2>/dev/null | wc -l)
-    skills_count=$(find "$output_dir/skills" -name "SKILL.md" 2>/dev/null | wc -l)
-    agents_count=$(find "$output_dir/agents" -name "*.md" 2>/dev/null | wc -l)
-    echo "  -> Rules: $rules_count, Skills: $skills_count, Agents: $agents_count"
+    count_matching_files "$output_dir/rules" "*.md" \
+        "$output_dir/skills" "SKILL.md" "$output_dir/agents" "*.md"
+    echo "  -> Rules: ${IS_FILE_COUNTS[0]}, Skills: ${IS_FILE_COUNTS[1]}, Agents: ${IS_FILE_COUNTS[2]}"
 }
