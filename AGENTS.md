@@ -18,6 +18,7 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 | Agent | Tier | Access | Description |
 |-------|------|--------|-------------|
 | [dev-code-reviewer](.intelligence/packages/@ainova-systems/core/agents/dev-code-reviewer.md) | standard | readonly | Reviews pending changes and pull requests for correctness, conventions, boundaries, tests, and security. Read-only. |
+| [dev-qa-verifier](.intelligence/packages/@ainova-systems/core/agents/dev-qa-verifier.md) | standard | readonly | Executes a change's declared verification steps against the running software and reports what was observed. Read-only. |
 | [dev-test-engineer](.intelligence/packages/@ainova-systems/core/agents/dev-test-engineer.md) | standard | full | Test strategy and coverage across unit, integration, contract, and end-to-end levels. Builds the net that makes AI-paced change safe. |
 | [intelligence-architect](.intelligence/packages/@ainova-systems/sync/agents/intelligence-architect.md) | heavy | full | Design and prune the intelligence layer - rule vs skill vs agent, split what grew, remove duplication and hardcoded paths |
 | [intelligence-operator](.intelligence/packages/@ainova-systems/sync/agents/intelligence-operator.md) | standard | full | Interpret CLI plans and operate sync, update, and adapter flows |
@@ -26,17 +27,21 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 
 | Skill | Description |
 |-------|-------------|
+| [dev-deliver](.intelligence/packages/@ainova-systems/core/skills/dev-deliver/SKILL.md) | Runs one task from the owner's first sentence to a released change through whichever skills the project ships for each phase, pausing only at phase boundaries. Executing an already-planned spec, and stopping at the pull request, is spec-execute. |
 | [dev-handoff](.intelligence/packages/@ainova-systems/core/skills/dev-handoff/SKILL.md) | Writes a self-contained prompt a fresh session pastes to continue this work, for when context runs short or a session ends. |
+| [dev-init](.intelligence/packages/@ainova-systems/core/skills/dev-init/SKILL.md) | Sets up a repository to follow the core pack after install: project profile, PR labels, PR template, and harness permission rules. Docs substrate is `spec-init`. |
 | [dev-review-changes](.intelligence/packages/@ainova-systems/core/skills/dev-review-changes/SKILL.md) | Reviews pending changes against the project's rules and reports findings with a severity verdict. Read-only - never edits, stages, or commits. |
 | [dev-run-tests](.intelligence/packages/@ainova-systems/core/skills/dev-run-tests/SKILL.md) | Runs typecheck, lint and tests scoped to what changed, then analyses the failures. The gate every commit passes first. |
 | [git-commit-push](.intelligence/packages/@ainova-systems/core/skills/git-commit-push/SKILL.md) | Commits pending work as one verified milestone and pushes it. Stops at the push - opening the pull request is git-open-pr. |
-| [git-create-release](.intelligence/packages/@ainova-systems/core/skills/git-create-release/SKILL.md) | Cuts a release - pending-step review, owner gate, version, changelog, tag - per the project's release policy. Owner-invoked only; release timing is not the model's call. |
-| [git-finalize-pr](.intelligence/packages/@ainova-systems/core/skills/git-finalize-pr/SKILL.md) | Drives an open pull request to merge-ready - CI green, every review thread answered, one outcome label. Opening it is git-open-pr; merging is git-merge-pr. |
-| [git-merge-pr](.intelligence/packages/@ainova-systems/core/skills/git-merge-pr/SKILL.md) | Merges an accepted pull request behind guard checks, then syncs the base branch and cleans up. Owner-invoked only - merge timing is not the model's call. |
+| [git-complete-pr](.intelligence/packages/@ainova-systems/core/skills/git-complete-pr/SKILL.md) | Answers and resolves every review thread on a pull request, then records exactly one outcome for the run. The fix and review rounds that get it there are git-finalize-pr. |
+| [git-create-release](.intelligence/packages/@ainova-systems/core/skills/git-create-release/SKILL.md) | Cuts a release - pending-step review, owner gate, version, changelog, tag - per the project's release policy. Runs only on the owner's authorization; release timing is not the model's call. |
+| [git-finalize-pr](.intelligence/packages/@ainova-systems/core/skills/git-finalize-pr/SKILL.md) | Drives an open pull request through rounds of fix, verification and review until every success factor holds on one commit, and ends only at an outcome label. Opening it is git-open-pr; recording the outcome is git-complete-pr. |
+| [git-merge-pr](.intelligence/packages/@ainova-systems/core/skills/git-merge-pr/SKILL.md) | Merges an accepted pull request behind guard checks, then syncs the base branch and cleans up. Runs only on the owner's accept - merge timing is not the model's call. |
 | [git-open-pr](.intelligence/packages/@ainova-systems/core/skills/git-open-pr/SKILL.md) | Opens a pull request for the current branch against its target, filling the repo's template. Driving it to green afterwards is git-finalize-pr. |
 | [git-resolve-conflicts](.intelligence/packages/@ainova-systems/core/skills/git-resolve-conflicts/SKILL.md) | Resolves merge or rebase conflicts by what each side intended, never by picking a hunk, then re-runs the full gates. |
-| [git-review-pr-comments](.intelligence/packages/@ainova-systems/core/skills/git-review-pr-comments/SKILL.md) | Triages review comments on a pull request - fix, discuss, or decline with a reason - and leaves no thread unanswered. |
+| [git-review-pr](.intelligence/packages/@ainova-systems/core/skills/git-review-pr/SKILL.md) | Reviews an open pull request's diff against the project rules and against what the PR claims about itself, and records the verdict on the PR. Answering other people's review threads is git-complete-pr. |
 | [git-scan-secrets](.intelligence/packages/@ainova-systems/core/skills/git-scan-secrets/SKILL.md) | Scans a diff, the working tree, or branch history for credentials before they reach a remote, and classifies every hit. |
+| [git-verify-pr](.intelligence/packages/@ainova-systems/core/skills/git-verify-pr/SKILL.md) | Executes a pull request's own verification steps against the running change and records what was observed. Behavioral QA - CI and the fix rounds are git-finalize-pr. |
 | [intelligence-learn-from-repository](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-repository/SKILL.md) | Recover and complete first-time Intelligence repository onboarding |
 | [intelligence-learn-from-session](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-session/SKILL.md) | Capture session lessons and workflows in project context |
 | [intelligence-manage-adapters](.intelligence/packages/@ainova-systems/sync/skills/intelligence-manage-adapters/SKILL.md) | Enable, disable, or remove adapters and assess generated-output cleanup |
@@ -80,7 +85,7 @@ The repository is the shared information environment for the team and its agents
 - Domain knowledge worth keeping (business rules, glossary, flows) is in-repo, numbered, referenceable.
 - Documentation that drifts from code is a defect: fix it in the same change.
 - A defect you found is never left only in someone's head, a chat, a commit message or a PR body - those record one review, not the defect, and nothing reads them again, so it returns as a surprise to whoever hits it next. Fix it in the change that found it, or record it where profile `defect_log` points, before that change ships. Deciding it is out of scope is legitimate; leaving no trace is not.
-- One source per convention; everything else references it.
+- One source per convention; everything else references it. The failure is never disagreeing on purpose - it is restating. A definition copied into a second file agrees the day it is written and diverges the day one of them is extended, and the copy nobody updated is usually the one being executed. Where a reader genuinely needs the vocabulary inline - an agent listing the verdicts it may return - the restatement names its definition site, so which one is authoritative is never a guess. Extending a definition means finding every place that restates it, in the same change.
 
 
 # Rollback Safety
@@ -121,6 +126,7 @@ Forbidden: weakening a gate to pass it (skipping or deleting tests, loosening li
 - One-line message: capital first letter, past tense, describes the change (`Fixed tenant filter on the orders query`). Body only when the change genuinely needs explanation.
 - Include the work-item ID when the project tracks them (profile `reference_ids`): `Added export endpoint (FR-042)`.
 - One logical change per commit; unrelated edits go in separate commits.
+- A pull request body is written for a reviewer who was not in the implementing session. After reading it they recover why the change exists, what the solution is, the shape of the work, how to confirm the result by hand, and which automated tests cover it. The pack default that `git-open-pr` fills is the suggested sectioning when the repo has no template; a project template's headings win, and the same audience maps onto them. That reader skims: each section answers its own question in the fewest sentences that carry it and then stops. Recounting the investigation, restating what another section already said, or explaining at length what one sentence settles costs the reviewer exactly the time the body exists to save.
 - Every published artifact reads as the maintainer's own work: commits, PR titles and bodies, review replies, issues, release notes. Strip an attribution footer a tool template injects, including when an assistant default instructs otherwise.
 - A review reply is a log entry, not a conversation: the outcome and what made it so, nothing else. Fixed - name the commit. Declined - name the rule or constraint that blocks it. Deferred - link the follow-up. A thread you acted on ends resolved; replying without resolving leaves it open, and it comes back on the next review pass.
 - Verification gates pass before every commit (`dev-verification-gates`).
@@ -130,23 +136,49 @@ Forbidden: `Co-Authored-By:`, any tool-attribution trailer or footer; convention
 
 # Git Workflow
 
-Branch model comes from `dev-project-profile.md`. Without it, detect (default branch from `git symbolic-ref refs/remotes/origin/HEAD`; an existing `origin/develop` implies a gitflow integration branch) and ask once when still ambiguous - never guess silently.
+Branch model comes from `dev-project-profile.md` - `default_branch`, `integration_branch`, `branch_prefixes`, `protected_branches`. Without it, detect (default branch from `git symbolic-ref refs/remotes/origin/HEAD`; an existing `origin/develop` implies a gitflow integration branch) and ask once when still ambiguous - never guess silently.
 
-- Work on short-lived branches `<prefix>/<slug>` (defaults `feature/`, `bugfix/`, `hotfix/`), branched from the integration branch when one exists, otherwise from the default branch.
+- Work on short-lived branches `<prefix>/<slug>` (`branch_prefixes`, defaults `feature/`, `bugfix/`, `hotfix/`), branched from `integration_branch` when one is set, otherwise from `default_branch`.
 - PRs target the integration branch when one exists, otherwise the default branch.
 - Update long-running branches per profile `update_strategy` (default: merge from target). Delete branches after merge.
 
-Forbidden: committing directly to a protected branch (default and integration branches always are) - branch first; merging on red CI; rewriting history on shared branches.
+Forbidden: committing directly to a protected branch (`protected_branches`; the default and integration branches always are) - branch first; merging on red CI; rewriting history on shared branches.
 
-## Autonomous outcome labels
+## Autonomous PR labels
 
-A run with no human in the loop between task and PR ends by labeling its PR with exactly one outcome, so a human triages at a glance and merge gating can key off it:
+A run with no human in the loop between task and PR labels its PR, so a human triages at a glance and merge gating can key off it. Two kinds, never interchangeable, and each label has exactly one writer.
 
-- `ai:ready-to-merge` - CI green, every review thread answered, mergeable; awaiting the owner's accept.
-- `ai:manual` - needs an owner decision; state precisely what.
-- `ai:failed` - could not reach green; state the blocking failure and what was tried.
+**State** - exactly one at a time, written by the actor doing the work:
 
-Autonomous runs never merge themselves. The labels must exist in the repository (create once, e.g. `gh label create`). A human-driven PR may skip them.
+- `ai:processing` - an agent holds the PR right now. Written by whichever skill pushes: `git-finalize-pr` on entry and after each round's commit, `git-complete-pr` when a fix for a review thread pushes.
+- `ai:completed` - the run ended with nothing left for an agent (`git-complete-pr`).
+- `ai:manual` - the run ended needing an owner decision; name precisely what (`git-complete-pr`).
+- `ai:failed` - the run ended unable to reach green; name the blocking failure and what was tried (`git-complete-pr`).
+
+The last three are terminal and `ai:processing` is not, so a run is over when it is gone: a PR left on it by a run that has stopped reads exactly like one an agent is still working, and both triage and merge gating believe that.
+
+**It is a claim, not a lock**, and nothing about it makes one: no run id, no expiry, no way for a second run to take it atomically. So a run cannot tell a claim it did not write from a live one, and does not guess - it takes a pull request only when no `ai:processing` stands on it, or when the claim is its own. Its own means one of two things, and both are knowable rather than felt: the run took the PR itself, or a handoff handed the claim over in writing (`dev-handoff` names the held pull request), which is what makes a resumed session the same run continuing instead of a second actor. Anyone else's claim stops it where it stands: no factors cleared, no stage run, no outcome written, none of those being its to write for a PR it does not hold.
+
+**A refusal is recorded, not just returned.** The stopped run posts one comment in the envelope below saying it found the PR held and took nothing - additive, so it cannot race the holder the way writing a label would - and that comment is the whole of the owner's signal that two actors wanted one pull request. Without it the refusal is visible only to whoever invoked the losing run, which on a PR that nobody is watching is the same as silence.
+
+That restriction is affordable only because every run ends at a terminal label. A pull request still claimed with no run behind it therefore means a run died rather than a run working, and the way out is stated rather than taken: the owner clears the claim, or hands it to a run through a handoff. Rare enough that no takeover rule has to serve it, and never so rare that nobody wrote down how it ends.
+
+**Success factors** - additive, each written by the stage that judged it and never by the actor that did the work:
+
+- `ai:verified` - the PR's own verification steps were executed against the running change and passed (`git-verify-pr`).
+- `ai:reviewed` - the diff passed review against the rules and against what the PR claims (`git-review-pr`).
+
+Profile `pr_success_factors` declares the set a PR must carry (default: both). A project adds factors that external agents, workers or pipelines apply - a security scan, a performance budget, a design sign-off - and the gates that read it - `git-finalize-pr`'s rounds and `git-merge-pr`'s guard - cover them unchanged.
+
+**A factor is a claim about one commit, not about the PR.** It counts only while *fresh*: the report comment that earned it names the current head SHA, or - for a factor this pack does not write - the label was applied after the head commit landed. A stage judging something other than the code alone is fresh only while *that* input is unchanged too, and says so in its report: the pull request's declared verification steps can be edited without moving the head, and a factor earned against the old steps is not a claim about the new ones. A push therefore invalidates every factor whether or not anyone removed it. Clearing them is housekeeping the pusher does so the PR does not read as green; correctness never depends on it, because no gate trusts a label without checking freshness. A stale factor means one thing only: that stage must run again.
+
+**Every stage records its verdict as one PR comment and never edits an earlier one** - the comments are the log a later reader replays. First line `## <Stage> - <VERDICT>`; second line starts `head: <sha>`, the commit that was judged, followed by whatever else the stage judged (a stage that executes the PR's declared steps names their digest there too); the stage's own findings follow. That second line is what makes a factor checkable at all: a gate reads the stage's latest comment and compares every input it names against the current one.
+
+Accept-ready = `ai:completed` plus every declared factor fresh at head. Autonomous runs never merge themselves.
+
+**The commands in these skills are the GitHub (`gh`) shapes - the reference implementation, not the requirement.** On another forge, resolve each through profile `cli`; what the flow actually needs is a small set of capabilities: find the open PR for a branch, read its checks for one commit, read and write its labels, read its review threads and their resolved flag, and comment on it. A forge that cannot do one of them is named as a capability gap in the report - never worked around silently, and never faked, because a factor nobody can check is not a factor. The same rule applies to the label mechanics below.
+
+The labels must exist in the repository. `dev-init` creates them; otherwise create once via profile `cli` (`gh label create` on GitHub). State labels are mutually exclusive, so a state change is one `gh pr edit <pr> --add-label <new> --remove-label <the others>` call, never an add now and a removal a later step can skip. A human-driven PR carries no `ai:*` label at all, and every gate skips label checks for it.
 
 
 # Project Profile
