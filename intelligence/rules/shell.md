@@ -21,7 +21,9 @@ sharp edge — 3.2 keeps the backslash of an escaped separator in the REPLACEMEN
 (`${p//\/.\//\/}` yields `a\/b`) — so build such a string by iterating over its
 parts instead. That host also brings BSD userland, where `sed -i` takes a suffix
 argument and GNU's `1i <text>` is a syntax error: edit through a temp file and
-`mv` instead of in place. A local run on Git Bash cannot see either class of bug.
+`mv` instead of in place. Its awk also refuses a newline inside a `-v` value, so
+pass multi-line text through `ENVIRON` or a file. A local run on Git Bash cannot
+see any of these.
 
 A reader that rewrites a file it does not own must round-trip the bytes it keeps.
 awk on Windows reads in text mode, so passing a CRLF file through it silently
