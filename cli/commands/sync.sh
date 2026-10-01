@@ -1,9 +1,15 @@
 #!/bin/bash
 # intelligence sync [target] [--compact] [--force] - render intelligence to enabled tools.
 set -euo pipefail
-source "$CLI_DIR/lib/cli-common.sh"
 
+# Print before library loading and lifecycle checks so a content verification
+# never looks idle. Compact output remains a buffered machine-readable report.
 compact=0
+for argument in "$@"; do
+    [ "$argument" != --compact ] || compact=1
+done
+[ "$compact" -ne 0 ] || echo 'Checking project...'
+source "$CLI_DIR/lib/cli-common.sh"
 force=0
 target=""
 while [ $# -gt 0 ]; do

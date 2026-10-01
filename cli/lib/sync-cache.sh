@@ -16,6 +16,8 @@ sync_cache_safe_path() {
 # One checked enumeration and one batch hash, including names, directory/file
 # types and executable bits. Timestamps cannot prove content is unchanged.
 # Unsupported paths/types are a cache miss, never an incomplete fingerprint.
+# Keep list descriptors open across the walk; reopening each line is expensive
+# on Windows and provides no additional content verification.
 sync_cache_fingerprint() (
     local work="$1" path kind executable seen=$'\n'
     local -a existing
@@ -48,14 +50,14 @@ sync_cache_fingerprint() (
         if [ -f "$path" ]; then
             kind='file'
             [ ! -x "$path" ] || executable=1
-            printf '%s\n' "$path" >> "$work/files" || return 1
+            printf '%s\n' "$path" >&4 || return 1
         elif [ -d "$path" ]; then
             kind=directory
         else
             return 1
         fi
-        printf '%s\t%s\t%s\n' "$kind" "$executable" "$path" >> "$work/entries" || return 1
-    done < "$work/list"
+        printf '%s\t%s\t%s\n' "$kind" "$executable" "$path" >&3 || return 1
+    done < "$work/list" 3>> "$work/entries" 4> "$work/files" || return 1
     # find order need not be stable. Sort both streams; preserve path-to-hash
     # association by feeding the sorted file list into a single git process.
     LC_ALL=C sort -u "$work/entries" > "$work/sorted" || return 1
@@ -161,15 +163,19 @@ sync_with_cache() (
     local target="$1" force="$2" work before after outputs report_hash rc=0 cacheable=0
     work="$(mktemp -d -t intelligence-cache-XXXXXX)" || return 1
     trap 'rm -rf "$work"' EXIT
+    echo "Checking source files..."
     if sync_cache_dependencies && sync_cache_directory; then
         before="$(sync_cache_input_hash "$work" "$target")" || before=""
         [ -z "$before" ] || cacheable=1
     fi
     if [ "$cacheable" = 1 ] && [ "$force" = 0 ]; then
+        echo "Checking generated files..."
         outputs="$(sync_cache_fingerprint "$work" "${SC_OUTPUTS[@]}")" || outputs=""
         if [ -n "$outputs" ] && sync_cache_read "$SC_DIRECTORY/state" "$before" "$outputs" "$work"; then
-            echo '  Unchanged: verified sources and generated output; skipped rendering (use --force to refresh discovery).'
+            echo 'Unchanged: generated files are up to date.'
+            printf '\n'
             cat "$work/report"
+            printf '\n=== Unchanged: no files needed updating ===\n'
             return 0
         fi
     fi
@@ -177,26 +183,37 @@ sync_with_cache() (
     if [ "$cacheable" = 1 ]; then
         rm -f "$SC_DIRECTORY/state" || cacheable=0
     fi
-    # Buffer once so success diagnostics can be replayed without asking the
-    # engine to know about persistent CLI state. Preserve the engine exit code.
-    bash "$IS_ENGINE_DIR/sync.sh" "$target" > "$work/log" 2>&1 || rc=$?
-    cat "$work/log"
-    [ "$rc" = 0 ] || return "$rc"
-    [ "$cacheable" = 1 ] || return 0
-    after="$(sync_cache_input_hash "$work" "$target")" || return 0
-    [ "$before" = "$after" ] || return 0
-    outputs="$(sync_cache_fingerprint "$work" "${SC_OUTPUTS[@]}")" || return 0
-    sync_cache_report "$work/log" > "$work/report" || return 0
-    report_hash="$(git hash-object --stdin < "$work/report")" || return 0
-    # Recheck containment before publishing. mktemp+rename avoids following a
-    # pre-existing state-file link, and readers see only complete records.
-    sync_cache_directory create || return 0
-    local staged
-    staged="$(mktemp "$SC_DIRECTORY/state-XXXXXX")" || return 0
-    if { printf 'intelligence-sync-cache-v1 %s %s %s\n' "$after" "$outputs" "$report_hash"; cat "$work/report"; } > "$staged"; then
-        mv -f "$staged" "$SC_DIRECTORY/state" || rm -f "$staged"
+    # Stream progress while retaining diagnostics for the next cache hit. Check
+    # both processes: a failed capture must never publish a success record.
+    local -a pipeline_status
+    if bash "$IS_ENGINE_DIR/sync.sh" "$target" 2>&1 | tee "$work/log"; then
+        pipeline_status=("${PIPESTATUS[@]}")
     else
-        rm -f "$staged"
+        pipeline_status=("${PIPESTATUS[@]}")
     fi
+    rc="${pipeline_status[0]}"
+    [ "$rc" = 0 ] || return "$rc"
+    [ "${pipeline_status[1]}" = 0 ] || return "${pipeline_status[1]}"
+    if [ "$cacheable" = 1 ]; then
+        (
+            echo "Checking sync results..."
+            after="$(sync_cache_input_hash "$work" "$target")" || return 0
+            [ "$before" = "$after" ] || return 0
+            outputs="$(sync_cache_fingerprint "$work" "${SC_OUTPUTS[@]}")" || return 0
+            sync_cache_report "$work/log" > "$work/report" || return 0
+            report_hash="$(git hash-object --stdin < "$work/report")" || return 0
+            # Recheck containment before publishing. mktemp+rename avoids following a
+            # pre-existing state-file link, and readers see only complete records.
+            sync_cache_directory create || return 0
+            local staged
+            staged="$(mktemp "$SC_DIRECTORY/state-XXXXXX")" || return 0
+            if { printf 'intelligence-sync-cache-v1 %s %s %s\n' "$after" "$outputs" "$report_hash"; cat "$work/report"; } > "$staged"; then
+                mv -f "$staged" "$SC_DIRECTORY/state" || rm -f "$staged"
+            else
+                rm -f "$staged"
+            fi
+        )
+    fi
+    echo "=== Sync complete ==="
     return 0
 )

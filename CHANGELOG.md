@@ -4,6 +4,13 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.17.1]
+
+### Fixed
+
+- Normal `sync` reports work immediately, streams renderer progress and separates cached diagnostics from a clear unchanged result.
+- Unchanged-sync fingerprinting reuses open output streams instead of reopening temporary files for every path, reducing local filesystem overhead while still checking file contents.
+
 ## [0.17.0]
 
 ### Added
