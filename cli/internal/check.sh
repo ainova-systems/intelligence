@@ -109,7 +109,9 @@ while IFS= read -r name; do
         l_sha="$(qmap_field "$lock" "packages" "$name" "sha")"
         if ! store_record_get "$IP_ROOT" "$name"; then
             warn "$name is installed, but the store does not record which commit it holds; the lock pins $(pin_label "$m_ref" "$l_res" "$l_sha") — run 'intelligence sync'"
-        elif ! store_record_matches "$IP_ROOT" "$name" "$l_url" "$l_path" "$l_res" "$l_sha"; then
+        elif [ "$IS_REC_URL" != "$l_url" ] || [ "$IS_REC_PATH" != "$l_path" ]; then
+            warn "$name was installed from ${IS_REC_URL}${IS_REC_PATH:+ (path $IS_REC_PATH)} but the lock names ${l_url}${l_path:+ (path $l_path)} — run 'intelligence sync'"
+        elif [ "$IS_REC_RESOLVED" != "$l_res" ] || [ "$IS_REC_SHA" != "$l_sha" ]; then
             warn "$name holds $IS_REC_RESOLVED@$(short_sha "$IS_REC_SHA") but the lock pins $l_res@$(short_sha "$l_sha") — run 'intelligence sync'"
         else
             ok "$name @ $(pin_label "$m_ref" "$IS_REC_RESOLVED" "$IS_REC_SHA")"

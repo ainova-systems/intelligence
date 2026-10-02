@@ -174,6 +174,7 @@ while IFS= read -r name; do
     rm -rf "$staging"
     sha="$(fetch_package "$url" "$tag" "$path" "$staging")"
     unwire_package_sources "$manifest" "$rel"
+    store_record_remove "$IP_ROOT" "$name"
     rm -rf "${IP_ROOT:?}/$rel"
     mkdir -p "$(dirname "$IP_ROOT/$rel")"
     mv "$staging" "$IP_ROOT/$rel"

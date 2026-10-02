@@ -82,6 +82,7 @@ if [ -n "$missing" ]; then
             read -r resolved_tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
         fi
         rel=".intelligence/packages/$name"
+        store_record_remove "$IP_ROOT" "$name"
         sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
         wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
         lock_upsert "$lock" "$name" "$range" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
@@ -111,6 +112,7 @@ if [ -f "$lock" ]; then
         staging="$IP_ROOT/.intelligence/.staging-$$"
         rm -rf "$staging"
         fetch_package "$url" "$resolved" "$path" "$staging" "$sha" >/dev/null
+        store_record_remove "$IP_ROOT" "$name"
         rm -rf "${IP_ROOT:?}/$rel"
         mkdir -p "$(dirname "$IP_ROOT/$rel")"
         mv "$staging" "$IP_ROOT/$rel"

@@ -99,6 +99,27 @@ check test "$RC" -eq 0
 check grep -q PACK_V2_MARKER "$PROJ/AGENTS.md"
 mv "$OUT/pack-away" "$PACK"
 
+echo '== a replacement that does not finish leaves the package unrecorded =='
+# The record goes before the directory does, so a failed re-add can never leave
+# the old record vouching for whatever the directory holds now.
+run "$PROJ" package add "git+file://$PACK@no-such-ref" --name @acme/pack
+check test "$RC" -ne 0
+run "$PROJ" status --check
+check test "$RC" -ne 0
+check has 'does not record which commit it holds'
+run "$PROJ" sync
+check test "$RC" -eq 0
+run "$PROJ" status --check
+check test "$RC" -eq 0
+
+echo '== a record from another source is named as such =='
+cp "$PROJ/.intelligence/packages/.installed" "$OUT/installed.good"
+sed "s#file://$PACK#file://$OUT/elsewhere#" "$OUT/installed.good" > "$PROJ/.intelligence/packages/.installed"
+run "$PROJ" status --check
+check test "$RC" -ne 0
+check has "was installed from file://$OUT/elsewhere"
+cp "$OUT/installed.good" "$PROJ/.intelligence/packages/.installed"
+
 echo '== a store written by an older CLI is verified once =='
 # No record of what it holds: it is refetched rather than trusted.
 rm -f "$PROJ/.intelligence/packages/.installed"

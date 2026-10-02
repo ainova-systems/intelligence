@@ -303,6 +303,7 @@ sync_pkg_entry() {
 sync_pkg_install() {
     local root="$1" ver sha
     ver="$(bundled_engine_version)"
+    store_record_remove "$root" "$SYNC_PKG_NAME"
     sha="$(fetch_package "$SYNC_PKG_URL" "v$ver" "$SYNC_PKG_PATH" "$root/$SYNC_PKG_STORE")"
     wire_package_sources "$root/intelligence.yaml" "$SYNC_PKG_NAME" "$SYNC_PKG_STORE" "$root"
     lock_upsert "$root/intelligence.lock" "$SYNC_PKG_NAME" "$ver" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$ver" "$sha"
