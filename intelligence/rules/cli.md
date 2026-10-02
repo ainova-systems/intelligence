@@ -113,6 +113,9 @@ same major cannot read is a major change.
 
 `intelligence sync` is the fresh-clone path: it restores a missing `.intelligence/`
 store strictly from `intelligence.lock`, never re-resolving a version during restore.
+Present is not installed: every write of a package records its lock row in
+`.intelligence/packages/.installed` (decision 0012), and a package whose record is
+absent or differs from the lock is restored and reported by `status --check`.
 `intelligence update` always prints the installed-CLI, project and package plan;
 `--preview` stops without writing, the bare form asks, `--apply` proceeds and syncs.
 The CLI step it names is `intelligence upgrade`, the one command that writes to an

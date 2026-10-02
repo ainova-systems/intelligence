@@ -306,6 +306,7 @@ sync_pkg_install() {
     sha="$(fetch_package "$SYNC_PKG_URL" "v$ver" "$SYNC_PKG_PATH" "$root/$SYNC_PKG_STORE")"
     wire_package_sources "$root/intelligence.yaml" "$SYNC_PKG_NAME" "$SYNC_PKG_STORE" "$root"
     lock_upsert "$root/intelligence.lock" "$SYNC_PKG_NAME" "$ver" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$ver" "$sha"
+    store_record_set "$root" "$SYNC_PKG_NAME" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$ver" "$sha"
     echo "  engine content installed: $SYNC_PKG_STORE (v$ver)"
 }
 
@@ -477,6 +478,65 @@ check_project_lock() {
     validate_project_lock "$1" "$mode"
 }
 
+# --- What the store holds (decision 0012) ---------------------------------
+# The store keeps plain files only, so which commit a package directory holds is
+# recorded beside the packages, never inside one (the engine would render it):
+# .intelligence/packages/.installed, one row per package — name, url, path,
+# resolved, sha, separated like the lock's rows — written whenever a package is
+# installed from the lock row it now satisfies. A directory without a row, or
+# with one that differs from the lock, is not what the lock pins.
+STORE_RECORD=".intelligence/packages/.installed"
+
+# store_record_get <root> <name> — set IS_REC_URL / _PATH / _RESOLVED / _SHA;
+# returns 1 when the store records nothing for <name>.
+store_record_get() {
+    local file="$1/$STORE_RECORD" name url path resolved sha
+    IS_REC_URL="" IS_REC_PATH="" IS_REC_RESOLVED="" IS_REC_SHA=""
+    [ -f "$file" ] || return 1
+    while IFS="$LOCK_SEP" read -r name url path resolved sha; do
+        [ "$name" = "$2" ] || continue
+        IS_REC_URL="$url" IS_REC_PATH="$path" IS_REC_RESOLVED="$resolved" IS_REC_SHA="$sha"
+        return 0
+    done < "$file"
+    return 1
+}
+
+# store_record_matches <root> <name> <url> <path> <resolved> <sha>
+store_record_matches() {
+    store_record_get "$1" "$2" || return 1
+    [ "$IS_REC_URL" = "$3" ] && [ "$IS_REC_PATH" = "$4" ] \
+        && [ "$IS_REC_RESOLVED" = "$5" ] && [ "$IS_REC_SHA" = "$6" ]
+}
+
+# store_record_set <root> <name> <url> <path> <resolved> <sha> — record what
+# <name> now holds; store_record_remove <root> <name> forgets it. Both rewrite
+# the file through a temp file, so a reader never sees half a row.
+store_record_set() {
+    _store_record_write "$@"
+}
+
+store_record_remove() {
+    _store_record_write "$1" "$2"
+}
+
+_store_record_write() {
+    local root="$1" target="$2" file="$1/$STORE_RECORD" tmp name rest
+    mkdir -p "$root/.intelligence/packages" || die "cannot create $root/.intelligence/packages"
+    tmp="$file.tmp.$$"
+    {
+        if [ -f "$file" ]; then
+            while IFS="$LOCK_SEP" read -r name rest; do
+                [ -n "$name" ] && [ "$name" != "$target" ] || continue
+                printf '%s%s%s\n' "$name" "$LOCK_SEP" "$rest"
+            done < "$file"
+        fi
+        [ "$#" -lt 6 ] || printf '%s%s%s%s%s%s%s%s%s\n' "$target" "$LOCK_SEP" "$3" "$LOCK_SEP" "$4" "$LOCK_SEP" "$5" "$LOCK_SEP" "$6"
+    } > "$tmp" || { rm -f "$tmp"; die "cannot write $file"; }
+    mv -f "$tmp" "$file" || { rm -f "$tmp"; die "cannot write $file"; }
+}
+
+# project_store_missing <root> — a package the manifest or lock names is absent
+# from the store, or holds something other than its lock row pins.
 project_store_missing() {
     local root="$1" manifest="$1/intelligence.yaml" name src
     while IFS= read -r name; do
@@ -493,6 +553,17 @@ project_store_missing() {
             esac
         done < <(read_yaml_list "$manifest" "$section")
     done
+    # Present is not enough: a `git pull` moves the lock and leaves the ignored
+    # store on the commit it held before.
+    local rows _requested url path resolved sha
+    [ -f "$root/intelligence.lock" ] || return 1
+    rows="$(lock_to_tsv "$root/intelligence.lock")"
+    while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
+        [ -n "$name" ] || continue
+        assert_valid_pkg_name "$name"
+        [ -d "$root/.intelligence/packages/$name" ] || return 0
+        store_record_matches "$root" "$name" "$url" "$path" "$resolved" "$sha" || return 0
+    done <<< "$rows"
     return 1
 }
 

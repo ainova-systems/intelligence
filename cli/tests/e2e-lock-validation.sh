@@ -184,6 +184,11 @@ awk -v newer="$newer_engine" '
     { print }
 ' "$AHEAD/intelligence.lock" > "$AHEAD/intelligence.lock.tmp"
 mv "$AHEAD/intelligence.lock.tmp" "$AHEAD/intelligence.lock"
+# The newer development CLI that wrote this lock also installed and recorded
+# its store row.
+awk -v newer="$newer_engine" 'BEGIN { FS = OFS = "\037" } $1 == "@ainova-systems/sync" { $4 = "v" newer } { print }' \
+    "$AHEAD/.intelligence/packages/.installed" > "$AHEAD/installed.tmp"
+mv "$AHEAD/installed.tmp" "$AHEAD/.intelligence/packages/.installed"
 (cd "$AHEAD" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+$PACK_URL" --name @acme/ahead --no-sync >/dev/null)
 chk grep -q "^schema_version: \"$newer_engine\"" "$AHEAD/intelligence.yaml"
 chk grep -q "version: \"$newer_engine\"" "$AHEAD/intelligence.yaml"

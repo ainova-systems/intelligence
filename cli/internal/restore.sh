@@ -85,11 +85,12 @@ if [ -n "$missing" ]; then
         sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
         wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
         lock_upsert "$lock" "$name" "$range" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
+        store_record_set "$IP_ROOT" "$name" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
         echo "+ $name@${resolved_tag:-${ref:-HEAD}} (resolved)"
     done
 fi
 
-# Restore every locked package that is not already in the store.
+# Restore every locked package the store does not hold at its locked commit.
 if [ -f "$lock" ]; then
     while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
         [ -n "$name" ] || continue
@@ -97,10 +98,11 @@ if [ -f "$lock" ]; then
         # on their way into rm -rf paths, and its urls into git argv.
         assert_valid_pkg_name "$name"
         rel=".intelligence/packages/$name"
-        # --frozen never trusts what is already on disk: a pre-existing
-        # (possibly substituted) store dir would otherwise be synced with no
-        # sha verification at all.
-        if [ -d "$IP_ROOT/$rel" ] && [ "$force" -eq 0 ] && [ "$frozen" -eq 0 ]; then
+        # A directory counts only with a record of the lock row it satisfies:
+        # one present without it may hold any commit. --frozen never trusts
+        # what is already on disk: a pre-existing (possibly substituted) store
+        # dir would otherwise be synced with no sha verification at all.
+        if [ -d "$IP_ROOT/$rel" ] && [ "$force" -eq 0 ] && [ "$frozen" -eq 0 ]             && store_record_matches "$IP_ROOT" "$name" "$url" "$path" "$resolved" "$sha"; then
             continue
         fi
         # Fetch into staging and commit to the store only after the integrity
@@ -112,6 +114,7 @@ if [ -f "$lock" ]; then
         rm -rf "${IP_ROOT:?}/$rel"
         mkdir -p "$(dirname "$IP_ROOT/$rel")"
         mv "$staging" "$IP_ROOT/$rel"
+        store_record_set "$IP_ROOT" "$name" "$url" "$path" "$resolved" "$sha"
         wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
         echo "= $name@${resolved:-HEAD}"
     done < <(lock_to_tsv "$lock")

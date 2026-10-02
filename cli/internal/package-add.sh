@@ -140,6 +140,7 @@ else
 fi
 
 lock_upsert "$lock" "$name" "$requested" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
+store_record_set "$IP_ROOT" "$name" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
 
 sections=""
 for s in rules agents skills; do

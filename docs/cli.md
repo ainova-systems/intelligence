@@ -91,7 +91,7 @@ intelligence sync [adapter] [--compact] [--force]
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 1. Validate any existing lock, then align tracked project schema/content with the installed CLI when safe.
-2. If `.intelligence/` is missing, restore it strictly from `intelligence.lock` without registry lookup or range resolution.
+2. If a package in `.intelligence/` is missing or holds a commit other than the one `intelligence.lock` pins — a pull that moved the lock leaves the ignored store behind — restore it strictly from `intelligence.lock` without registry lookup or range resolution. The store records each package's installed lock row in `.intelligence/packages/.installed`; a package without that record is fetched again once.
 3. When inputs and outputs match a previous successful sync, reuse its result
    without rewriting outputs or taking snapshots. Otherwise validate each
    selected adapter's versioned ownership contract and required
@@ -340,8 +340,10 @@ adapter and ignore-policy checks after reporting the lock error; it skips checks
 that require trusted lock rows.
 
 `--check` performs deep consistency validation and exits nonzero for
-manifest/lock divergence, missing package content, stale schema/content or
-invalid sources. Frozen store restoration verifies the locked commit SHA.
+manifest/lock divergence, missing package content, a package holding a commit
+other than the locked one or recording none, stale schema/content or invalid
+sources. Each package line reports the commit the store holds. Frozen store
+restoration verifies the locked commit SHA.
 
 ### `intelligence registry`
 
