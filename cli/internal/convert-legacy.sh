@@ -406,6 +406,11 @@ trap 'rollback; exit 130' INT TERM
 mv "$stage/.intelligence" "$root/.intelligence"
 cp "$manifest_stage" "$root/intelligence.yaml"
 lock_write_from_tsv "$root/intelligence.lock" "$lock_rows"
+# The staged store holds exactly these rows; record them so sync trusts it.
+while IFS="$LOCK_SEP" read -r rec_name _ rec_url rec_path rec_resolved rec_sha; do
+    [ -n "$rec_name" ] || continue
+    store_record_set "$root" "$rec_name" "$rec_url" "$rec_path" "$rec_resolved" "$rec_sha"
+done < "$lock_rows"
 ensure_manifest_gitignore "$root" "$root/intelligence.yaml"
 ensure_manifest_publisher_ignores "$root" "$root/intelligence.yaml"
 

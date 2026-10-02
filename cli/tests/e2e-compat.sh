@@ -195,6 +195,10 @@ packages:
 LOCK
 mkdir -p "$P3/.intelligence/packages/@ainova-systems"
 cp -r "$REPO/packages/sync" "$P3/.intelligence/packages/@ainova-systems/sync"
+# The newer CLI that installed it recorded the lock row it satisfies.
+printf '%s\037%s\037%s\037%s\037%s\n' "@ainova-systems/sync" \
+    "https://github.com/ainova-systems/intelligence.git" "packages/sync" "v$PATCH_AHEAD" "" \
+    > "$P3/.intelligence/packages/.installed"
 cp "$P3/intelligence.yaml" "$OUT/p3.yaml"
 cp "$P3/intelligence.lock" "$OUT/p3.lock"
 xok "$WARN_LINE $PATCH_AHEAD" "$P3" sync

@@ -57,7 +57,7 @@ Then render every enabled adapter:
 intelligence sync
 ```
 
-After a fresh clone, the same command restores a missing `.intelligence/` package store strictly from the committed lockfile before rendering.
+After a fresh clone or a pull that moved the lockfile, the same command restores every package the `.intelligence/` store lacks or holds at another commit, strictly from the committed lockfile, before rendering.
 
 ## What it solves
 

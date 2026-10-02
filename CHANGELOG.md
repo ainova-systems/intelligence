@@ -4,6 +4,13 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.17.3]
+
+### Fixed
+
+- `sync` restores a package whose store copy is not the commit `intelligence.lock` pins. A pull or branch switch that moved the lock left the ignored store on the old commit, and every later sync rendered the stale content. The store now records the lock row each package was installed from, and a package without a matching record is fetched again; a store written by an earlier CLI is fetched once.
+- `status --check` reports the commit the store holds and fails when it differs from the lock or is unrecorded. It printed the lock's SHA and called a stale package good.
+
 ## [0.17.2]
 
 ### Changed

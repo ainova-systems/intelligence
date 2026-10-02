@@ -123,6 +123,10 @@ if [ -z "$ref" ]; then
 fi
 
 rel=".intelligence/packages/$name"
+# Forget what the directory held before replacing it: an interruption then
+# leaves the package unrecorded, which the next sync repairs, never a stale
+# record vouching for new bytes.
+store_record_remove "$IP_ROOT" "$name"
 sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 
 wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
@@ -140,6 +144,7 @@ else
 fi
 
 lock_upsert "$lock" "$name" "$requested" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
+store_record_set "$IP_ROOT" "$name" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
 
 sections=""
 for s in rules agents skills; do

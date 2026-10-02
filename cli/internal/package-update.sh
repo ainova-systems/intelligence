@@ -174,11 +174,13 @@ while IFS= read -r name; do
     rm -rf "$staging"
     sha="$(fetch_package "$url" "$tag" "$path" "$staging")"
     unwire_package_sources "$manifest" "$rel"
+    store_record_remove "$IP_ROOT" "$name"
     rm -rf "${IP_ROOT:?}/$rel"
     mkdir -p "$(dirname "$IP_ROOT/$rel")"
     mv "$staging" "$IP_ROOT/$rel"
     wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
     lock_upsert "$lock" "$name" "$requested" "$url" "$path" "$tag" "$sha"
+    store_record_set "$IP_ROOT" "$name" "$url" "$path" "$tag" "$sha"
     # The widened intent is recorded only once its content is installed and
     # wired: a manifest saying ^0.6.1 over a failed fetch would describe a
     # state the project never reached.
