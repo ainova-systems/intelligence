@@ -73,7 +73,7 @@ verify() {
     RC=0
     OUTPUT="$(cd "$PROJ" && env -u CI -u VERIFY_DELEGATED -u INTELLIGENCE_VERIFY_NATIVE \
         -u INTELLIGENCE_VERIFY_WSL_DISTRO -u FAKE_WSL_BROKEN PATH="$OUT/bin:$PATH" \
-        "${assignments[@]}" bash cli/tests/verify.sh ${scope:+"$scope"} 2>&1)" || RC=$?
+        ${assignments[@]+"${assignments[@]}"} bash cli/tests/verify.sh ${scope:+"$scope"} 2>&1)" || RC=$?
 }
 expect() { if ! grep -qF -- "$2" <<< "$OUTPUT"; then echo "FAIL: $1 — output lacks '$2'"; printf '%s\n' "$OUTPUT" | tail -8; fail=1; fi; }
 expect_not() { if grep -qF -- "$2" <<< "$OUTPUT"; then echo "FAIL: $1 — output has '$2'"; fail=1; fi; }

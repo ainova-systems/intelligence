@@ -120,13 +120,14 @@ run_scope() {
 # than Git Bash itself. CI never delegates.
 
 # wsl_cmd <args> - wsl.exe without Git Bash rewriting POSIX-looking arguments
-# into Windows paths.
+# into Windows paths. The guarded expansion keeps an empty array legal under
+# `set -u` on bash 3.2, where unit-verify runs this path on macOS.
 wsl_cmd() {
     local -a distro=()
     if [ -n "${INTELLIGENCE_VERIFY_WSL_DISTRO:-}" ]; then
         distro=(-d "$INTELLIGENCE_VERIFY_WSL_DISTRO")
     fi
-    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' wsl.exe "${distro[@]}" "$@"
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' wsl.exe ${distro[@]+"${distro[@]}"} "$@"
 }
 
 # wsl_ready <scope> - the run is on Git Bash and a distribution has every tool

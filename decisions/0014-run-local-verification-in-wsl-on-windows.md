@@ -46,10 +46,11 @@ four times slower there than under Git Bash.
 - On the maintainer's host the test scope finishes in under three minutes
   instead of close to an hour, and lint in 16 s.
 - A delegated run tests Linux semantics, as CI does, and does not test Git
-  Bash. Windows-only paths in the suites, such as the junction case in
-  `e2e-sync-cache` and the `cygpath` spellings in `unit-upgrade`, run only under
-  `INTELLIGENCE_VERIFY_NATIVE=1` or in the Windows CI job. Run natively when a
-  change touches Windows path handling.
+  Bash. Windows-only paths in the suites then run only natively: the junction
+  case in `e2e-sync-cache` only under `INTELLIGENCE_VERIFY_NATIVE=1`, because the
+  Windows CI job runs just `unit-semver` and `unit-upgrade`, and the `cygpath`
+  spellings in `unit-upgrade` there or in that job. Run natively when a change
+  touches Windows path handling.
 - `unit-upgrade` skips its launcher cases when the distribution has no `node`,
   and says so.
 - Lint inside WSL uses that distribution's `shellcheck` version, which can differ
