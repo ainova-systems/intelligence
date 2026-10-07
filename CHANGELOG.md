@@ -10,6 +10,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
 
+### Fixed
+
+- Sync warns once per tool and tier when an agent's `tier` resolves to no model — no built-in default and no `models.<tool>.<tier>` override, a typo as a rule — instead of rendering an empty `model` in silence (#39).
+
 ## [0.18.0]
 
 ### Added
