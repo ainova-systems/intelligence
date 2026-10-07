@@ -17,6 +17,8 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - A tier no longer sets a reasoning effort in any tool. Codex agents without `effort:` no longer get a tier-derived `model_reasoning_effort` (`xhigh` for `frontier`, `high` for `heavy` or no tier, `medium` for `standard`, `low` for `light`), so Codex's own setting applies and `frontier` and `heavy` render identical Codex agents.
 - Generated Copilot output is gitignored by default, as Cursor's and Claude Code's is: `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and the legacy `.github/copilot-instructions.md`. `.github/` itself, workflows and templates stay tracked.
 - `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding that `intelligence init` repairs names it as the fix.
+- Every warning sync and the CLI print is a `WARNING:` line, so `sync --compact`, its unchanged-run replay and `init` keep it — the frontmatter lint's "will be REJECTED at load time" included (#51).
+- A symlink in a skills source whose target stays inside that source is rendered as regular files in every skill tree, with quoting, effort and the Codex invocation policy applied; a link that escapes its source, dangles or loops is left out of every output with one `WARNING:` naming the skill and the link. Claude Code, Cursor and Copilot no longer receive raw links, and a skills source directory that is itself a symlink is read everywhere (decision 0017, #44, #47).
 
 ### Fixed
 
