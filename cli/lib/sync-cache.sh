@@ -130,7 +130,7 @@ sync_cache_dependencies() {
             [ -n "$src" ] || continue
             adapter_contract_safe_concrete_path "$src" || return 1
             case "$src" in .|./|.intelligence|.intelligence/|.intelligence/sync-cache*) return 1 ;; esac
-            SC_INPUTS+=("$REPO_ROOT/$src")
+            SC_INPUTS+=("$REPO_ROOT/${src%/}")
         done <<< "$IS_YAML_LIST"
     done
     load_targets_cache "$CONFIG_FILE"
@@ -512,14 +512,123 @@ sync_with_cache() {
     return 0
 }
 
+# The write contract marks links whose spelling must remain unchanged: they
+# are compared, never dereferenced, and are not renderer read inputs.
+sync_check_write_paths() {
+    local filter="$1" dir file name i output adapter kind value
+    local -a names=() files=() batch=()
+    for dir in "$IS_ENGINE_DIR/adapters" "$REPO_ROOT/$IS_CONTENT_REL/adapters"; do
+        for file in "$dir"/*.sh; do
+            [ -f "$file" ] || continue
+            name="${file##*/}"; name="${name%.sh}"
+            [ "$name" != _template ] || continue
+            i=0
+            while [ "$i" -lt "${#names[@]}" ] && [ "${names[i]}" != "$name" ]; do i=$((i + 1)); done
+            names[i]="$name"; files[i]="$file"
+        done
+    done
+    i=0
+    while [ "$i" -lt "${#names[@]}" ]; do
+        name="${names[i]}"; file="${files[i]}"; i=$((i + 1))
+        [ -z "$filter" ] || [ "$name" = "$filter" ] || continue
+        target_enabled_var "$CONFIG_FILE" "$name"
+        [ "$IS_TGT_ENABLED" = 1 ] || continue
+        target_output_var "$CONFIG_FILE" "$name"
+        output="${IS_TGT_OUTPUT:-.$name}"
+        batch+=("$name" "$file" "$output")
+    done
+    SC_CHECK_OUTPUTS=()
+    [ "${#batch[@]}" -gt 0 ] || return 0
+    adapter_contract_records_batch "$SC_SCRATCH.check-contract" "${batch[@]}" > "$SC_SCRATCH.check-records" || return 1
+    while IFS=$'\t' read -r adapter kind value; do
+        case "$kind" in owned|managed) SC_CHECK_OUTPUTS+=("$value") ;; esac
+    done < "$SC_SCRATCH.check-records"
+}
+
+# Check renders use a private project tree. A rollback in the live tree would
+# overwrite unrelated edits made while the renderer was running.
+sync_check_render() (
+    local target="$1" verdict="$2" staging entry link target_link manifest_rel rel output is_output original_target original_root="$REPO_ROOT" rc=0
+    local -a SC_CHECK_OUTPUTS=()
+    sync_check_write_paths "$target" || return 1
+    manifest_rel="${CONFIG_FILE#"$REPO_ROOT/"}"
+    staging="$(mktemp -d -t intelligence-check-XXXXXX)" || return 1
+    trap 'rm -rf "$staging"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    mkdir "$staging/project" || { rm -rf "$staging"; return 1; }
+    for entry in "$REPO_ROOT"/* "$REPO_ROOT"/.[!.]* "$REPO_ROOT"/..?*; do
+        [ -e "$entry" ] || [ -L "$entry" ] || continue
+        # Git history is not a renderer input. The project lock contains the
+        # check's scratch buffers and must stay solely in the real project.
+        [ "${entry##*/}" != .git ] || continue
+        cp -a "$entry" "$staging/project/" || rc=$?
+        [ "$rc" = 0 ] || break
+    done
+    if [ "$rc" = 0 ]; then
+        # Never remove or rewrite through a copied directory link: it may
+        # still point at the live project or an external source.
+        if [ ! -L "$staging/project/.intelligence" ]; then
+            rm -rf "$staging/project/.intelligence/sync.lock"
+        fi
+        find "$staging/project" -type l -print0 > "$staging/links" || rc=1
+        while IFS= read -r -d '' link; do
+            target_link="$(readlink "$link")" || { rc=1; break; }
+            # Output links need no relocation: comparison never follows them.
+            # Internal absolute links still move with their copied project.
+            rel="${link#"$staging/project/"}"
+            is_output=0
+            for output in ${SC_CHECK_OUTPUTS[@]+"${SC_CHECK_OUTPUTS[@]}"}; do
+                case "$rel" in "$output"|"$output"/*) is_output=1; break ;; esac
+            done
+            case "$target_link" in
+                "$REPO_ROOT")
+                    rm "$link" && ln -s "$staging/project" "$link" || { rc=1; break; }
+                    ;;
+                "$REPO_ROOT"/*)
+                    rm "$link" && ln -s "$staging/project/${target_link#"$REPO_ROOT/"}" "$link" || { rc=1; break; }
+                    ;;
+                /*) ;; # Absolute external links already retain their resolution.
+                *)
+                    [ "$is_output" = 0 ] || continue
+                    original_target="$REPO_ROOT/$rel"
+                    normalize_path_var "${original_target%/*}/$target_link"
+                    original_target="$IS_NORM_PATH"
+                    case "$original_target" in
+                        "$REPO_ROOT") original_target="$staging/project" ;;
+                        "$REPO_ROOT"/*) original_target="$staging/project/${original_target#"$REPO_ROOT/"}" ;;
+                    esac
+                    normalize_path_var "${link%/*}/$target_link"
+                    [ "$IS_NORM_PATH" != "$original_target" ] || continue
+                    rm "$link" && ln -s "$original_target" "$link" || { rc=1; break; }
+                    ;;
+            esac
+        done < "$staging/links"
+    fi
+    if [ "$rc" = 0 ]; then
+        REPO_ROOT="$staging/project" CONFIG_FILE="$staging/project/$manifest_rel" \
+            IS_SYNC_CHECK_ROOT="$original_root" IS_SYNC_CHECK="$verdict" bash "$IS_ENGINE_DIR/sync.sh" "$target" || rc=$?
+    fi
+    return "$rc"
+)
+
+# Warning forms are shared by cached and freshly rendered check reports.
+sync_check_warnings() {
+    awk '
+        /^(WARNING:|  WARN:)/ { warning=1; print; next }
+        warning && /^    / { print; next }
+        { warning=0 }
+    '
+}
+
 # --- sync --check ----------------------------------------------------------------
 # sync_check <target> <force> — 0 when generated files are what sync would
 # leave, 2 when sync would change them (IS_CHECK_OUT_OF_DATE=1 marks that
 # verdict, so the command can turn a failure that ends in 2 into 1), and the
 # failure's own status otherwise. Prints one IS_STATUS line. A valid record
 # from the same tooling answers without rendering; otherwise the engine renders
-# inside its snapshot transaction, compares, restores every path, and a clean
-# result is recorded so the next check is fast.
+# in a private project copy, compares without following links, and discards
+# the copy; a clean result is recorded so the next check is fast.
 # shellcheck disable=SC2034  # IS_CHECK_OUT_OF_DATE is read by commands/sync.sh
 sync_check() {
     local target="$1" force="$2" rc=0 cacheable=0 verdict="" sources=0 generated=0
@@ -533,17 +642,21 @@ sync_check() {
         [ "$SC_RECORD_I" = "$SC_PRINT_I" ] || sources=1
         [ "$SC_RECORD_O" = "$SC_PRINT_O" ] || generated=1
         case "$sources$generated" in
-            00) is_status ok "generated files are up to date"; return 0 ;;
+            00)
+                sync_check_warnings <<< "$SC_RECORD_REPORT" >&2
+                is_status ok "generated files are up to date"; return 0 ;;
             10) is_status out-of-date "sources changed since the last sync; run 'intelligence sync'" ;;
-            01) is_status out-of-date "generated files changed since the last sync; run 'intelligence sync'" ;;
+            01) ;; # Managed directories also contain preserved hand-written files.
             *) is_status out-of-date "sources and generated files changed since the last sync; run 'intelligence sync'" ;;
         esac
-        IS_CHECK_OUT_OF_DATE=1
-        return "$IS_RC_OUT_OF_DATE"
+        if [ "$sources" = 1 ]; then
+            IS_CHECK_OUT_OF_DATE=1
+            return "$IS_RC_OUT_OF_DATE"
+        fi
     fi
     before_t="${SC_PRINT_T:-}" before_i="${SC_PRINT_I:-}" before_o="${SC_PRINT_O:-}"
     rm -f "$SC_SCRATCH.verdict"
-    IS_SYNC_CHECK="$SC_SCRATCH.verdict" bash "$IS_ENGINE_DIR/sync.sh" "$target" > "$SC_SCRATCH.log" 2>&1 || rc=$?
+    sync_check_render "$target" "$SC_SCRATCH.verdict" > "$SC_SCRATCH.log" 2>&1 || rc=$?
     if [ "$rc" = 0 ]; then
         [ ! -f "$SC_SCRATCH.verdict" ] || IFS= read -r verdict < "$SC_SCRATCH.verdict" || verdict=""
         case "$verdict" in
@@ -555,6 +668,7 @@ sync_check() {
         cat "$SC_SCRATCH.log" >&2
         return "$rc"
     fi
+    sync_check_warnings < "$SC_SCRATCH.log" >&2
     if [ "$verdict" = differs ]; then
         IS_CHECK_OUT_OF_DATE=1
         is_status out-of-date "rendering would change generated files; run 'intelligence sync'"

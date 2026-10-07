@@ -210,6 +210,17 @@ SYNC_PARALLEL=1
 SYNC_BG_PIDS=()
 SYNC_COPY_INDEXES=()
 
+# An accepted output-root directory link is a write path, unlike a nested
+# generated asset link. Checks must retain the bytes behind that root too.
+snapshot_sync_entry() {
+    local src="$1" index="$2"
+    cp -a "$src" "$SYNC_TX_DIR/data/$index" || return $?
+    if [ -n "${IS_SYNC_CHECK:-}" ] && [ -L "$src" ] && [ -d "$src" ]; then
+        mkdir -p "$SYNC_TX_DIR/targets/$index" || return $?
+        cp -a "$src/." "$SYNC_TX_DIR/targets/$index" || return $?
+    fi
+}
+
 snapshot_sync_path() {
     local adapter_name="$1" rel="$2" src index present=0
     case "$SYNC_TX_SEEN_LIST" in
@@ -223,11 +234,11 @@ snapshot_sync_path() {
         # Copies of distinct paths into distinct slots: they can overlap, and
         # The snapshot wait before the render collects every status.
         if [ "$SYNC_PARALLEL" = 1 ]; then
-            cp -a "$src" "$SYNC_TX_DIR/data/$index" 2> "$SYNC_TX_DIR/copy.$index.err" &
+            snapshot_sync_entry "$src" "$index" 2> "$SYNC_TX_DIR/copy.$index.err" &
             SYNC_BG_PIDS+=("$!")
             SYNC_COPY_INDEXES+=("$index")
         else
-            cp -a "$src" "$SYNC_TX_DIR/data/$index"
+            snapshot_sync_entry "$src" "$index"
         fi
         present=1
     fi
@@ -273,64 +284,66 @@ wait_sync_jobs() {
     return "$first"
 }
 
-# compare_sync_snapshot — after a render, 0 when every snapshotted path holds
-# exactly what it held before (names, entry kinds, bytes and executable bits),
-# 1 when one differs, 2 when the comparison itself failed. One process per
-# path plus one find for executable bits; nothing here writes.
+# Compare each entry without following links: copied relative and dangling
+# links describe their targets, not bytes at the snapshot's new location.
+compare_sync_entries() {
+    local snap="$1" live="$2" rc=0 target before
+    if [ -L "$snap" ]; then
+        [ -L "$live" ] || return 1
+        before="$(readlink "$snap")" || return 2
+        target="$(readlink "$live")" || return 2
+        # Source links inside the private copy refer to its root. Compare the
+        # generated target in the original project's coordinate system.
+        if [ -n "${IS_SYNC_CHECK_ROOT:-}" ] && [ -n "${IS_SYNC_CHECK:-}" ]; then
+            case "$before" in "$REPO_ROOT") before="$IS_SYNC_CHECK_ROOT" ;; "$REPO_ROOT"/*) before="$IS_SYNC_CHECK_ROOT/${before#"$REPO_ROOT/"}" ;; esac
+            case "$target" in "$REPO_ROOT") target="$IS_SYNC_CHECK_ROOT" ;; "$REPO_ROOT"/*) target="$IS_SYNC_CHECK_ROOT/${target#"$REPO_ROOT/"}" ;; esac
+        fi
+        [ "$before" = "$target" ] || return 1
+    elif [ -L "$live" ]; then
+        return 1
+    elif [ -f "$snap" ] && [ -f "$live" ]; then
+        cmp -s "$snap" "$live" || rc=$?
+        case "$rc" in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+        if [ -x "$snap" ]; then [ -x "$live" ] || return 1; else [ ! -x "$live" ] || return 1; fi
+    elif [ -d "$snap" ] && [ -d "$live" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 compare_sync_snapshot() {
-    local index rel present live snap rc sub snapshot_exec="" live_exec="" entry
-    local -a rel_of=() exec_starts=()
+    local index rel present live snap entry sub
     while IFS=$'\t' read -r index rel present; do
         [ -n "$rel" ] || continue
-        rel_of[index]="$rel"
         live="$REPO_ROOT/$rel"
         snap="$SYNC_TX_DIR/data/$index"
         if [ "$present" != 1 ]; then
             if [ -e "$live" ] || [ -L "$live" ]; then return 1; fi
             continue
         fi
-        # A render replaces a link or writes through it; either way the bytes
-        # behind it are not the snapshot's to vouch for.
-        if [ -L "$snap" ] || [ -L "$live" ]; then return 1; fi
-        rc=0
-        if [ -f "$snap" ] && [ -f "$live" ]; then
-            cmp -s "$snap" "$live" || rc=$?
-            if [ -x "$snap" ]; then [ -x "$live" ] || return 1; else [ ! -x "$live" ] || return 1; fi
-        elif [ -d "$snap" ] && [ -d "$live" ]; then
-            diff -r "$snap" "$live" > /dev/null 2>&1 || rc=$?
-            exec_starts+=("$snap" "$live")
-        else
-            return 1
+        compare_sync_entries "$snap" "$live" || return $?
+        if [ -d "$SYNC_TX_DIR/targets/$index" ]; then
+            # validate_output_path permitted this physical directory inside
+            # the private project. Only its root is followed; descendants
+            # still use the entry-kind and literal-target comparison.
+            snap="$SYNC_TX_DIR/targets/$index"
+            live="$(cd "$live" && pwd -P)" || return 2
         fi
-        case "$rc" in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+        [ ! -L "$snap" ] && [ -d "$snap" ] || continue
+        # NUL-delimited paths also preserve whitespace and newlines. find's
+        # default walk does not dereference links on GNU or BSD userland.
+        find "$snap" -print0 > "$SYNC_TX_DIR/snapshot.list" || return 2
+        find "$live" -print0 > "$SYNC_TX_DIR/live.list" || return 2
+        while IFS= read -r -d '' entry; do
+            sub="${entry#"$snap"}"
+            compare_sync_entries "$entry" "$live$sub" || return $?
+        done < "$SYNC_TX_DIR/snapshot.list"
+        while IFS= read -r -d '' entry; do
+            sub="${entry#"$live"}"
+            [ -e "$snap$sub" ] || [ -L "$snap$sub" ] || return 1
+        done < "$SYNC_TX_DIR/live.list"
     done < "$SYNC_TX_INDEX"
-    [ "${#exec_starts[@]}" -gt 0 ] || return 0
-    # Executable bits inside directories, compared as repository paths: the
-    # snapshot side is data/<index>/<path>, the rendered side <root>/<path>.
-    find "${exec_starts[@]}" -type f -perm -100 -print > "$SYNC_TX_DIR/exec.list" || return 2
-    while IFS= read -r entry; do
-        case "$entry" in
-            "$SYNC_TX_DIR/data/"*)
-                entry="${entry#"$SYNC_TX_DIR/data/"}"
-                index="${entry%%/*}" sub="${entry#*/}"
-                snapshot_exec="$snapshot_exec${rel_of[index]}/$sub"$'\n'
-                ;;
-            "$REPO_ROOT/"*)
-                live_exec="$live_exec${entry#"$REPO_ROOT/"}"$'\n'
-                ;;
-            *) return 2 ;;
-        esac
-    done < "$SYNC_TX_DIR/exec.list"
-    # Nested managed paths list one file under both of them, so compare the
-    # two sets both ways rather than count them.
-    while IFS= read -r entry; do
-        [ -n "$entry" ] || continue
-        case $'\n'"$live_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
-    done <<< "$snapshot_exec"
-    while IFS= read -r entry; do
-        [ -n "$entry" ] || continue
-        case $'\n'"$snapshot_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
-    done <<< "$live_exec"
 }
 
 finish_sync_transaction() {

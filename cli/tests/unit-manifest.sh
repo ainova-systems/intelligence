@@ -970,5 +970,13 @@ chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" "first/rules|docs/
 chk eq "$(sources_list_entries "$CM" agents)" ""
 chknot grep -q 'the package\|by alias' "$CM"
 
+# An in-process writer invalidates the engine view as well as qmap answers.
+VIEW="$OUT/view.yaml"
+printf 'sources:\n  rules:\n    - before/rules\n' > "$VIEW"
+load_yaml_lists "$VIEW" rules
+sources_add_entry "$VIEW" rules after/rules
+load_yaml_list "$VIEW" rules
+chk eq "$IS_YAML_LIST" $'before/rules\nafter/rules'
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

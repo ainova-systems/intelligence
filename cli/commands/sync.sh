@@ -3,6 +3,9 @@
 # to enabled tools, or report whether rendering would change anything.
 set -euo pipefail
 
+# Only sync_check may request a comparison from the engine.
+unset IS_SYNC_CHECK IS_SYNC_CHECK_ROOT
+
 # Print before library loading and lifecycle checks so a content verification
 # never looks idle. Compact output remains a buffered machine-readable report,
 # and a check prints only its verdict.
@@ -113,7 +116,7 @@ run_check() {
         is_status out-of-date "the project needs alignment (stamp ${stamp:-unstamped}, engine $IS_BUNDLED_ENGINE_VERSION); run 'intelligence init --apply' locally, review and commit the diff"
         return "$IS_RC_OUT_OF_DATE"
     fi
-    restore_project_store_if_missing "$IP_ROOT" >&2 || return $?
+    restore_project_store_if_missing "$IP_ROOT" keep-sources >&2 || return $?
     export_engine_env "$IP_ROOT" || return $?
     sync_check "$target" "$force" || return $?
 }

@@ -17,9 +17,13 @@ content alignment is the CLI's preflight — `init --apply` is the reviewed path
 `IS_CLI=1`, `CONFIG_FILE`, `REPO_ROOT`, `IS_CONTENT_REL`, `IS_MODULE_REL`,
 `IS_MANIFEST_NAME`, `IS_SYNC_CMD`, `IS_PROTECTED_DIRS`. Read them; never rederive a
 value one of them already carries. `sync --check` adds `IS_SYNC_CHECK`: the engine
-renders as it always does, compares every snapshotted path with what the render
-left, restores the snapshot whatever the answer, and writes `same` or `differs`
-to that file. A check changes no file, so the restore is not a failure path.
+renders in a private project copy, compares every snapshotted path with what
+the render left without following nested generated links, discards the copy,
+and writes `same`
+or `differs` to that file. The live output is never rendered or restored by a
+check; its concurrent edits stay untouched. See `docs/cli.md` for the private
+root supplied to project adapters. An accepted output-root directory link also
+snapshots its physical directory contents; linked roots bypass cache reuse.
 
 `engine/lib/contract.sh` owns the permanent top-level `schema_version` key, its
 compatibility guard, and the stable `IS_STATUS` / `IS_RC_*` contract: `0` ok,

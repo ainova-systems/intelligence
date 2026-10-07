@@ -8,7 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0018).
+- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders in a private project copy and compares every generated path without touching the live output. `--check --force` always renders (decision 0018).
 
 ### Changed
 
@@ -16,6 +16,21 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - Every warning sync and the CLI print is a `WARNING:` line, so `sync --compact`, its unchanged-run replay and `init` keep it — the frontmatter lint's "will be REJECTED at load time" included (#51).
 - A symlink in a skills source whose target stays inside that source is rendered as regular files in every skill tree, with quoting, effort and the Codex invocation policy applied; a link that escapes its source, dangles or loops is left out of every output with one `WARNING:` naming the skill and the link. Claude Code, Cursor and Copilot no longer receive raw links, and a skills source directory that is itself a symlink is read everywhere (decision 0017, #44, #47).
+
+### Fixed
+
+- `sync --check` preserves hand-edited source lists while restoring the package store and forwards complete renderer warnings to stderr.
+- Private check copies preserve relative external adapter inputs and exact-root links while keeping generated link spelling significant.
+- Checks detect generated-byte changes behind accepted directory-link output roots without changing the live target.
+- A configured source with a trailing slash no longer emits a false not-synced warning.
+- Source paths ending in a slash no longer prevent sync cache hits.
+- The sync-cache failure-injection fixture supplies a valid partial file list under mawk.
+- `sync --check` compares generated asset links without dereferencing them and detects link-to-file changes even when the bytes match.
+- `sync --check` renders in a private project copy so concurrent edits to the live outputs are preserved.
+- Preserved hand-written files inside managed directories no longer make `sync --check` report generated changes.
+- An inherited `IS_SYNC_CHECK` no longer turns a plain `sync` into a check.
+- The CLI finds its engine when invoked through an absolute path with doubled slashes.
+- In-process manifest writes invalidate the engine's cached manifest view, and CLI list reads share the engine cache helper.
 
 ## [0.19.0]
 

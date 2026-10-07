@@ -2,7 +2,7 @@
 # `sync --check` says whether sync would change generated files and changes
 # none itself: 0 up to date, 2 sync needed, any other status an error. A valid
 # record from the same tooling answers without rendering; otherwise the engine
-# renders inside its snapshot transaction and restores every path.
+# renders in a private project copy without touching live output.
 # Fixtures stay outside the checkout so project discovery cannot select it.
 set -euo pipefail
 unset CI
@@ -28,6 +28,7 @@ case "${1:-}" in
     */engine/sync.sh)
         echo engine >> "$LOG"
         if [ -e "$LOG.exit2" ]; then echo 'Simulated renderer status 2' >&2; exit 2; fi
+        if [ -e "$LOG.warnings" ]; then printf 'WARNING: Probe warning\n    Probe continuation\n' >&2; fi
         ;;
 esac
 exec "$REAL" "$@"
@@ -41,6 +42,7 @@ fail() { printf 'FAIL: %s\n--- stdout\n%s\n--- stderr\n%s\n' "$1" "$OUT" "$ERR" 
 check() { checks=$((checks + 1)); "$@" || fail "$*"; }
 has() { grep -qF -- "$1" <<< "$OUT"; }
 err_has() { grep -qF -- "$1" <<< "$ERR"; }
+err_lacks() { ! err_has "$1"; }
 one_line() { [ -n "$OUT" ] && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" -eq 1 ]; }
 rendered() { grep -qx engine "$TMP/operations"; }
 not_rendered() { ! rendered; }
@@ -144,8 +146,8 @@ echo '== A hand-edited generated file is reported and kept =='
 printf '<!-- hand edit -->\n' >> "$PROJECT/AGENTS.md"
 run --check
 check test "$RC" -eq 2
-check has 'generated files changed'
-check not_rendered
+check has 'rendering would change generated files'
+check rendered
 check test "$(tail -n 1 "$PROJECT/AGENTS.md")" = '<!-- hand edit -->'
 replace_line "$rule" Alpha Bravo
 run --check
@@ -156,6 +158,192 @@ run
 check test "$RC" -eq 0
 run --check
 check test "$RC" -eq 0
+
+echo '== A never-synced check leaves no output directories behind =='
+FRESH="$TMP/fresh"
+mkdir "$FRESH"
+cp -a "$PROJECT/intelligence" "$FRESH/"
+cp "$TMP/manifest" "$FRESH/intelligence.yaml"
+run_in "$FRESH" --check --force
+check test "$RC" -eq 2
+check test ! -e "$FRESH/AGENTS.md"
+check test ! -e "$FRESH/.claude"
+check test ! -e "$FRESH/.agents"
+check test ! -e "$FRESH/.codex"
+
+echo '== A trailing slash in a source keeps cache checks usable =='
+replace_line "$PROJECT/intelligence.yaml" '    - intelligence/rules' '    - intelligence/rules/'
+run
+check test "$RC" -eq 0
+check err_lacks 'NOT SYNCED: intelligence/rules'
+run --check
+check test "$RC" -eq 0
+check not_rendered
+cp "$TMP/manifest" "$PROJECT/intelligence.yaml"
+run
+check test "$RC" -eq 0
+
+echo '== Warnings from a successful check reach stderr =='
+awk '{ print; if ($0 == "  codex:") print "    warn_project_doc_limit: 1" }' "$TMP/manifest" > "$PROJECT/intelligence.yaml"
+run --check --force
+check test "$RC" -eq 0
+check err_has 'WARNING: Codex'
+cp "$TMP/manifest" "$PROJECT/intelligence.yaml"
+
+echo '== External relative adapter inputs retain their resolution =='
+LINK_PROJECT="$TMP/link-project"
+mkdir -p "$LINK_PROJECT/intelligence/adapters" "$LINK_PROJECT/intelligence/rules"
+cp "$PROJECT/intelligence/rules/base.md" "$LINK_PROJECT/intelligence/rules/base.md"
+cat > "$LINK_PROJECT/intelligence.yaml" <<EOF
+schema_version: "$VERSION"
+sources:
+  rules:
+    - intelligence/rules
+targets:
+  probe: { enabled: true, output: ".probe" }
+EOF
+cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned .probe; }
+sync_to_probe() {
+    mkdir -p "$1/.probe"
+    ln -sf ../../../outside "$1/.probe/link"
+    printf 'probe\n' > "$1/.probe/value"
+}
+EOF
+if MSYS=winsymlinks:nativestrict ln -s ../../../probe.sh "$LINK_PROJECT/intelligence/adapters/probe.sh" 2>/dev/null; then
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+    check test "$(readlink "$LINK_PROJECT/.probe/link")" = ../../../outside
+    # Resolved target equality is insufficient: link spelling is part of output.
+    ln -sf "$TMP/../outside" "$LINK_PROJECT/.probe/link"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 2
+    check test "$(readlink "$LINK_PROJECT/.probe/link")" = "$TMP/../outside"
+    # A root link used as an output ancestor remains inside the private project.
+    ln -s "$LINK_PROJECT" "$LINK_PROJECT/root-link"
+    sed 's/output: ".probe"/output: "root-link\/.probe"/' "$LINK_PROJECT/intelligence.yaml" > "$TMP/link-manifest"
+    cp "$TMP/link-manifest" "$LINK_PROJECT/intelligence.yaml"
+    cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
+sync_to_probe() { mkdir -p "$3"; printf 'probe\n' > "$3/value"; }
+EOF
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+else
+    echo '  (native symlinks unavailable ? external-input cases skipped)'
+fi
+
+echo '== An owned directory-link output compares its physical target =='
+if [ -L "$LINK_PROJECT/root-link" ]; then
+    cp "$TMP/link-manifest" "$LINK_PROJECT/intelligence.yaml"
+    sed 's@root-link/.probe@.probe@' "$LINK_PROJECT/intelligence.yaml" > "$TMP/dir-manifest"
+    cp "$TMP/dir-manifest" "$LINK_PROJECT/intelligence.yaml"
+    rm -rf "$LINK_PROJECT/.probe"
+    mkdir "$LINK_PROJECT/actual"
+    ln -s actual "$LINK_PROJECT/.probe"
+    printf old > "$LINK_PROJECT/mode"
+    cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
+sync_to_probe() { mkdir -p "$3"; cat "$1/mode" > "$3/value"; }
+EOF
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check
+    check test "$RC" -eq 0
+    check rendered
+    printf new > "$LINK_PROJECT/mode"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 2
+    check grep -qx old "$LINK_PROJECT/actual/value"
+    check test "$(readlink "$LINK_PROJECT/.probe")" = actual
+    run_in "$LINK_PROJECT" --check
+    check test "$RC" -eq 2
+    check rendered
+    check grep -qx old "$LINK_PROJECT/actual/value"
+    run_in "$LINK_PROJECT" --force
+    check test "$RC" -eq 0
+    check grep -qx new "$LINK_PROJECT/actual/value"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+    # External directory targets are refused before the adapter can write.
+    rm "$LINK_PROJECT/.probe"
+    mkdir "$TMP/external-output"
+    printf untouched > "$TMP/external-output/value"
+    ln -s "$TMP/external-output" "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check grep -qx untouched "$TMP/external-output/value"
+    # File and dangling output roots are also refused, matching plain sync.
+    rm "$LINK_PROJECT/.probe"
+    ln -s actual/value "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check grep -qx new "$LINK_PROJECT/actual/value"
+    rm "$LINK_PROJECT/.probe"
+    ln -s missing "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check test ! -e "$LINK_PROJECT/missing"
+fi
+
+echo '== Cached and rendered checks keep indented warning continuations =='
+touch "$TMP/operations.warnings"
+run --force
+check test "$RC" -eq 0
+run --check
+check test "$RC" -eq 0
+check not_rendered
+check err_has 'WARNING: Probe warning'
+check err_has '    Probe continuation'
+run --check --force
+check test "$RC" -eq 0
+check err_has 'WARNING: Probe warning'
+check err_has '    Probe continuation'
+rm "$TMP/operations.warnings"
+run --force
+check test "$RC" -eq 0
+
+echo '== Preserved managed siblings do not make a check report generated changes =='
+printf '# Hand-written skills notes\n' > "$PROJECT/.agents/skills/README.md"
+run
+check test "$RC" -eq 0
+printf 'Edited notes\n' >> "$PROJECT/.agents/skills/README.md"
+run --check
+check test "$RC" -eq 0
+check grep -qx 'Edited notes' "$PROJECT/.agents/skills/README.md"
+run --check --force
+check test "$RC" -eq 0
+check grep -qx 'Edited notes' "$PROJECT/.agents/skills/README.md"
+
+echo '== Inherited check state cannot turn a normal sync into a check =='
+replace_line "$rule" Alpha Bravo
+export IS_SYNC_CHECK="$TMP/inherited-verdict"
+run --force
+unset IS_SYNC_CHECK
+check test "$RC" -eq 0
+check grep -q Bravo "$PROJECT/AGENTS.md"
+check test ! -e "$TMP/inherited-verdict"
+cp -p "$TMP/rule-before" "$rule"
+run
+check test "$RC" -eq 0
+
+echo '== Doubled slash dispatcher invocation finds the bundled engine =='
+OUT="$(bash "$TMP/runtime/cli//intelligence" version 2> "$TMP/stderr")"
+check has "$VERSION"
+
+echo '== A concurrent write during a check is preserved =='
+cp "$TMP/runtime/engine/sync.sh" "$TMP/engine-before"
+# The private render writes only its tree; simulate a user writing the real
+# project's preserved sibling after the check copied it.
+printf '\nprintf "Concurrent edit\\n" >> %q\n' "$PROJECT/.agents/skills/README.md" >> "$TMP/runtime/engine/sync.sh"
+run --check --force
+check test "$RC" -eq 0
+check grep -qx 'Concurrent edit' "$PROJECT/.agents/skills/README.md"
+cp "$TMP/engine-before" "$TMP/runtime/engine/sync.sh"
 
 echo '== Without a record the check renders, compares, restores and records =='
 save_outputs
@@ -251,7 +439,7 @@ chmod +x "$generated"
 if [ -x "$generated" ]; then
     run --check
     check test "$RC" -eq 2
-    check has 'generated files changed'
+    check has 'rendering would change generated files'
     rm -rf "$PROJECT/.intelligence/sync-cache"
     run --check
     check test "$RC" -eq 2
@@ -308,6 +496,12 @@ if MSYS=winsymlinks:nativestrict ln -s "$TMP/link-target/file" "$source_link" 2>
     check outputs_kept
     check test "$(readlink "$PROJECT/.claude/skills/demo/assets/link")" = "$TMP/link-target/file"
     check test "$(readlink "$PROJECT/.agents/skills/demo/assets/link")" = "$TMP/link-target/file"
+    rm "$source_link"
+    ln -s "$PROJECT/intelligence/skills/demo/assets/data.txt" "$source_link"
+    run
+    check test "$RC" -eq 0
+    run --check --force
+    check test "$RC" -eq 0
     rm "$source_link"
     run
     check test "$RC" -eq 0
@@ -409,6 +603,15 @@ check test -d "$STORE_PROJECT/.intelligence/packages/@ainova-systems/sync"
 check cmp "$TMP/store-manifest" "$STORE_PROJECT/intelligence.yaml"
 check cmp "$TMP/store-lock" "$STORE_PROJECT/intelligence.lock"
 check cmp "$TMP/store-agents" "$STORE_PROJECT/AGENTS.md"
+# A hand-edited sources list must remain byte-identical even after restore.
+awk '!/packages\/@ainova-systems\/sync\/rules/' "$STORE_PROJECT/intelligence.yaml" > "$TMP/omitted-source"
+cp "$TMP/omitted-source" "$STORE_PROJECT/intelligence.yaml"
+rm -rf "$STORE_PROJECT/.intelligence"
+run_in "$STORE_PROJECT" --check
+check test "$RC" -eq 2
+check cmp "$TMP/omitted-source" "$STORE_PROJECT/intelligence.yaml"
+cp "$TMP/store-manifest" "$STORE_PROJECT/intelligence.yaml"
+
 # A restore that cannot finish is an error, never a verdict.
 rm -rf "$STORE_PROJECT/.intelligence/packages"
 printf 'not a directory\n' > "$STORE_PROJECT/.intelligence/packages"

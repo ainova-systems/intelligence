@@ -52,7 +52,7 @@ WRAPPER
 for arg in "$@"; do
     [ "$arg" != "$PROJECT" ] || echo discovery >> "$LOG"
     if [ -e "$LOG.fail-find" ] && [ "$arg" = "$PROJECT/intelligence/skills" ]; then
-        printf '%s\n' "$PROJECT/intelligence/skills/demo"
+        printf '%s\n' "$PROJECT/intelligence/skills/demo/SKILL.md"
         exit 1
     fi
 done

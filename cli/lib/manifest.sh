@@ -214,6 +214,7 @@ qmap_memo_reset() {
     QMAP_MEMO_KEYS=()
     QMAP_MEMO_RCS=()
     QMAP_MEMO_OUTS=()
+    if declare -F manifest_view_reset >/dev/null; then manifest_view_reset; fi
 }
 
 # _qmap_memo_find <request...> — set IS_QMAP_MEMO_AT to the remembered answer.

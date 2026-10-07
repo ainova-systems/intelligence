@@ -572,19 +572,9 @@ project_reads_refresh() {
     project_reads_preload "$1"
 }
 
-# _yaml_list_var <file> <section> — read_yaml_list into IS_YAML_LIST: from the
-# preloaded manifest view when there is one, otherwise read now and cache
-# nothing, because this process may still edit the manifest. Either way a
-# package reference arrives as the store path it names: the view runs the same
-# expanding list program as read_yaml_list.
-_yaml_list_var() {
-    local file_var="IS_YL_${2}_FILE" val_var="IS_YL_${2}_VAL"
-    if [ "${!file_var:-}" = "$1" ]; then
-        IS_YAML_LIST="${!val_var:-}"
-    else
-        IS_YAML_LIST="$(read_yaml_list "$1" "$2")"
-    fi
-}
+# CLI and engine share one list-cache format. Writers invalidate both the
+# qmap answers and the engine view through qmap_memo_reset.
+_yaml_list_var() { load_yaml_list "$1" "$2"; }
 
 # Read-only diagnosis must distinguish usable installed metadata from metadata
 # which could actually restore a missing store.
@@ -693,6 +683,10 @@ restore_project_store_if_missing() {
     project_store_missing "$root" || return 0
     [ -f "$root/intelligence.lock" ] || die "package store is missing and intelligence.lock is absent — run 'intelligence init'"
     echo "  restoring package store from intelligence.lock"
-    bash "$CLI_DIR/internal/restore.sh" --frozen --no-sync || return $?
+    if [ "${2:-}" = keep-sources ]; then
+        bash "$CLI_DIR/internal/restore.sh" --frozen --no-sync --keep-sources || return $?
+    else
+        bash "$CLI_DIR/internal/restore.sh" --frozen --no-sync || return $?
+    fi
     project_reads_refresh "$root"
 }
