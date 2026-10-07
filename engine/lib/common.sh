@@ -528,7 +528,7 @@ _skill_bundle_note() {
     # prevent, so skip the rewrite and say so (the same reason
     # `find -type f` in the flush never matches a symlink).
     if [ -L "$dest/SKILL.md" ]; then
-        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
+        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, effort not rendered, tokens not expanded)" >&2
     elif [ -f "$dest/SKILL.md" ]; then
         _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
