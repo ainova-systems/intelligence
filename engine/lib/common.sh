@@ -816,33 +816,45 @@ has_paths() {
 
 # --- Tier/Access Mappings ---
 
-# Hardcoded defaults: ide:tier -> model name.
-# When you bump these, re-run sync in projects; any project whose config.yaml
+# Hardcoded defaults: ide:tier -> model name. Where a tool has fewer models
+# than there are tiers, tiers share one (decision 0013). When you bump these, re-run sync in projects; any project whose config.yaml
 # `models:` section diverges from these will print a drift warning so users
 # know their override is now stale.
 # get_model_default_var sets IS_MODEL_DEFAULT; get_model_default prints it.
 get_model_default_var() {
     case "$1:$2" in
+        # Haiku 4.5 retires no sooner than 2026-10-15 and has no successor, so
+        # light shares standard's Sonnet on every Claude-backed target.
+        claude:frontier)  IS_MODEL_DEFAULT="fable" ;;
         claude:heavy)     IS_MODEL_DEFAULT="opus" ;;
         claude:standard)  IS_MODEL_DEFAULT="sonnet" ;;
-        claude:light)     IS_MODEL_DEFAULT="haiku" ;;
+        claude:light)     IS_MODEL_DEFAULT="sonnet" ;;
+        # Cursor documents only `inherit` or a concrete model ID, so every
+        # tier follows the session model unless the manifest pins one.
+        cursor:frontier)  IS_MODEL_DEFAULT="inherit" ;;
         cursor:heavy)     IS_MODEL_DEFAULT="inherit" ;;
         cursor:standard)  IS_MODEL_DEFAULT="inherit" ;;
-        cursor:light)     IS_MODEL_DEFAULT="fast" ;;
-        copilot:heavy)    IS_MODEL_DEFAULT="gpt-5.6-sol" ;;
-        copilot:standard) IS_MODEL_DEFAULT="gpt-5.6-terra" ;;
-        copilot:light)    IS_MODEL_DEFAULT="gpt-5.6-luna" ;;
-        codex:heavy)      IS_MODEL_DEFAULT="gpt-5.6-sol" ;;
-        codex:standard)   IS_MODEL_DEFAULT="gpt-5.6-terra" ;;
-        codex:light)      IS_MODEL_DEFAULT="gpt-5.6-luna" ;;
-        # Antigravity accepts only inherit|flash|pro, so standard and light
-        # share `flash` — there is no third tier to map onto.
+        cursor:light)     IS_MODEL_DEFAULT="inherit" ;;
+        # GPT-6 has no mid model, so frontier and heavy share Astra; Codex
+        # separates them by reasoning effort instead.
+        copilot:frontier) IS_MODEL_DEFAULT="gpt-6-astra" ;;
+        copilot:heavy)    IS_MODEL_DEFAULT="gpt-6-astra" ;;
+        copilot:standard) IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
+        copilot:light)    IS_MODEL_DEFAULT="gpt-6-luna" ;;
+        codex:frontier)   IS_MODEL_DEFAULT="gpt-6-astra" ;;
+        codex:heavy)      IS_MODEL_DEFAULT="gpt-6-astra" ;;
+        codex:standard)   IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
+        codex:light)      IS_MODEL_DEFAULT="gpt-6-luna" ;;
+        # Antigravity accepts only inherit|flash|pro, so frontier and heavy
+        # share `pro` and standard and light share `flash`.
+        antigravity:frontier)  IS_MODEL_DEFAULT="pro" ;;
         antigravity:heavy)     IS_MODEL_DEFAULT="pro" ;;
         antigravity:standard)  IS_MODEL_DEFAULT="flash" ;;
         antigravity:light)     IS_MODEL_DEFAULT="flash" ;;
-        opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-4-8" ;;
-        opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5" ;;
-        opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-haiku-4-5-20251001" ;;
+        opencode:frontier) IS_MODEL_DEFAULT="anthropic/claude-fable-5-1" ;;
+        opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-5-5" ;;
+        opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;
+        opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;
         *)                IS_MODEL_DEFAULT="" ;;
     esac
 }
@@ -925,25 +937,29 @@ get_model() {
     fi
 }
 
-# load_model_tiers <config_file> <ide> — resolve the three standard tiers
-# once per adapter run (IS_MODEL_HEAVY / IS_MODEL_STANDARD / IS_MODEL_LIGHT)
-# so per-file loops map tier -> model without forking. resolve_model_var
-# consumes them; a non-standard tier value still goes through get_model so a
-# `models:` override for it keeps working. One manifest pass reads all three.
+# load_model_tiers <config_file> <ide> — resolve the four standard tiers
+# once per adapter run (IS_MODEL_FRONTIER / IS_MODEL_HEAVY /
+# IS_MODEL_STANDARD / IS_MODEL_LIGHT) so per-file loops map tier -> model
+# without forking. resolve_model_var consumes them; a non-standard tier value
+# still goes through get_model so a `models:` override for it keeps working.
+# One manifest pass reads all four.
 load_model_tiers() {
-    local config_file="$1" ide="$2" overrides="" tier val heavy="" standard="" light=""
+    local config_file="$1" ide="$2" overrides="" tier val frontier="" heavy="" standard="" light=""
     IS_MODEL_CFG="$config_file"
     IS_MODEL_IDE="$ide"
     if [ -n "$config_file" ] && [ -f "$config_file" ]; then
-        overrides="$(_nested_yaml_values tagged "$config_file" "models" "$ide" heavy standard light)"
+        overrides="$(_nested_yaml_values tagged "$config_file" "models" "$ide" frontier heavy standard light)"
     fi
     while IFS=$'\037' read -r tier val; do
         case "$tier" in
+            frontier) frontier="$val" ;;
             heavy) heavy="$val" ;;
             standard) standard="$val" ;;
             light) light="$val" ;;
         esac
     done <<< "$overrides"
+    get_model_default_var "$ide" frontier
+    IS_MODEL_FRONTIER="${frontier:-$IS_MODEL_DEFAULT}"
     get_model_default_var "$ide" heavy
     IS_MODEL_HEAVY="${heavy:-$IS_MODEL_DEFAULT}"
     get_model_default_var "$ide" standard
@@ -957,6 +973,7 @@ load_model_tiers() {
 # shellcheck disable=SC2034  # IS_MODEL is the return channel read by adapters
 resolve_model_var() {
     case "$1" in
+        frontier) IS_MODEL="$IS_MODEL_FRONTIER" ;;
         heavy|"") IS_MODEL="$IS_MODEL_HEAVY" ;;
         standard) IS_MODEL="$IS_MODEL_STANDARD" ;;
         light)    IS_MODEL="$IS_MODEL_LIGHT" ;;

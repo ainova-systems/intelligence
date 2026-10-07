@@ -4,6 +4,23 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.18.0]
+
+### Added
+
+- Agents accept `tier: frontier` above `heavy`: `fable` for Claude Code, `gpt-6-astra` with `model_reasoning_effort = "xhigh"` for Codex, `gpt-6-astra` for Copilot, `anthropic/claude-fable-5-1` for OpenCode, `pro` for Antigravity and `inherit` for Cursor (decision 0013).
+
+### Changed
+
+- Codex and Copilot default to GPT-6: `heavy` is `gpt-6-astra`, `standard` is `gpt-6.1-sol` and `light` is `gpt-6-luna`.
+- OpenCode defaults to `anthropic/claude-opus-5-5` for `heavy` and `anthropic/claude-sonnet-5-5` for `standard`.
+- `light` no longer uses the retiring Haiku 4.5: Claude Code gets `sonnet` and OpenCode `anthropic/claude-sonnet-5-5`.
+- Cursor's `light` default is `inherit`; `fast` is no longer a documented model value.
+
+### Fixed
+
+- A Codex agent without a `tier` gets `model_reasoning_effort = "high"`, matching the `heavy` model it resolves to; it received `medium`.
+
 ## [0.17.3]
 
 ### Fixed

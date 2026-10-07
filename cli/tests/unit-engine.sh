@@ -129,6 +129,7 @@ M="$OUT/models.yaml"
 cat > "$M" <<'EOF'
 models:
   claude:
+    frontier: fable-z
     heavy: "claude-x" # quoted keeps # inside? no: comment after quote
     standard: sonnet-y # comment
     light: 'quoted light'
@@ -161,11 +162,12 @@ oracle_nested() {
     ' "$1"
 }
 for ide in claude copilot cursor; do
-    for tier in heavy standard light; do
+    for tier in frontier heavy standard light; do
         chk eq "$(get_nested_yaml_value "$M" models "$ide" "$tier")" "$(oracle_nested "$M" models "$ide" "$tier")"
         chk eq "$(get_model "$M" "$ide" "$tier")" "$(o="$(oracle_nested "$M" models "$ide" "$tier")"; [ -n "$o" ] && echo "$o" || get_model_default "$ide" "$tier")"
     done
     load_model_tiers "$M" "$ide"
+    chk eq "$IS_MODEL_FRONTIER" "$(get_model "$M" "$ide" frontier)"
     chk eq "$IS_MODEL_HEAVY" "$(get_model "$M" "$ide" heavy)"
     chk eq "$IS_MODEL_STANDARD" "$(get_model "$M" "$ide" standard)"
     chk eq "$IS_MODEL_LIGHT" "$(get_model "$M" "$ide" light)"
@@ -173,7 +175,19 @@ done
 chk eq "$(get_nested_yaml_value "$M" packs "a.b" url)" "https://host/repo.git"
 chk eq "$(get_nested_yaml_value "$M" packs "axb" url)" ""
 load_model_tiers "$OUT/absent-models.yaml" claude
-chk eq "$IS_MODEL_HEAVY/$IS_MODEL_STANDARD/$IS_MODEL_LIGHT" "opus/sonnet/haiku"
+chk eq "$IS_MODEL_FRONTIER/$IS_MODEL_HEAVY/$IS_MODEL_STANDARD/$IS_MODEL_LIGHT" "fable/opus/sonnet/sonnet"
+
+echo "== every built-in agent target has a default for every standard tier =="
+# An adapter writes whatever the tier resolves to, so a tier one tool has no
+# default for renders an empty `model:` instead of failing.
+for ide in claude cursor copilot codex antigravity opencode; do
+    load_model_tiers "$OUT/absent-models.yaml" "$ide"
+    for tier in frontier heavy standard light; do
+        resolve_model_var "$tier"
+        [ -n "$IS_MODEL" ] || { echo "FAIL: no $ide default for tier $tier"; fail=1; }
+        chk eq "$IS_MODEL" "$(get_model_default "$ide" "$tier")"
+    done
+done
 
 echo "== count_matching_files: what find | wc -l reports per directory =="
 C="$OUT/counts"
