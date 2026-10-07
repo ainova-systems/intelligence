@@ -39,11 +39,12 @@ That coupling left an author no way to say what they meant:
    OpenCode, Antigravity and Pi never receive an `effort:` key, in agents or in
    their own skill copies.
 5. **An off-scale value warns and is otherwise absent.** `effort: hiigh` or
-   `effort: High` prints one `WARN` line naming the source file, the value and
-   the allowed levels, renders as if `effort:` were not there, and leaves the
-   exit code alone. The warning comes from the frontmatter lint every sync
+   `effort: High` prints one `WARNING:` line naming the source file, the value
+   and the allowed levels, renders as if `effort:` were not there, and leaves
+   the exit code alone. The warning comes from the frontmatter lint every sync
    already runs over its sources, so it names the source once however many
-   tools render it.
+   tools render it. Unlike that lint's indented notes it is a `WARNING:` line,
+   as decision 0016's is, so `sync --compact` and `init` show it too.
 6. **An empty value is an absent effort**: `effort:` or `effort: ""` warns about
    nothing, and no generated file carries an empty `effort:` or
    `model_reasoning_effort`.

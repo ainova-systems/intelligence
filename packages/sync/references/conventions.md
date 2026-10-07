@@ -208,7 +208,7 @@ The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Overr
 
 A level a tool lacks becomes the nearest lower level it has. Which levels a particular model supports is left to the tool: a manifest can override the model, and Claude Code itself falls back to the highest level the active model supports at or below the one requested. Tools without a per-agent effort field keep their own setting.
 
-A value off the scale — `hiigh`, `High` — never fails a sync. Sync prints a `WARN` line naming the file, the value and the allowed levels, and renders the artifact as if `effort:` were absent, because packages arrive from many sources and one author's typo must not block another team. An empty `effort:` is simply absent.
+A value off the scale — `hiigh`, `High` — never fails a sync. Sync prints a `WARNING:` line naming the file, the value and the allowed levels — `sync --compact` and `init` show it too — and renders the artifact as if `effort:` were absent, because packages arrive from many sources and one author's typo must not block another team. An empty `effort:` is simply absent.
 
 Skills take the same field. `.claude/skills/` receives Claude's level, the shared `.agents/skills/` tree keeps a valid level as written, and Copilot's and Cursor's skill copies carry none; an empty or off-scale value is removed from every copy. Codex has no per-skill effort.
 

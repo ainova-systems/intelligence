@@ -528,7 +528,7 @@ _skill_bundle_note() {
     # prevent, so skip the rewrite and say so (the same reason
     # `find -type f` in the flush never matches a symlink).
     if [ -L "$dest/SKILL.md" ]; then
-        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, effort not rendered, tokens not expanded)" >&2
+        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
     elif [ -f "$dest/SKILL.md" ]; then
         _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
@@ -863,7 +863,9 @@ enforce_authored_invocation_policies() {
 # The engine lints every source once, so this is also where an `effort:` off
 # IS_EFFORT_LEVELS is reported — read with frontmatter_index's semantics,
 # first occurrence only. Adapters render it as absent and say nothing, so the
-# warning names the source exactly once however many tools render it.
+# warning names the source exactly once however many tools render it. Unlike
+# the lint notes it is an unindented `WARNING:` line, because `sync --compact`
+# (and so `init`) keeps only those (decision 0015).
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
     [ "$#" -gt 0 ] || return 0
@@ -885,7 +887,7 @@ lint_frontmatter_files() {
         in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
             effort = fm_value_strip(substr($0, 8))
             if (effort != "" && !(effort in LEVEL)) {
-                printf "  WARN: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", FILENAME, FNR, effort, allowed > "/dev/stderr"
+                printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", FILENAME, FNR, effort, allowed > "/dev/stderr"
             }
         }
         in_fm && /^\t/ {

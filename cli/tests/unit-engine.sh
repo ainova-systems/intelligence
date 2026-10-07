@@ -253,8 +253,8 @@ printf '%s\r\n' '---' 'effort: ultra' '---' > "$L/crlf.md"
 printf '%s\n' 'effort: hiigh' > "$L/nofm.md"
 warnings="$(lint_frontmatter_files "$L"/*.md 2>&1 >/dev/null)"
 chk eq "$(printf '%s\n' "$warnings" | grep -c 'effort')" 2
-chk eq "$(printf '%s\n' "$warnings" | grep -c "^  WARN: $L/typo.md:2 effort \"hiigh\" is not one of low, medium, high, xhigh, max, ultra")" 1
-chk eq "$(printf '%s\n' "$warnings" | grep -c "^  WARN: $L/case.md:2 effort \"High\" is not one of")" 1
+chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/typo.md:2 effort \"hiigh\" is not one of low, medium, high, xhigh, max, ultra")" 1
+chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/case.md:2 effort \"High\" is not one of")" 1
 
 echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
 K="$OUT/skill-effort"

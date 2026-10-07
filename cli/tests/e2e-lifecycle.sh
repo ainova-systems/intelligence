@@ -846,10 +846,20 @@ for skill in skill-typo skill-bare skill-empty skill-plain; do
 done
 # One warning per off-scale source, naming it and the value; none for empty.
 for source in agents/effort-typo.md:hiigh agents/effort-case.md:High skills/skill-typo/SKILL.md:hiigh; do
-    chk eq "$(grep -c "WARN: .*intelligence/${source%%:*}:[0-9]* effort \"${source##*:}\" is not one of low, medium, high, xhigh, max, ultra" "$OUT/effort-sync.txt")" 1
+    chk eq "$(grep -c "^WARNING: .*intelligence/${source%%:*}:[0-9]* effort \"${source##*:}\" is not one of low, medium, high, xhigh, max, ultra" "$OUT/effort-sync.txt")" 1
 done
-chknot grep -Eq 'WARN: .*(effort-bare|effort-empty|skill-bare|skill-empty|effort-quoted|effort-twice|effort-crlf|skill-quoted)' "$OUT/effort-sync.txt"
-chk eq "$(grep -c 'WARN: .*effort "' "$OUT/effort-sync.txt")" 3
+chknot grep -Eq 'WARN(ING)?: .*(effort-bare|effort-empty|skill-bare|skill-empty|effort-quoted|effort-twice|effort-crlf|skill-quoted)' "$OUT/effort-sync.txt"
+chk eq "$(grep -Ec 'WARN(ING)?: .*effort "' "$OUT/effort-sync.txt")" 3
+# `sync --compact`, which `init` runs, keeps only unindented WARNING: lines, so
+# the typo reaches it: on a full render, and on the unchanged run that replays it.
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact --force > "$OUT/effort-compact.txt" 2>&1) \
+    || { echo "FAIL: effort compact sync"; cat "$OUT/effort-compact.txt"; fail=1; }
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/effort-replay.txt" 2>&1) \
+    || { echo "FAIL: effort compact replay"; cat "$OUT/effort-replay.txt"; fail=1; }
+for report in effort-compact effort-replay; do
+    chk grep -q '^WARNING: .*intelligence/agents/effort-typo.md:[0-9]* effort "hiigh" is not one of' "$OUT/$report.txt"
+    chk grep -q '^WARNING: .*intelligence/skills/skill-typo/SKILL.md:[0-9]* effort "hiigh" is not one of' "$OUT/$report.txt"
+done
 
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,

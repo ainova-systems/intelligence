@@ -9,7 +9,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Added
 
 - Agents and skills accept a tool-neutral `effort:` — `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. Claude Code agents and skills receive it as `effort:` (`ultra` becomes `max`), Codex agents as `model_reasoning_effort`, and the shared `.agents/skills/` tree keeps it as written; Copilot, Cursor, OpenCode, Antigravity and Pi receive no effort key (decision 0015).
-- An `effort:` off that scale prints a `WARN` line naming the source file and the value, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
+- An `effort:` off that scale prints a `WARNING:` line naming the source file and the value, also under `sync --compact` and `init`, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
 
 ### Changed
 
