@@ -161,6 +161,91 @@ gitignore_collapse_duplicates() {
     rm -f "$backup"
 }
 
+# gitignore_read_var <file> — load the file's lines as stored, CRs included, into
+# IS_GI_LINES. IS_GI_HEADER is the index of this policy's header (-1 when the
+# file has none) and IS_GI_FINAL_NEWLINE is 0 when the last line ends without
+# one. `read`, never awk, for the reason gitignore_collapse_duplicates gives.
+gitignore_read_var() {
+    local file="$1" line i
+    IS_GI_LINES=()
+    IS_GI_HEADER=-1
+    IS_GI_FINAL_NEWLINE=1
+    line=""
+    while IFS= read -r line; do
+        IS_GI_LINES[${#IS_GI_LINES[@]}]="$line"
+        line=""
+    done < "$file"
+    if [ -n "$line" ]; then
+        IS_GI_LINES[${#IS_GI_LINES[@]}]="$line"
+        IS_GI_FINAL_NEWLINE=0
+    fi
+    for ((i = 0; i < ${#IS_GI_LINES[@]}; i++)); do
+        if [ "${IS_GI_LINES[i]%"$IS_CR"}" = "$IS_GITIGNORE_HEADER" ]; then
+            IS_GI_HEADER=$i
+            break
+        fi
+    done
+}
+
+# gitignore_managed_has_line <root> <line> — true when the region this policy
+# owns (its header to end of file) lists the line, with or without a CR.
+gitignore_managed_has_line() {
+    local file="$1/.gitignore" want="$2" i
+    [ -f "$file" ] || return 1
+    gitignore_read_var "$file"
+    [ "$IS_GI_HEADER" -ge 0 ] || return 1
+    for ((i = IS_GI_HEADER + 1; i < ${#IS_GI_LINES[@]}; i++)); do
+        if [ "${IS_GI_LINES[i]%"$IS_CR"}" = "$want" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# gitignore_remove_managed_lines <root> <line…> — take every copy of these lines
+# out of the region this policy owns. A contract names them with `unignore` when
+# the project's configuration keeps tracked what the default policy ignores
+# (targets.copilot.commit_output), so the ignore an earlier alignment wrote is
+# withdrawn by the writer that wrote it, not by a hand edit. Lines above the
+# header predate Intelligence and stay — a hand-written copy of the same
+# pattern included — and every kept line keeps its bytes and its own ending:
+# only the file's last line can lack a newline, and none is added to it.
+gitignore_remove_managed_lines() {
+    local root="$1"; shift
+    local file="$root/.gitignore" tmp key i mi n dropped=0
+    local -a remove=("$@") keep=()
+    [ "$#" -gt 0 ] && [ -f "$file" ] || return 0
+    gitignore_read_var "$file"
+    [ "$IS_GI_HEADER" -ge 0 ] || return 0
+    n=${#IS_GI_LINES[@]}
+    for ((i = 0; i < n; i++)); do
+        keep[i]=1
+        [ "$i" -gt "$IS_GI_HEADER" ] || continue
+        key="${IS_GI_LINES[i]%"$IS_CR"}"
+        for ((mi = 0; mi < ${#remove[@]}; mi++)); do
+            if [ "$key" = "${remove[mi]}" ]; then
+                keep[i]=0
+                dropped=1
+                break
+            fi
+        done
+    done
+    [ "$dropped" -eq 1 ] || return 0
+
+    tmp="$file.cli.tmp"
+    {
+        for ((i = 0; i < n; i++)); do
+            [ "${keep[i]}" -eq 1 ] || continue
+            if [ "$i" -eq $((n - 1)) ] && [ "$IS_GI_FINAL_NEWLINE" -eq 0 ]; then
+                printf '%s' "${IS_GI_LINES[i]}"
+            else
+                printf '%s\n' "${IS_GI_LINES[i]}"
+            fi
+        done
+    } > "$tmp"
+    mv -- "$tmp" "$file"
+}
+
 # Git cannot re-include a child of an excluded directory, so an include needs an
 # explicit negation for every parent. A negation only wins when it comes after
 # the rule excluding the parent, and the only repair an append can make is to
@@ -233,18 +318,25 @@ ensure_base_gitignore() {
 
 ensure_target_gitignore() {
     local root="$1" manifest="$2" target="$3" content_dir output kind value records
+    local -a unignored=()
     ensure_gitignore_header "$root"
     content_dir="$(manifest_intelligence_dir "$manifest")"
     output="$(get_target_output "$manifest" "$target")"
     [ -n "$output" ] || output="$(default_target_output "$target")"
-    records="$(adapter_records_for "$root" "$content_dir" "$target" "$output")" \
+    records="$(adapter_records_for "$root" "$content_dir" "$target" "$output" "$manifest")" \
         || die "adapter '$target' has an invalid ownership contract"
     while IFS=$'\t' read -r kind value; do
         case "$kind" in
-            ignore)  gitignore_add_line "$root" "$value" ;;
-            include) gitignore_add_effective_include "$root" "$value" ;;
+            ignore)   gitignore_add_line "$root" "$value" ;;
+            include)  gitignore_add_effective_include "$root" "$value" ;;
+            unignore) unignored+=("$value") ;;
         esac
     done <<< "$records"
+    # One rewrite for all of them; Bash 3.2 cannot expand an empty array under
+    # `set -u`, hence the count guard.
+    if [ "${#unignored[@]}" -gt 0 ]; then
+        gitignore_remove_managed_lines "$root" "${unignored[@]}"
+    fi
 }
 
 ensure_manifest_gitignore() {
@@ -331,7 +423,7 @@ managed_gitignore_patterns() {
         [ "$(is_target_enabled "$manifest" "$target")" = "1" ] || continue
         output="$(get_target_output "$manifest" "$target")"
         [ -n "$output" ] || output="$(default_target_output "$target")"
-        records="$(adapter_records_for "$root" "$content_dir" "$target" "$output")" \
+        records="$(adapter_records_for "$root" "$content_dir" "$target" "$output" "$manifest")" \
             || return 1
         while IFS=$'\t' read -r kind value; do
             case "$kind" in

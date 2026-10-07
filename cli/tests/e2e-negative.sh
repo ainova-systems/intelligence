@@ -1018,6 +1018,17 @@ claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
 xfail "must be true, false, or a positive character count" "$CLAIMS" sync
 chk test -f "$CLAIMS/.agents/rules/scoped.md"
 
+# Copilot's Git policy takes a boolean only: a typo must not leave the policy
+# for generated output to a guess, and the refusal renders nothing.
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  copilot: { enabled: true, output: ".github", commit_output: yes }'
+xfail "targets.copilot.commit_output must be true or false" "$CLAIMS" sync
+chknot test -e "$CLAIMS/.github/instructions/scoped.instructions.md"
+claims_manifest '  agents: { enabled: true, output: "AGENTS.md" }
+  copilot: { enabled: true, output: ".github", commit_output: true }'
+xok "" "$CLAIMS" sync
+chk test -f "$CLAIMS/.github/instructions/scoped.instructions.md"
+
 # The same resolution applies to both warnings: an output spelled differently
 # still reaches the path the tool reads, so neither may cry wolf. (`./` alone is
 # not a spelling to test — it resolves to the repo root, which

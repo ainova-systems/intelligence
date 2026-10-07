@@ -135,7 +135,7 @@ while IFS= read -r target; do
         warn "adapter '$target' is declared but its implementation is missing"
         continue
     fi
-    records="$(adapter_contract_records "$target" "$adapter_file" "$output" 2>/dev/null || true)"
+    records="$(adapter_contract_records "$target" "$adapter_file" "$output" "$manifest" 2>/dev/null || true)"
     if ! printf '%s\n' "$records" | grep -Fqx $'version\t1'; then
         warn "adapter '$target' has an invalid ownership contract"
         continue
@@ -154,7 +154,12 @@ while IFS= read -r target; do
             case "$kind" in
                 ignore)
                     grep -Fqx -- "$value" "$IP_ROOT/.gitignore" 2>/dev/null \
-                        || warn "adapter '$target' Git policy is missing '$value'"
+                        || warn "adapter '$target' Git policy is missing '$value' — run 'intelligence init'"
+                    ;;
+                unignore)
+                    if gitignore_managed_has_line "$IP_ROOT" "$value"; then
+                        warn "adapter '$target' Git policy keeps '$value' tracked, but .gitignore still ignores it — run 'intelligence init'"
+                    fi
                     ;;
                 include)
                     if ! grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null; then

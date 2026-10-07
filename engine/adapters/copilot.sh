@@ -12,13 +12,20 @@
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
 #
+# Git policy (decision 0014): generated output is ignored by default, as it is
+# for Cursor and Claude Code — Copilot in the editor reads it from disk after
+# sync. GitHub's cloud Copilot (code review, the coding agent) reads the
+# repository instead, so `targets.copilot.commit_output: true` keeps the output
+# tracked. Only the generated subdirectories are named, never `.github/`
+# itself: workflows, templates and hand-written files there stay tracked.
+#
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 adapter_contract_copilot() {
-    local output="${1%/}"
+    local output="${1%/}" record=adapter_contract_ignore sub
     adapter_contract_version 1
     adapter_contract_requires agents
     adapter_contract_owned "$output/instructions"
@@ -26,6 +33,33 @@ adapter_contract_copilot() {
     adapter_contract_owned "$output/agents"
     adapter_contract_owned "$output/skills"
     adapter_contract_legacy "$output/copilot-instructions.md"
+    # A malformed value declares the default here; sync refuses it with the
+    # reason, so the policy never rests on a guess.
+    if copilot_commit_output_var "${2:-}" && [ "$IS_COPILOT_COMMIT_OUTPUT" = 1 ]; then
+        record=adapter_contract_unignore
+    fi
+    # The same four paths the contract owns: every sync rewrites them, so the
+    # ignore covers generated output only.
+    for sub in instructions prompts agents skills; do
+        "$record" "$output/$sub/"
+    done
+}
+
+# copilot_commit_output_var <manifest> — the one reader of
+# targets.copilot.commit_output. Sets IS_COPILOT_COMMIT_OUTPUT to 1 when the
+# project commits generated output and 0 for the default; returns 1 for any
+# value other than true or false. No manifest — a caller reading ownership
+# only — is the default.
+copilot_commit_output_var() {
+    local manifest="$1" setting
+    IS_COPILOT_COMMIT_OUTPUT=0
+    [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
+    setting="$(get_target_field "$manifest" "copilot" "commit_output")"
+    case "$setting" in
+        ''|false) ;;
+        true) IS_COPILOT_COMMIT_OUTPUT=1 ;;
+        *) return 1 ;;
+    esac
 }
 
 # copilot_paths_rows <file>... — batch form of the old per-file `paths:`
@@ -220,6 +254,11 @@ sync_to_copilot() {
     local output_dir="$3"
 
     echo "=== GitHub Copilot ==="
+
+    copilot_commit_output_var "$config_file" || {
+        echo "ERROR: targets.copilot.commit_output must be true or false: true keeps generated Copilot output tracked, false or omission ignores it." >&2
+        return 1
+    }
 
     # Clean generated content (preserve workflows, etc.)
     rm -rf "$output_dir/instructions" "$output_dir/prompts"

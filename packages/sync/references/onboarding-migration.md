@@ -78,8 +78,8 @@ the enabled adapters. Treat CLI-reported tracked ignored paths that still exist
 locally as unresolved until the user approves the exact `git rm --cached`
 commands. A quarantined tracked legacy path is already a worktree deletion;
 review and stage that deletion normally instead of using `git rm --cached`. Preserve
-`AGENTS.md`, `.github/`, shared settings, and unrelated files under shared tool
-roots in Git, while excluding development-only Intelligence content from
+`AGENTS.md`, hand-written `.github/` files, shared settings, and unrelated files
+under shared tool roots in Git, while excluding development-only Intelligence content from
 published artifacts. Inspect the packager's actual file list before release;
 do not infer package or Docker context contents from Git status.
 

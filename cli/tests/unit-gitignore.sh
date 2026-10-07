@@ -171,5 +171,128 @@ cp "$D/.gitignore" "$OUT/repair.once"
 gitignore_add_effective_include "$D" ".claude/settings.json"
 chk cmp -s "$OUT/repair.once" "$D/.gitignore"
 
+# --- Copilot's Git policy (decision 0014) ------------------------------------
+COPILOT_DIRS=(instructions prompts agents skills)
+COPILOT_ADAPTER="$IS_ENGINE_DIR/adapters/copilot.sh"
+# copilot_manifest <dir> <copilot entry> — the caller writes the target entry,
+# so the inline and the block form both reach the contract.
+copilot_manifest() {
+    cat > "$1/intelligence.yaml" <<EOF
+project:
+  name: copilot-policy
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+$2
+EOF
+}
+# A generated file in each owned directory, plus the hand-written neighbours
+# `.github/` holds in every GitHub repository.
+COPILOT_GENERATED=(.github/instructions/api.instructions.md .github/prompts/old.prompt.md
+    .github/agents/reviewer.agent.md .github/skills/deploy/SKILL.md)
+COPILOT_HANDWRITTEN=(.github/workflows/ci.yml .github/PULL_REQUEST_TEMPLATE.md
+    .github/copilot-instructions.md)
+
+echo "== Copilot output is ignored by default: its four directories, never .github/ =="
+D="$(fixture copilot)"
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github" }'
+ensure_base_gitignore "$D"
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+for sub in "${COPILOT_DIRS[@]}"; do
+    is ".github/$sub/ listed once" "1" "$(count_of "$D" ".github/$sub/")"
+done
+is ".github/ itself is not ignored" "0" "$(count_of "$D" '.github/')"
+for path in "${COPILOT_GENERATED[@]}"; do
+    chk git -C "$D" check-ignore -q --no-index "$path"
+done
+for path in "${COPILOT_HANDWRITTEN[@]}"; do
+    chknot git -C "$D" check-ignore -q --no-index "$path"
+done
+cp "$D/.gitignore" "$OUT/copilot-default.once"
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+chk cmp -s "$OUT/copilot-default.once" "$D/.gitignore"
+chk grep -Fqx '.github/agents/' <(managed_gitignore_patterns "$D" "$D/intelligence.yaml")
+
+echo "== commit_output: true withdraws exactly the lines the default wrote =="
+# A project line above the header — here a copy of one of the four patterns —
+# predates the policy and is the project's to keep.
+{ printf '%s\n' '# kept by the project' '.github/skills/'; cat "$D/.gitignore"; } > "$D/.gitignore.tmp" \
+    && mv "$D/.gitignore.tmp" "$D/.gitignore"
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github", commit_output: true }'
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+for sub in instructions prompts agents; do
+    is ".github/$sub/ withdrawn" "0" "$(count_of "$D" ".github/$sub/")"
+    chknot gitignore_managed_has_line "$D" ".github/$sub/"
+done
+is "the project's own copy kept" ".github/skills/" "$(sed -n '2p' "$D/.gitignore" | tr -d "$CR")"
+is "only the project's copy left" "1" "$(count_of "$D" '.github/skills/')"
+chknot gitignore_managed_has_line "$D" '.github/skills/'
+is "the rest of the policy kept" "1" "$(count_of "$D" '.intelligence/')"
+chknot git -C "$D" check-ignore -q --no-index .github/agents/reviewer.agent.md
+chknot git -C "$D" check-ignore -q --no-index .github/instructions/api.instructions.md
+chknot grep -Fqx '.github/agents/' <(managed_gitignore_patterns "$D" "$D/intelligence.yaml")
+cp "$D/.gitignore" "$OUT/copilot-commit.once"
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+chk cmp -s "$OUT/copilot-commit.once" "$D/.gitignore"
+chknot ls "$D/.gitignore.cli.tmp"
+
+echo "== turning it back off restores the default once, in the block form too =="
+copilot_manifest "$D" '  copilot:
+    enabled: true
+    output: ".github"
+    commit_output: false'
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+for sub in instructions prompts agents skills; do
+    is ".github/$sub/ back once" "1" "$(count_of "$D" ".github/$sub/")"
+done
+chk git -C "$D" check-ignore -q --no-index .github/agents/reviewer.agent.md
+
+echo "== the withdrawal keeps CRLF endings and a missing final newline =="
+D="$(fixture copilot-crlf)"
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github", commit_output: true }'
+printf '# hand\r\n%s\r\n.github/instructions/\r\n.github/prompts/\r\n.intelligence/\r\n.github/agents/\r\n.github/skills/\r\nAGENTS.local.md' \
+    "$HEADER" > "$D/.gitignore"
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+is "lines left" "4" "$(total_lines "$D/.gitignore")"
+is "CR endings kept" "3" "$(crlf_lines "$D/.gitignore")"
+is "still ends without a newline" "d" "$(tail -c 1 "$D/.gitignore")"
+D="$(fixture copilot-last)"
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github", commit_output: true }'
+# The withdrawn line was the unterminated last one: the line before it keeps the
+# CRLF it always had, rather than losing its LF and leaving a bare CR.
+printf '%s\r\n.intelligence/\r\n.github/skills/' "$HEADER" > "$D/.gitignore"
+ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
+is "kept line keeps CRLF" "2" "$(crlf_lines "$D/.gitignore")"
+is "kept lines" "2" "$(total_lines "$D/.gitignore")"
+
+echo "== a file without the header holds nothing this policy may withdraw =="
+D="$(fixture copilot-noheader)"
+printf '%s\n' '.github/agents/' > "$D/.gitignore"
+cp "$D/.gitignore" "$OUT/copilot-noheader.before"
+gitignore_remove_managed_lines "$D" '.github/agents/'
+chk cmp -s "$OUT/copilot-noheader.before" "$D/.gitignore"
+
+echo "== the manifest decides Git policy only, never ownership =="
+D="$(fixture copilot-contract)"
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github", commit_output: true }'
+own_default="$(adapter_contract_records copilot "$COPILOT_ADAPTER" .github | grep -Ev '^(un)?ignore')"
+own_commit="$(adapter_contract_records copilot "$COPILOT_ADAPTER" .github "$D/intelligence.yaml" | grep -Ev '^(un)?ignore')"
+is "ownership unchanged by commit_output" "$own_default" "$own_commit"
+is "default policy ignores" "4" "$(adapter_contract_records copilot "$COPILOT_ADAPTER" .github | grep -c '^ignore')"
+is "commit_output unignores" "4" "$(adapter_contract_records copilot "$COPILOT_ADAPTER" .github "$D/intelligence.yaml" | grep -c '^unignore')"
+# A malformed value is sync's to refuse; the contract meanwhile declares the
+# default rather than guessing the project meant to commit.
+copilot_manifest "$D" '  copilot: { enabled: true, output: ".github", commit_output: yes }'
+is "malformed value declares the default" "4" "$(adapter_contract_records copilot "$COPILOT_ADAPTER" .github "$D/intelligence.yaml" | grep -c '^ignore')"
+# `unignore` names a pattern like `ignore` does, and is held to the same bounds.
+cat > "$D/unsafe.sh" <<'EOF'
+adapter_contract_unsafe() {
+    adapter_contract_version 1
+    adapter_contract_unignore "../outside/"
+}
+EOF
+chknot adapter_contract_records unsafe "$D/unsafe.sh" .unsafe
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-GITIGNORE: ALL OK"
 exit "$fail"
