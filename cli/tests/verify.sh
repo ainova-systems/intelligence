@@ -25,7 +25,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade e2e-sources e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-concurrency e2e-sync-lock e2e-store-sha)
+SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade unit-verify e2e-sources e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-concurrency e2e-sync-lock e2e-store-sha)
 
 failed=0
 skipped=()
@@ -133,6 +133,7 @@ wsl_cmd() {
 # <scope> needs. A run that could have moved but cannot says so.
 wsl_ready() {
     local -a tools=(git awk tar mktemp)
+    [ -z "${VERIFY_DELEGATED:-}" ] || return 1
     [ -z "${CI:-}" ] || return 1
     [ "${INTELLIGENCE_VERIFY_NATIVE:-}" != 1 ] || return 1
     case "$(uname -s)" in MINGW*|MSYS*) ;; *) return 1 ;; esac
