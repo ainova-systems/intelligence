@@ -41,7 +41,7 @@ Behavior depends on discovered project state:
 | Legacy Intelligence Sync | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
 | Existing Intelligence project | Align schema/content if needed, restore missing store, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
 
-`--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
+`--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--dir name` names the project's content directory — where its own rules, agents, skills and adapters live — when it should not be `intelligence/`; the name is recorded as `project.intelligence_dir` and must be a plain directory inside the repository, never an absolute path, a `..` path or the `.intelligence/` package store. Like `--targets` and `--bare`, it applies only when creating a new project. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
 
 New-project adapter selection always enables `agents`. Other adapters come only from repository markers or explicit `--targets`; the CLI never invents a tool directory.
 
