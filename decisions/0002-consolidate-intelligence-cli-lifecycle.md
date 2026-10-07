@@ -61,6 +61,6 @@ Amended by 0007 (this file is append-only, the items above are unchanged): `upgr
 the CLI's self-update command. Item 7's removal of the legacy project-upgrade meaning stands, and
 the npm command item 5's plan used to print is now that command.
 
-Amended by 0015 (append-only, the items above are unchanged): `sync --check` is the read-only
+Amended by 0018 (append-only, the items above are unchanged): `sync --check` is the read-only
 form of item 4's `sync`. It runs the same preflight and restores a missing store from the lock,
 but it never applies item 3's tracked alignment; it reports the alignment as needed instead.

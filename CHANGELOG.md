@@ -8,12 +8,17 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0015).
+- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0018).
+
+### Changed
+
+- An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
+
+## [0.18.1]
 
 ### Changed
 
 - On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
-- An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
 
 ### Fixed
 

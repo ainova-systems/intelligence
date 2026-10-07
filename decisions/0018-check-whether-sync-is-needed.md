@@ -1,4 +1,4 @@
-# 0015 — Check whether sync is needed
+# 0018 — Check whether sync is needed
 
 Date: 2026-10-07
 Status: accepted

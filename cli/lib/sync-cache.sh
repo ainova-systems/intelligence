@@ -2,7 +2,7 @@
 # Optional CLI optimization. Cache data never supplies paths or executable code:
 # every dependency is derived again from the manifest and built-in contracts.
 #
-# The record keeps three fingerprints apart (decision 0015), so a check can say
+# The record keeps three fingerprints apart (decision 0018), so a check can say
 # which side moved:
 #   tooling  the CLI and engine code, plus the invocation and environment that
 #            shape rendering — target filter, root, layout, bash, locale, PATH,

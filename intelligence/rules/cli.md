@@ -102,7 +102,7 @@ cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.
 Publish cache state only for a successful render with stable inputs, and preserve
 failure exit codes and rollback. `sync --force` refreshes output and repository
 discovery; a cache hit retains useful diagnostics from the last full run.
-The record keeps tooling, inputs and outputs apart (decision 0015), so
+The record keeps tooling, inputs and outputs apart (decision 0018), so
 `sync --check` answers "sync needed" only from a record its own tooling and
 environment made, renders inside the engine's transaction otherwise, and never
 applies tracked alignment. Under `--check`, 2 means only "sync needed": every

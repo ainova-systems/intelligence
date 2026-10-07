@@ -122,7 +122,7 @@ and a subsequent candidate cache hit preserved every file's bytes and mtime.
 ### Single-walk fingerprint follow-up
 
 Version 0.19.0 keeps this decision's contract and cuts the processes a hit
-starts (decision 0015): one `find | awk | git hash-object` pipeline fingerprints
+starts (decision 0018): one `find | awk | git hash-object` pipeline fingerprints
 tooling, inputs and outputs together, the package descriptor, manifest and lock
 are read in one pass each of the CLI's and the engine's readers, and the record
 is sealed by its own hash instead of a separate report check. Inputs are still
