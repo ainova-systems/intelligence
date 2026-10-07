@@ -1,11 +1,12 @@
 #!/bin/bash
-# Shared plumbing for every CLI command. Commands are separate processes (the
-# dispatcher execs them), so each one sources this file first.
+# Shared plumbing for every CLI command. Each command is its own script (the
+# dispatcher execs it, or sources `sync`), so each one sources this file first.
 #
 # All YAML reading goes through the engine's lib/common.sh — the CLI never
 # grows a parallel parser for shapes the engine can already read. The only
 # CLI-owned parsing lives in lib/manifest.sh (quoted-key `packages:` /
-# `registries:` blocks, which the engine deliberately never reads).
+# `registries:` blocks, which the engine never reads beyond the package names
+# and aliases its list parser resolves `sources:` references against).
 
 # Engine libraries (readers, is_status, IS_RC_*, engine_version). CLI_DIR /
 # IS_ENGINE_DIR come exported from the dispatcher.
@@ -98,23 +99,32 @@ source "$CLI_DIR/lib/sync-lock.sh"
 # Its identity is DATA shipped with the distribution (cli/engine-package.yaml),
 # never a name compiled into cli code — a fork edits the file.
 _EPKG="$CLI_DIR/engine-package.yaml"
-SYNC_PKG_NAME="" SYNC_PKG_URL="" SYNC_PKG_PATH=""
+_EPKG_FIELDS='name url path default_registry'
+SYNC_PKG_NAME="" SYNC_PKG_URL="" SYNC_PKG_PATH="" SYNC_PKG_STORE=""
 # Read by commands (init seeds it) — per-file shellcheck cannot see that.
 # shellcheck disable=SC2034
 DEFAULT_REGISTRY_URL=""
-# Every command loads this file first: read the four fields in one pass.
+
+# load_sync_package_identity — read the four fields in one pass. Every command
+# loads this file first and gets them at once; `sync` sets CLI_DEFER_SYNC_PKG
+# before sourcing and reads them in the same awk pass as the project's manifest
+# and lock (project_reads_preload), once it holds the project lock.
 # shellcheck disable=SC2034  # DEFAULT_REGISTRY_URL is read by commands, as above
-while IFS="$LOCK_SEP" read -r _epkg_key _epkg_value; do
-    case "$_epkg_key" in
-        name) SYNC_PKG_NAME="$_epkg_value" ;;
-        url) SYNC_PKG_URL="$_epkg_value" ;;
-        path) SYNC_PKG_PATH="$_epkg_value" ;;
-        default_registry) DEFAULT_REGISTRY_URL="$_epkg_value" ;;
-    esac
-done <<< "$(_qmap_read tops "$_EPKG" '' 'name url path default_registry')"
-unset _epkg_key _epkg_value
-[ -n "$SYNC_PKG_NAME" ] || die "corrupt CLI installation: $_EPKG is missing or has no 'name'"
-SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
+load_sync_package_identity() {
+    local key value
+    _qmap_read_var tops "$_EPKG" '' "$_EPKG_FIELDS" || true
+    while IFS="$LOCK_SEP" read -r key value; do
+        case "$key" in
+            name) SYNC_PKG_NAME="$value" ;;
+            url) SYNC_PKG_URL="$value" ;;
+            path) SYNC_PKG_PATH="$value" ;;
+            default_registry) DEFAULT_REGISTRY_URL="$value" ;;
+        esac
+    done <<< "$IS_QMAP_OUT"
+    [ -n "$SYNC_PKG_NAME" ] || die "corrupt CLI installation: $_EPKG is missing or has no 'name'"
+    SYNC_PKG_STORE=".intelligence/packages/$SYNC_PKG_NAME"
+}
+[ "${CLI_DEFER_SYNC_PKG:-0}" = 1 ] || load_sync_package_identity
 
 # --- Project detection ---------------------------------------------------
 # Sets: IP_MODE (cli|legacy|none), IP_ROOT, IP_UMBRELLA, IP_MODULE_DIR.
@@ -256,9 +266,14 @@ source_entry_problem() {
 }
 
 manifest_intelligence_dir() {
-    local manifest="$1" v
-    v="$(get_yaml_field "$manifest" "project" "intelligence_dir")"
-    printf '%s' "${v:-intelligence}"
+    manifest_intelligence_dir_var "$1"
+    printf '%s' "$IS_CONTENT_DIR"
+}
+
+# manifest_intelligence_dir_var <manifest> — the same answer in IS_CONTENT_DIR.
+manifest_intelligence_dir_var() {
+    get_yaml_field_var "$1" "project" "intelligence_dir"
+    IS_CONTENT_DIR="${IS_YAML_FIELD:-intelligence}"
 }
 
 default_target_output() {
@@ -316,7 +331,8 @@ sync_pkg_install() {
 export_engine_env() {
     local root="$1"
     local content_rel
-    content_rel="$(manifest_intelligence_dir "$root/intelligence.yaml")"
+    manifest_intelligence_dir_var "$root/intelligence.yaml"
+    content_rel="$IS_CONTENT_DIR"
     export IS_CLI=1
     export CONFIG_FILE="$root/intelligence.yaml"
     export REPO_ROOT="$root"
@@ -381,6 +397,7 @@ project_stamped_ahead() {
 
 project_needs_upgrade() {
     local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name url path rows
+    local lname _requested _url _path resolved _sha
     [ -f "$manifest" ] || return 1
     read_schema_version_var "$manifest"
     stamp="$IS_SCHEMA_VERSION"
@@ -391,12 +408,14 @@ project_needs_upgrade() {
     # restamp the schema and re-pin the engine content DOWNWARD, and the next
     # teammate on the current CLI would move both back: leave it as found.
     project_stamped_ahead "$root" && return 1
-    [ -n "$(top_scalar "$manifest" "sync_version")" ] && return 0
+    _qmap_read_var top "$manifest" '' sync_version || true
+    [ -z "$IS_QMAP_OUT" ] || return 0
     _ver_gt "$eng" "$stamp" && return 0
     [ -d "$root/.intelligence/engine" ] && return 0
 
     # One manifest pass for every package's fields, not a reader per field.
-    rows="$(_qmap_read fieldrows "$manifest" packages '' 'url path version')"
+    _qmap_read_var fieldrows "$manifest" packages '' 'url path version' || true
+    rows="$IS_QMAP_OUT"
     while IFS="$LOCK_SEP" read -r name url path pinned; do
         [ -n "$name" ] || continue
         # Early RC manifests mixed requested intent with resolved source
@@ -404,7 +423,14 @@ project_needs_upgrade() {
         [ -n "$url" ] && return 0
         [ -n "$path" ] && return 0
         if [ "$name" = "$SYNC_PKG_NAME" ]; then
-            locked="$(qmap_field "$root/intelligence.lock" "packages" "$name" "resolved")"
+            # The first lock row for the name: what qmap_field would decode.
+            locked=""
+            _qmap_read_var rows "$root/intelligence.lock" packages || true
+            while IFS="$LOCK_SEP" read -r lname _requested _url _path resolved _sha; do
+                [ "$lname" = "$name" ] || continue
+                locked="$resolved"
+                break
+            done <<< "$IS_QMAP_OUT"
             [ "$pinned" = "$eng" ] || return 0
             if [ -f "$root/intelligence.lock" ]; then
                 [ -n "$locked" ] || return 0
@@ -419,21 +445,30 @@ project_needs_upgrade() {
 # which lifecycle alignment can proceed. Never manufacture a partial lock.
 project_has_packages() {
     local root="$1" name found=1
+    _qmap_read_var keys "$root/intelligence.yaml" "packages" || true
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         assert_valid_pkg_name "$name"
         found=0
-    done < <(qmap_keys "$root/intelligence.yaml" "packages")
+    done <<< "$IS_QMAP_OUT"
     return "$found"
 }
 
-ensure_project_current() {
-    local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
-    check_version_compat "$manifest" || return $?
+# project_preflight <root> — what every project-aware command checks before it
+# may align or write: schema compatibility (a newer major refuses with 4), a
+# valid lock, and a lock for whatever packages the manifest declares.
+project_preflight() {
+    local root="$1"
+    check_version_compat "$root/intelligence.yaml" || return $?
     validate_project_lock "$root" || return $?
     if project_has_packages "$root" && [ ! -f "$root/intelligence.lock" ]; then
         die "manifest declares packages but intelligence.lock is absent — restore the committed lock before running project lifecycle commands"
     fi
+}
+
+ensure_project_current() {
+    local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
+    project_preflight "$root" || return $?
     project_needs_upgrade "$root" || return 0
     read_schema_version_var "$manifest"
     stamp="$IS_SCHEMA_VERSION"
@@ -443,7 +478,8 @@ ensure_project_current() {
         die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
     fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
-    bash "$CLI_DIR/internal/align-project.sh" --no-sync
+    bash "$CLI_DIR/internal/align-project.sh" --no-sync || return $?
+    project_reads_refresh "$root"
 }
 
 # A present lock is validated even when there is no missing store to restore.
@@ -451,7 +487,8 @@ ensure_project_current() {
 validate_project_lock() {
     local lock="$1/intelligence.lock" output line rc=0
     if [ -e "$lock" ] || [ -L "$lock" ]; then
-        output="$(lock_validate "$lock" "${2---metadata}" "$1/intelligence.yaml" 2>&1)" || rc=$?
+        # The capture is the subshell that contains the guards' `die`.
+        output="$(lock_validate_checks "$lock" "${2---metadata}" "$1/intelligence.yaml" 2>&1)" || rc=$?
         while IFS= read -r line; do
             [ -n "$line" ] || continue
             case "$line" in
@@ -468,6 +505,84 @@ validate_project_lock() {
             echo "ERROR: invalid intelligence.lock — recovery: https://github.com/ainova-systems/intelligence/blob/main/docs/cli.md#recovering-a-lock" >&2
             return 1
         fi
+    fi
+}
+
+# --- Reads shared by one command's preflight -----------------------------
+# A sync reads the CLI's package descriptor, the manifest and the lock several
+# times on its way to the engine. Once it holds the project lock it answers all
+# of those reads with one qmap pass and one pass of the engine's manifest
+# readers; a child that may rewrite either document (alignment, restore) is
+# followed by project_reads_refresh. Without a preload every reader takes its
+# ordinary path.
+IS_PROJECT_READS_ROOT=""
+
+project_reads_preload() {
+    local root="$1" manifest="$1/intelligence.yaml" lock="$1/intelligence.lock" s=$'\037'
+    local qmap=0 view=0 out qmap_pid="" view_pid=""
+    local -a view_args=("$manifest" project intelligence_dir rules agents skills)
+    project_reads_reset
+    qmap_preload_plan \
+        "tops$s$_EPKG$s$s$_EPKG_FIELDS$s$s" \
+        "keys$s$manifest${s}packages$s$s$s" \
+        "fieldrows$s$manifest${s}packages$s${s}url path version$s" \
+        "top$s$manifest$s${s}sync_version$s$s" \
+        "lock$s$lock${s}packages$s$s$s$LOCKFILE_VERSION" \
+        "rows$s$lock${s}packages$s$s$s" && qmap=1
+    [ ! -f "$manifest" ] || [ ! -r "$manifest" ] || view=1
+    if project_lock_scratch "$root"; then
+        # Both passes at once: starting their processes is most of their cost.
+        if [ "$qmap" = 1 ]; then
+            qmap_preload_run > "$IS_LOCK_SCRATCH.qmap" &
+            qmap_pid=$!
+        fi
+        if [ "$view" = 1 ]; then
+            manifest_view_run "${view_args[@]}" > "$IS_LOCK_SCRATCH.view" &
+            view_pid=$!
+        fi
+        if [ "$qmap" = 1 ] && wait "$qmap_pid"; then
+            qmap_preload_store "$(< "$IS_LOCK_SCRATCH.qmap")"
+        fi
+        if [ "$view" = 1 ]; then
+            if wait "$view_pid"; then
+                manifest_view_store "$(< "$IS_LOCK_SCRATCH.view")" "${view_args[@]}"
+            else
+                manifest_view_reset
+            fi
+        fi
+    else
+        if [ "$qmap" = 1 ] && out="$(qmap_preload_run)"; then
+            qmap_preload_store "$out"
+        fi
+        [ "$view" = 0 ] || load_manifest_view "${view_args[@]}" || manifest_view_reset
+    fi
+    IS_PROJECT_READS_ROOT="$root"
+}
+
+project_reads_reset() {
+    qmap_memo_reset
+    manifest_view_reset
+    IS_PROJECT_READS_ROOT=""
+}
+
+# project_reads_refresh <root> — after a child may have rewritten the manifest
+# or the lock: read them again if this process preloaded them.
+project_reads_refresh() {
+    [ "$IS_PROJECT_READS_ROOT" = "$1" ] || return 0
+    project_reads_preload "$1"
+}
+
+# _yaml_list_var <file> <section> — read_yaml_list into IS_YAML_LIST: from the
+# preloaded manifest view when there is one, otherwise read now and cache
+# nothing, because this process may still edit the manifest. Either way a
+# package reference arrives as the store path it names: the view runs the same
+# expanding list program as read_yaml_list.
+_yaml_list_var() {
+    local file_var="IS_YL_${2}_FILE" val_var="IS_YL_${2}_VAL"
+    if [ "${!file_var:-}" = "$1" ]; then
+        IS_YAML_LIST="${!val_var:-}"
+    else
+        IS_YAML_LIST="$(read_yaml_list "$1" "$2")"
     fi
 }
 
@@ -539,26 +654,31 @@ _store_record_write() {
 # project_store_missing <root> — a package the manifest or lock names is absent
 # from the store, or holds something other than its lock row pins.
 project_store_missing() {
-    local root="$1" manifest="$1/intelligence.yaml" name src
+    local root="$1" manifest="$1/intelligence.yaml" name src section
+    _qmap_read_var keys "$manifest" "packages" || true
     while IFS= read -r name; do
         [ -n "$name" ] || continue
         assert_valid_pkg_name "$name"
         [ -d "$root/.intelligence/packages/$name" ] || return 0
-    done < <(qmap_keys "$manifest" "packages")
+    done <<< "$IS_QMAP_OUT"
+    # The parser hands a package reference over as the store directory it
+    # names, so every spelling is checked here as that directory.
     for section in rules agents skills; do
+        _yaml_list_var "$manifest" "$section"
         while IFS= read -r src; do
             case "$src" in
                 .intelligence/packages/*)
                     [ -d "$root/$src" ] || return 0
                     ;;
             esac
-        done < <(read_yaml_list "$manifest" "$section")
+        done <<< "$IS_YAML_LIST"
     done
     # Present is not enough: a `git pull` moves the lock and leaves the ignored
     # store on the commit it held before.
     local rows _requested url path resolved sha
     [ -f "$root/intelligence.lock" ] || return 1
-    rows="$(lock_to_tsv "$root/intelligence.lock")"
+    _qmap_read_var rows "$root/intelligence.lock" packages || true
+    rows="$IS_QMAP_OUT"
     while IFS="$LOCK_SEP" read -r name _requested url path resolved sha; do
         [ -n "$name" ] || continue
         assert_valid_pkg_name "$name"
@@ -573,5 +693,6 @@ restore_project_store_if_missing() {
     project_store_missing "$root" || return 0
     [ -f "$root/intelligence.lock" ] || die "package store is missing and intelligence.lock is absent — run 'intelligence init'"
     echo "  restoring package store from intelligence.lock"
-    bash "$CLI_DIR/internal/restore.sh" --frozen --no-sync
+    bash "$CLI_DIR/internal/restore.sh" --frozen --no-sync || return $?
+    project_reads_refresh "$root"
 }

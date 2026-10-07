@@ -124,6 +124,306 @@ for file in "$Y" "$OUT/lists-crlf.yaml" "$OUT/absent-lists.yaml"; do
 done
 chk eq "$(load_yaml_lists "$Y" rules not-a-section; echo "$?")" "1"
 
+echo "== load_manifest_view: one pass, each reader's own answer =="
+# The field reader before it shared its program with the combined pass.
+oracle_yaml_field() {
+    awk -v section="$2" -v key="$3" '
+        { sub(/\r$/, "") }
+        $0 ~ "^" section ":" { in_section = 1; next }
+        in_section && /^[a-zA-Z]/ { exit }
+        in_section && $0 ~ "^  " key ":" {
+            val = $0
+            sub(/.*:[[:space:]]*["\047]?/, "", val)
+            sub(/["\047]?[[:space:]]*$/, "", val)
+            print val
+            exit
+        }
+    ' "$1"
+}
+V="$OUT/view.yaml"
+cat > "$V" <<'EOF'
+project:
+  name: "view"
+  intelligence_dir: 'content'
+project:
+  intelligence_dir: second
+sources:
+  rules:
+    - "intelligence/rules"
+  skills:
+    - a/skills
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  claude:
+    enabled: false
+    output: .claude
+  codex:
+    output: ".codex"
+EOF
+printf 'project:\r\n  intelligence_dir: crlf\r\ntargets:\r\n  agents:\r\n    enabled: true\r\n' > "$OUT/view-crlf.yaml"
+printf 'sources:\n  rules:\n    - r\n' > "$OUT/view-bare.yaml"
+for file in "$V" "$OUT/view-crlf.yaml" "$OUT/view-bare.yaml" "$Y"; do
+    manifest_view_reset
+    load_targets_cache "$file"
+    want_targets="$IS_TGT_TSV"
+    manifest_view_reset
+    want_lists="$(read_yaml_list "$file" rules)|$(read_yaml_list "$file" agents)|$(read_yaml_list "$file" skills)"
+    want_field="$(oracle_yaml_field "$file" project intelligence_dir)"
+    load_manifest_view "$file" project intelligence_dir rules agents skills
+    eq "$IS_TGT_TSV" "$want_targets" || { echo "FAIL: load_manifest_view targets in ${file##*/}"; fail=1; }
+    # shellcheck disable=SC2154  # assigned through printf -v by the reader
+    eq "$IS_YL_rules_VAL|$IS_YL_agents_VAL|$IS_YL_skills_VAL" "$want_lists" \
+        || { echo "FAIL: load_manifest_view lists in ${file##*/}"; fail=1; }
+    get_yaml_field_var "$file" project intelligence_dir
+    eq "$IS_YAML_FIELD" "$want_field" || { echo "FAIL: load_manifest_view field in ${file##*/}"; fail=1; }
+    chk eq "$(get_yaml_field "$file" project intelligence_dir)" "$want_field"
+    manifest_view_reset
+    chk eq "$(get_yaml_field "$file" project intelligence_dir)" "$want_field"
+    chk eq "$(get_yaml_field "$file" project name)" "$(oracle_yaml_field "$file" project name)"
+done
+chk eq "$(load_manifest_view "$V" project intelligence_dir rules not-a-section; echo "$?")" "1"
+manifest_view_reset
+
+echo "== read_yaml_list: a manifest without package references reads as before =="
+# The list reader before package references (decision 0019): every entry as
+# written. A manifest that names packages by store path must read identically.
+oracle_yaml_list() {
+    awk -v section="$2" '
+        { sub(/\r$/, "") }
+        /^[a-z]/ { current_section = ""; depth = 0 }
+        /^  [a-z]/ { current_section = ""; depth = 0 }
+        $0 ~ "^" section ":" { current_section = section; depth = 0; next }
+        $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
+        current_section == section && depth == 0 && /^  - / {
+            val = $0; sub(/^  - /, "", val); gsub(/["\047]/, "", val); print val
+        }
+        current_section == section && depth == 2 && /^    - / {
+            val = $0; sub(/^    - /, "", val); gsub(/["\047]/, "", val); print val
+        }
+    ' "$1"
+}
+printf 'sources:\n  rules:\n    - ".intelligence/packages/@a/b/rules"\n    - "@a/b/rules"\n    - "a:rules"\n    - "intelligence/rules"\npackages:\n  "@a/b":\n    version: "1"\n' \
+    > "$OUT/lists-store.yaml"
+for file in "$Y" "$OUT/lists-crlf.yaml"; do
+    for section in rules agents skills ignore submodules; do
+        unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"
+        chk eq "$(read_yaml_list "$file" "$section")" "$(oracle_yaml_list "$file" "$section")"
+        chk eq "$(read_yaml_list_raw "$file" "$section")" "$(oracle_yaml_list "$file" "$section")"
+    done
+done
+# Raw is the old reader whatever the entries say; only the expanding reader
+# resolves a reference.
+chk eq "$(read_yaml_list_raw "$OUT/lists-store.yaml" rules)" "$(oracle_yaml_list "$OUT/lists-store.yaml" rules)"
+chk eq "$(read_yaml_list "$OUT/lists-store.yaml" rules | paste -sd, -)" \
+    ".intelligence/packages/@a/b/rules,.intelligence/packages/@a/b/rules,a:rules,intelligence/rules"
+
+echo "== list entries: a trailing comment is not part of the value =="
+# Every list read_yaml_list and load_yaml_list(s) serve read `- "x"  # c` as
+# `x  # c`, so a commented source named a directory that does not exist and was
+# skipped in silence. A comment starts at a `#` after whitespace outside quotes.
+C="$OUT/comments.yaml"
+cat > "$C" <<'EOF'
+sources:
+  rules:
+    - "intelligence/rules"  # project rules
+    - 'single'	# a tab before the comment
+    - plain # unquoted
+    - "a #b"
+    - plain#hash
+    - "#quoted"
+    -   "spaced"
+    - intelligence/extra
+  agents:
+    - "intelligence/agents" # agents
+ignore:
+  - "node_modules"  # dependencies
+  - "bin"
+submodules:
+  - "libs/shared" # a submodule
+EOF
+# Whitespace after the closing quote is no part of the value either; written
+# here because an editor would strip it from the fixture above.
+awk '{ if ($0 == "    -   \"spaced\"") $0 = $0 "  "; print }' "$C" > "$C.tmp" && mv "$C.tmp" "$C"
+chk grep -qx '    -   "spaced"  ' "$C"
+want_rules='intelligence/rules,single,plain,a #b,plain#hash,#quoted,spaced,intelligence/extra'
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+chk eq "$(read_yaml_list "$C" rules | paste -sd, -)" "$want_rules"
+chk eq "$(read_yaml_list_raw "$C" rules | paste -sd, -)" "$want_rules"
+chk eq "$(read_source_entries "$C" rules | awk -F'\037' '{ print $1 }' | paste -sd, -)" "$want_rules"
+chk eq "$(read_yaml_list "$C" agents)" "intelligence/agents"
+chk eq "$(read_yaml_list "$C" ignore | paste -sd, -)" "node_modules,bin"
+chk eq "$(read_yaml_list "$C" submodules)" "libs/shared"
+# The cache the engine warms reads them the same way.
+load_yaml_lists "$C" rules agents skills ignore submodules
+load_yaml_list "$C" rules
+chk eq "$(printf '%s\n' "$IS_YAML_LIST" | paste -sd, -)" "$want_rules"
+load_yaml_list "$C" ignore
+chk eq "$(printf '%s\n' "$IS_YAML_LIST" | paste -sd, -)" "node_modules,bin"
+load_yaml_list "$C" submodules
+chk eq "$IS_YAML_LIST" "libs/shared"
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+# A reference behind a comment resolves like any other entry.
+printf 'sources:\n  rules:\n    - "sync:rules"  # by alias\n    - "@a/sync/rules" # by name\npackages:\n  "@a/sync":\n    alias: "sync"\n' > "$OUT/comments-refs.yaml"
+chk eq "$(read_yaml_list "$OUT/comments-refs.yaml" rules | paste -sd, -)" \
+    ".intelligence/packages/@a/sync/rules,.intelligence/packages/@a/sync/rules"
+
+echo "== package references: each spelling renders as its store path =="
+# list_is <label> <want, comma-joined> <reader...>
+list_is() {
+    local label="$1" want="$2" got
+    shift 2
+    got="$("$@" | paste -sd, -)"
+    [ "$got" = "$want" ] || { echo "FAIL: $label — want [$want], got [$got]"; fail=1; }
+}
+R="$OUT/references.yaml"
+cat > "$R" <<'EOF'
+sources:
+  rules:
+    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "@ainova-systems/sync/rules"
+    - "sync:rules"
+    - 'core:deep/rules'
+    - "@acme/undeclared/rules"
+    - "nope:rules"
+    - "twin:rules"
+    - "sync:../escape"
+    - "sync:"
+    - "sync:a//b"
+    - "sync:/abs"
+    - "sync:./rules"
+    - "@ainova-systems/sync"
+    - "@ainova-systems/sync/"
+    - "C:/windows/path"
+    - "x:rules"
+    - "intelligence/rules"
+  agents:
+    - "sync:agents"
+ignore:
+  - "sync:rules"
+packages:
+  "@ainova-systems/sync":
+    version: "0.19.0"
+    alias: "sync"
+  # a comment inside the block
+  "@ainova-systems/core":
+    version: "^1.0.0"
+    alias: core    # unquoted, with a comment
+  "@ainova-systems/sync":
+    alias: "second — a duplicated key is one package, its first alias wins"
+
+  "@a/one":
+    alias: "twin"
+  "@b/two":
+    ref: "main"
+    alias: "twin"
+  "@c/bad":
+    alias: "a/b"
+  "not-a-package-name":
+    alias: "nope"
+  "@a/../escape":
+    alias: "nope"
+registries:
+  - "@ainova-systems/sync/rules"
+EOF
+want_rows="\
+.intelligence/packages/@ainova-systems/sync/rules|path|.intelligence/packages/@ainova-systems/sync/rules||
+@ainova-systems/sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules||
+sync:rules|ok|.intelligence/packages/@ainova-systems/sync/rules|sync|
+core:deep/rules|ok|.intelligence/packages/@ainova-systems/core/deep/rules|core|
+@acme/undeclared/rules|path|@acme/undeclared/rules||
+nope:rules|unknown||nope|
+twin:rules|ambiguous||twin|@a/one, @b/two
+sync:../escape|invalid||sync|
+sync:|invalid||sync|
+sync:a//b|invalid||sync|
+sync:/abs|invalid||sync|
+sync:./rules|invalid||sync|
+@ainova-systems/sync|invalid|||
+@ainova-systems/sync/|invalid|||
+C:/windows/path|path|C:/windows/path||
+x:rules|path|x:rules||
+intelligence/rules|path|intelligence/rules||"
+got_rows="$(read_source_entries "$R" rules | tr '\037' '|')"
+[ "$got_rows" = "$want_rows" ] || { echo "FAIL: read_source_entries states:"; diff <(printf '%s\n' "$want_rows") <(printf '%s\n' "$got_rows"); fail=1; }
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+# What renders is the store path; what renders nothing is left out entirely,
+# so no reader can take it for a path.
+list_is "rules as the engine renders them" "\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/core/deep/rules,\
+@acme/undeclared/rules,C:/windows/path,x:rules,intelligence/rules" read_yaml_list "$R" rules
+want_rules="$(read_yaml_list "$R" rules)"
+chk eq "$want_rules" "$(read_source_entries "$R" rules | awk -F'\037' '$2 == "path" || $2 == "ok" { print $3 }')"
+list_is "a list that holds no sources is never expanded" "sync:rules" read_yaml_list "$R" ignore
+list_is "raw keeps every spelling" "sync:agents" read_yaml_list_raw "$R" agents
+# The cache the engine warms holds the same expansion, and the same pass names
+# every reference that renders nothing, for sync's WARNING: lines.
+load_yaml_lists "$R" rules agents skills ignore submodules
+load_yaml_list "$R" rules
+chk eq "$IS_YAML_LIST" "$want_rules"
+load_yaml_list "$R" agents
+chk eq "$IS_YAML_LIST" ".intelligence/packages/@ainova-systems/sync/agents"
+want_unresolved="$(read_source_entries "$R" rules | awk -F'\037' '$2 != "path" && $2 != "ok" { print "rules\037" $0 }')"
+chk eq "$(printf '%s' "$IS_YL_UNRESOLVED")" "$want_unresolved"
+chk eq "$(printf '%s' "$IS_YL_UNRESOLVED" | wc -l | tr -d ' ')" "9"
+# The raw reader never answers from the expanded cache the engine warms.
+list_is "raw ignores the warmed cache" "sync:agents" read_yaml_list_raw "$R" agents
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+load_yaml_lists "$Y" rules agents skills ignore submodules
+chk eq "$IS_YL_UNRESOLVED" ""
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+# The CLI's preload answers from one combined pass (load_manifest_view): it
+# expands each spelling to the same store path, with `packages:` after
+# `sources:`, and names the same unresolved references. sync derives the paths
+# its cache fingerprints from this answer.
+manifest_view_reset
+load_manifest_view "$R" project intelligence_dir rules agents skills
+load_yaml_list "$R" rules
+chk eq "$IS_YAML_LIST" "$want_rules"
+load_yaml_list "$R" agents
+chk eq "$IS_YAML_LIST" ".intelligence/packages/@ainova-systems/sync/agents"
+chk eq "$(printf '%s' "$IS_YL_UNRESOLVED")" "$want_unresolved"
+chk eq "$IS_TGT_FILE" "$R"
+manifest_view_reset
+chk eq "${IS_YL_UNRESOLVED-unset}" "unset"
+printf 'packages:\r\n  "@a/b":\r\n    alias: "ab"\r\nsources:\r\n  rules:\r\n    - "ab:rules"\r\n    - "@a/b/agents"\r\n' > "$OUT/view-refs-crlf.yaml"
+load_manifest_view "$OUT/view-refs-crlf.yaml" project intelligence_dir rules agents skills
+load_yaml_list "$OUT/view-refs-crlf.yaml" rules
+chk eq "$(printf '%s\n' "$IS_YAML_LIST" | paste -sd, -)" ".intelligence/packages/@a/b/rules,.intelligence/packages/@a/b/agents"
+chk eq "$IS_YL_UNRESOLVED" ""
+manifest_view_reset
+
+echo "== read_package_aliases: what packages: declares, judged once =="
+want_aliases="\
+@ainova-systems/sync|sync|ok
+@ainova-systems/core|core|ok
+@a/one|twin|ambiguous
+@b/two|twin|ambiguous
+@c/bad||invalid"
+chk eq "$(read_package_aliases "$R" | tr '\037' '|')" "$want_aliases"
+chk eq "$(read_package_aliases "$OUT/absent.yaml")" ""
+for a in sync ab A1 a.b a_b a-b 0day; do chk pkg_alias_valid "$a"; done
+for a in "" s a/b a:b @a "a b" "a\"b" -ab .ab "a\\b"; do
+    if pkg_alias_valid "$a"; then echo "FAIL: pkg_alias_valid accepted [$a]"; fail=1; fi
+done
+# `packages:` may come first, last, or not at all; CRLF changes nothing; a
+# commented-out block declares nothing.
+printf 'packages:\r\n  "@ainova-systems/sync":\r\n    alias: "sync"\r\nsources:\r\n  rules:\r\n    - "sync:rules"\r\n    - "@ainova-systems/sync/agents"\r\n' > "$OUT/refs-crlf.yaml"
+list_is "packages: before sources:, CRLF" \
+    ".intelligence/packages/@ainova-systems/sync/rules,.intelligence/packages/@ainova-systems/sync/agents" \
+    read_yaml_list "$OUT/refs-crlf.yaml" rules
+printf 'sources:\n  rules:\n    - "sync:rules"\n    - "@ainova-systems/sync/rules"\n' > "$OUT/refs-bare.yaml"
+list_is "no packages: block — a full name is a path, an alias names nothing" \
+    "@ainova-systems/sync/rules" read_yaml_list "$OUT/refs-bare.yaml" rules
+printf 'sources:\n  rules:\n    - "sync:rules"\n# packages:\n#   "@ainova-systems/sync":\n#     alias: "sync"\n' > "$OUT/refs-commented.yaml"
+chk eq "$(read_source_entries "$OUT/refs-commented.yaml" rules | tr '\037' '|')" "sync:rules|unknown||sync|"
+source_reference_problem_var unknown nope ""
+chk eq "$IS_SOURCE_PROBLEM" "names alias 'nope', which no package in packages: declares"
+source_reference_problem_var path "" ""
+chk eq "$IS_SOURCE_PROBLEM" ""
+
 echo "== _nested_yaml_values: every key as get_nested_yaml_value reads it =="
 M="$OUT/models.yaml"
 cat > "$M" <<'EOF'

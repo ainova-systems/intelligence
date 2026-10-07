@@ -71,6 +71,8 @@ sources:
     - "intelligence/skills"
 ```
 
+A package's directory may also be named by the package instead of its store path: `@ainova-systems/sync/rules` names folder `rules` of the package `packages:` declares as `@ainova-systems/sync`, and `sync:rules` names it through the alias that package declares (`intelligence package alias @ainova-systems/sync sync`). Both render exactly as the store path, and both are installed package content like it: edit that content in its source repository. The CLI writes store paths and never rewrites a reference a person wrote; an `@scope/name/...` entry for a package `packages:` does not declare is an ordinary project path.
+
 Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
@@ -458,7 +460,7 @@ The permanent applied-schema key is the top-level scalar `schema_version` in `in
 The public lifecycle is deliberately compact:
 
 - `intelligence init [--preview|--apply]` is universal: it creates a new setup, aligns an existing Intelligence project, or plans/applies conversion of an eligible legacy Intelligence Sync project.
-- `intelligence sync [adapter] [--compact] [--force]` first aligns an existing Intelligence project with the installed CLI and restores every package the store lacks or holds at another commit, strictly from `intelligence.lock`. It skips rendering when local inputs and outputs match a previous successful run. Changes or missing outputs trigger rendering; `--force` always renders and refreshes the search for unconfigured source directories. An unchanged run replays the last full run's useful diagnostics. Compact mode shows context sizes, actionable warnings and final status on success, and all diagnostics on failure. In CI it refuses an alignment that would change tracked files and points to a local `intelligence init --apply` plus review/commit.
+- `intelligence sync [adapter] [--compact] [--force] [--check]` first aligns an existing Intelligence project with the installed CLI and restores every package the store lacks or holds at another commit, strictly from `intelligence.lock`. It skips rendering when local inputs and outputs match a previous successful run. Changes or missing outputs trigger rendering; `--force` always renders and refreshes the search for unconfigured source directories. An unchanged run replays the last full run's useful diagnostics. Compact mode shows context sizes, actionable warnings and final status on success, and all diagnostics on failure. In CI it refuses an alignment that would change tracked files and points to a local `intelligence init --apply` plus review/commit. `--check` changes no generated file: it prints one `IS_STATUS` line and exits 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or alignment is pending; it never applies alignment.
 - `intelligence update [@scope/name] [--preview|--apply]` is the only update surface. It prints the CLI/project/package plan; default mode prompts, `--preview` never writes, and `--apply` does not prompt. It never moves `ref:` pins.
 - `intelligence upgrade [--next] [--preview|--apply]` replaces the installed CLI with the newest version on its npm channel (`next` for a prerelease or with `--next`, otherwise `latest`) with the same modes. It touches no project, never downgrades, and refuses an installation that npm did not make.
 - `intelligence package add|remove|list|search` owns package inventory.
@@ -479,6 +481,7 @@ The engine emits one machine-readable line, `IS_STATUS=<code> [IS_DETAIL=...]`, 
 | `migrated` | 0 | Initialization converted an older layout |
 | `error` | 1 | Generic failure |
 | `config-missing` | 2 | Required manifest is absent |
+| `out-of-date` | 2 | `sync --check` only: sync would change generated files, or alignment is pending. A check never reports `config-missing`, and turns any other failure that would end in 2 into 1 |
 | `ambiguous` | 3 | Conflicting state requiring agent/human judgment; reserved |
 | `ahead-of-engine` | 4 | Manifest schema is a newer major than the engine (a newer minor or patch warns and continues) |
 | `aborted-incomplete` | 5 | Staged replacement was incomplete; prior state remains |

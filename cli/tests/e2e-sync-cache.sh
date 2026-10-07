@@ -294,6 +294,18 @@ else
     echo 'SKIP executable-bit transition: filesystem reports every file executable'
 fi
 
+echo '== A name the fingerprint cannot carry falls back to ordinary sync =='
+odd="$PROJECT/intelligence/skills/demo/assets/quo\"te.txt"
+if printf odd > "$odd" 2>/dev/null && [ -f "$odd" ]; then
+    miss
+    miss
+    rm "$odd"
+    miss
+    hit
+else
+    echo 'SKIP quoted-name case: filesystem refuses the name'
+fi
+
 echo '== Missing/edited output, owned-directory additions and preserved siblings =='
 rm "$PROJECT/AGENTS.md"
 miss

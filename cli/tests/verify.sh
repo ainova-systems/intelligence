@@ -25,7 +25,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade unit-verify e2e-sources e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-concurrency e2e-sync-lock e2e-store-sha)
+SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade unit-verify e2e-sources e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-sync-check e2e-concurrency e2e-sync-lock e2e-store-sha)
 
 failed=0
 skipped=()

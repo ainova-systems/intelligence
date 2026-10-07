@@ -16,7 +16,9 @@
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# The engine and the CLI load the shared library before any adapter. Only a
+# standalone source of this file loads it here: that costs a dirname process.
+declare -F finalize_output_file >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 adapter_contract_cursor() {
     local output="${1%/}"

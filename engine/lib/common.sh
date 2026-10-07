@@ -293,9 +293,10 @@ repo_rel_dir() {
     done
 }
 
-# Resolve a single source token to an absolute local directory. Every token is
-# a repo-relative path: the CLI resolves, fetches and pins packages, so by the
-# time the engine runs a package is just a directory under the store.
+# Resolve a single source entry to an absolute local directory. Every entry is
+# a repo-relative path by the time it gets here: the CLI resolves, fetches and
+# pins packages, so a package is just a directory under the store, and the list
+# parser has already expanded a package reference to that directory.
 # ALWAYS returns 0 (echoes nothing on failure) so `set -e` callers using
 # `dir="$(resolve_source_dir ...)"` never abort; the caller's existing
 # `[ -d "$dir" ] || continue` guard then skips an unresolved source.
@@ -1991,7 +1992,7 @@ _ski_skill() {
         case "${_SKI_LSTAT[_SKI_K]}:${_SKI_LKIND[_SKI_K]}" in
             ok:d) ;;
             outside:d)
-                [ ! -f "$_SKI_DIR/$name/SKILL.md" ] || _ski_warn "$name" "" "$name" outside
+                _ski_warn "$name" "" "$name" outside
                 return 0
                 ;;
             dangling:*)
@@ -2312,9 +2313,213 @@ report_context_source_sizes() {
 
 # --- Config Parsing ---
 
+# --- Package references in sources -------------------------------------------
+# A `sources:` entry names a directory inside an installed package in one of
+# three spellings (decision 0019):
+#
+#   .intelligence/packages/@scope/name/<dir>  the store path: an ordinary
+#                                             repository path, as the CLI writes it
+#   @scope/name/<dir>                         by full name: a reference only while
+#                                             `packages:` declares @scope/name,
+#                                             otherwise an ordinary path as before
+#   <alias>:<dir>                             by the alias that package's
+#                                             `packages:` entry declares
+#
+# A reference renders exactly as the store path it stands for. The list parser
+# below expands it inside the awk pass that already reads the manifest; that
+# pass is the one point every reader goes through — adapters, the engine's own
+# loops and the CLI — so expansion costs no process, and the CLI sees exactly
+# what the engine renders (decision 0009). A reference that resolves to nothing
+# is left out of the list, so no reader can render it as a path: `sync` names it
+# in a WARNING: line and `status --check` reports it.
+#
+# An alias is two or more of A-Z a-z 0-9 . _ - and starts with a letter or digit:
+# no `/`, `:` or `@`, no whitespace or quotes, and never one letter that reads
+# like a drive. It is a lookup key, never part of a path. <dir> is one or more
+# `/`-separated segments, none of them empty, `.` or `..`, without a backslash,
+# so a reference never leaves its package.
+#
+# These functions are the only definition. The CLI's editors (lib/manifest.sh),
+# `source`, `package alias` and `status --check` load this same string:
+#
+#   pkr_collect(line)   feed every manifest line; records the names `packages:`
+#                       declares and the alias each one states
+#   pkr_parse(entry)    classify one entry: path, ok, unknown (an alias no
+#                       package declares), ambiguous (an alias several declare)
+#                       or invalid (a reference whose <dir> is malformed); sets
+#                       PKR_NAME, PKR_DIR, PKR_ALIAS and, when ambiguous,
+#                       PKR_HOLDERS
+#   pkr_expand(entry)   the directory the entry renders as, "" when it renders
+#                       nothing; leaves the state in PKR_STATE
+#   pkr_alias_ok(a)     whether <a> is a well-formed alias
+IS_PKG_REF_AWK='
+    function pkr_seg_ok(s) { return s != "" && s != "." && s != ".." }
+    # The CLI refuses any other package name (assert_valid_pkg_name): a name
+    # becomes a store path, so one that is not a plain @scope/name is never
+    # declared.
+    function pkr_name_ok(name,   p) {
+        if (name !~ /^@[@A-Za-z0-9._-]*\/[@A-Za-z0-9._-]*$/) return 0
+        p = index(name, "/")
+        return pkr_seg_ok(substr(name, 2, p - 2)) && pkr_seg_ok(substr(name, p + 1))
+    }
+    # Enumerated, not a range: a range follows the locale in some awks.
+    function pkr_alias_ok(a,   i, c) {
+        if (length(a) < 2) return 0
+        for (i = 1; i <= length(a); i++) {
+            c = substr(a, i, 1)
+            if (index("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", c)) continue
+            if (i > 1 && index("._-", c)) continue
+            return 0
+        }
+        return 1
+    }
+    function pkr_dir_ok(dir,   n, i, seg) {
+        if (dir == "" || index(dir, "\\")) return 0
+        n = split(dir, seg, "/")
+        for (i = 1; i <= n; i++) if (!pkr_seg_ok(seg[i])) return 0
+        return 1
+    }
+    # The quoted keys of the top-level packages: block and their alias fields,
+    # read the way lib/qmap.awk reads what the CLI writes: a duplicated key is
+    # one package, and the first alias a package states is the one it has.
+    function pkr_collect(line,   s, q, v) {
+        if (line ~ /^packages:[ \t]*$/) { pkr_in = 1; pkr_cur = ""; return }
+        if (!pkr_in || line ~ /^[ \t]*(#.*)?$/) return
+        if (line ~ /^[^ \t]/) { pkr_in = 0; pkr_cur = ""; return }
+        if (substr(line, 1, 3) == "  \"") {
+            pkr_cur = ""
+            s = substr(line, 4)
+            q = index(s, "\"")
+            if (q < 2) return
+            v = substr(s, 1, q - 1)
+            if (!pkr_name_ok(v)) return
+            if (!(v in pkr_seen)) { pkr_seen[v] = 1; PKR_NAMES[++PKR_N] = v }
+            pkr_cur = v
+            return
+        }
+        if (substr(line, 1, 4) != "    ") { pkr_cur = ""; return }
+        if (pkr_cur == "" || (pkr_cur in PKR_ALIAS_RAW) || substr(line, 5, 6) != "alias:") return
+        v = substr(line, 11)
+        sub(/^[ \t]+/, "", v)
+        if (substr(v, 1, 1) == "\"") {
+            v = substr(v, 2)
+            q = index(v, "\"")
+            if (q == 0) return
+            v = substr(v, 1, q - 1)
+        } else {
+            sub(/[ \t]+#.*$/, "", v)
+            sub(/[ \t]+$/, "", v)
+        }
+        PKR_ALIAS_RAW[pkr_cur] = v
+        if (!pkr_alias_ok(v)) return
+        pkr_holders[v] = (v in pkr_holders) ? pkr_holders[v] ", " pkr_cur : pkr_cur
+        pkr_count[v]++
+        pkr_alias[v] = pkr_cur
+    }
+    function pkr_parse(entry,   c, p, i, rest, name) {
+        PKR_NAME = ""; PKR_DIR = ""; PKR_ALIAS = ""; PKR_HOLDERS = ""
+        if (substr(entry, 1, 1) == "@") {
+            p = index(entry, "/")
+            if (p == 0) return "path"
+            rest = substr(entry, p + 1)
+            i = index(rest, "/")
+            name = i ? substr(entry, 1, p + i - 1) : entry
+            if (!(name in pkr_seen)) return "path"
+            PKR_NAME = name
+            PKR_DIR = i ? substr(rest, i + 1) : ""
+            return pkr_dir_ok(PKR_DIR) ? "ok" : "invalid"
+        }
+        c = index(entry, ":")
+        if (c == 0 || !pkr_alias_ok(substr(entry, 1, c - 1))) return "path"
+        PKR_ALIAS = substr(entry, 1, c - 1)
+        PKR_DIR = substr(entry, c + 1)
+        if (!pkr_dir_ok(PKR_DIR)) return "invalid"
+        if (!(PKR_ALIAS in pkr_count)) return "unknown"
+        if (pkr_count[PKR_ALIAS] > 1) { PKR_HOLDERS = pkr_holders[PKR_ALIAS]; return "ambiguous" }
+        PKR_NAME = pkr_alias[PKR_ALIAS]
+        return "ok"
+    }
+    function pkr_expand(entry) {
+        PKR_STATE = pkr_parse(entry)
+        if (PKR_STATE == "path") return entry
+        if (PKR_STATE == "ok") return ".intelligence/packages/" PKR_NAME "/" PKR_DIR
+        return ""
+    }
+'
+
+# The value of one block-sequence item in the manifest — the only reading of a
+# list entry. Every list reader below and the CLI's `sources:` editors
+# (lib/manifest.sh) load this string, so an entry the engine renders and the
+# entry an editor compares are the same text (decision 0009, point 7).
+#
+#   yaml_item(text)   <text> is what follows the item's `-`. Returns the value:
+#                     whitespace around it and a trailing `# comment` dropped,
+#                     then every quote removed, as the readers always did. A
+#                     comment starts at a `#` that follows whitespace outside
+#                     quotes; inside a quoted scalar a `#` is part of the value,
+#                     and so is one with no whitespace before it (`a#b`).
+IS_YAML_ITEM_AWK='
+    function yaml_item(s,   q, e, rest) {
+        sub(/^[ \t]+/, "", s)
+        q = substr(s, 1, 1)
+        rest = s
+        s = ""
+        if (q == "\"" || q == "\047") {
+            e = index(substr(rest, 2), q)
+            if (e == 0) { s = rest; rest = "" }
+            else { s = substr(rest, 1, e + 1); rest = substr(rest, e + 2) }
+        }
+        if (s == "" && substr(rest, 1, 1) == "#") rest = ""
+        else if (match(rest, /[ \t]#/)) rest = substr(rest, 1, RSTART - 1)
+        s = s rest
+        sub(/[ \t]+$/, "", s)
+        gsub(/["\047]/, "", s)
+        return s
+    }
+'
+
+# The manifest list reader. `mode` selects what it prints for each entry:
+#   expand    the entry as the engine renders it: a reference becomes its store
+#             path, one that resolves to nothing is left out
+#   raw       the entry as written — what an editor compares and rewrites
+#   classify  raw, pkr_parse state, expansion, alias and the packages sharing
+#             it, separated by \037 — what `status --check` and `source` judge
+# Only rules, agents and skills hold sources; every other list reads raw.
+# Entries are held until the end of the file because `packages:` may follow
+# `sources:`.
+IS_YAML_LIST_AWK='
+    { sub(/\r$/, ""); pkr_collect($0) }
+    /^[a-z]/ { current_section = ""; depth = 0 }
+    /^  [a-z]/ { current_section = ""; depth = 0 }
+    $0 ~ "^" section ":" { current_section = section; depth = 0; next }
+    $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
+    current_section == section && depth == 0 && /^  - / {
+        vals[++nv] = yaml_item(substr($0, 5))
+    }
+    current_section == section && depth == 2 && /^    - / {
+        vals[++nv] = yaml_item(substr($0, 7))
+    }
+    END {
+        sources = section == "rules" || section == "agents" || section == "skills"
+        n = nv + 0
+        for (i = 1; i <= n; i++) {
+            val = vals[i]
+            if (!sources || mode == "raw") { print val; continue }
+            dir = pkr_expand(val)
+            if (mode == "classify") print val "\037" PKR_STATE "\037" dir "\037" PKR_ALIAS "\037" PKR_HOLDERS
+            else if (PKR_STATE == "path" || PKR_STATE == "ok") print dir
+        }
+    }
+'
+
 # Read a simple list from config.yaml
 # Format: key:\n  - "value1"\n  - "value2"
-# Usage: readarray -t arr < <(read_yaml_list "config.yaml" "rules")
+# Usage: while IFS= read -r src; do ...; done < <(read_yaml_list "intelligence.yaml" "rules")
+#
+# A source list arrives with its package references expanded to store paths —
+# the spelling every renderer resolves as $REPO_ROOT/<entry> — and without the
+# ones that resolve to nothing. Editors that rewrite the manifest read it with
+# read_yaml_list_raw instead.
 #
 # Consults the load_yaml_list cache first: sync reads the same sections from
 # the same manifest dozens of times, and each awk spawn costs tens of
@@ -2338,27 +2543,67 @@ read_yaml_list() {
             fi
             ;;
     esac
-    awk -v section="$section" '
-        {
-            sub(/\r$/, "")
+    awk -v section="$section" -v mode=expand "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$file"
+}
+
+# read_yaml_list_raw <file> <section> — the entries exactly as written,
+# references included and never cached. The CLI's sources editors compare and
+# rewrite these, so an entry is matched as the user spelled it.
+read_yaml_list_raw() {
+    awk -v section="$2" -v mode=raw "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$1"
+}
+
+# read_source_entries <file> <section> — one \037-separated line per entry: as
+# written, its pkr_parse state (path, ok, unknown, ambiguous or invalid), the
+# directory it renders as ("" for none), the alias it names and, when several
+# packages declare that alias, their names. One pass of the parser the engine
+# renders through, so a verdict can never disagree with the render.
+read_source_entries() {
+    awk -v section="$2" -v mode=classify "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$1"
+}
+
+# read_package_aliases <file> — one \037-separated line per declared package that
+# states an alias: its name, the alias, and ok, ambiguous (another package states
+# it too) or invalid (not a well-formed alias, so it resolves nothing). An
+# invalid alias is manifest input that may hold anything, so its field is empty.
+read_package_aliases() {
+    [ -f "$1" ] || return 0
+    awk "$IS_PKG_REF_AWK"'
+        { sub(/\r$/, ""); pkr_collect($0) }
+        END {
+            for (i = 1; i <= PKR_N; i++) {
+                name = PKR_NAMES[i]
+                if (!(name in PKR_ALIAS_RAW)) continue
+                a = PKR_ALIAS_RAW[name]
+                if (!pkr_alias_ok(a)) { print name "\037\037invalid"; continue }
+                print name "\037" a "\037" (pkr_count[a] > 1 ? "ambiguous" : "ok")
+            }
         }
-        /^[a-z]/ { current_section = ""; depth = 0 }
-        /^  [a-z]/ { current_section = ""; depth = 0 }
-        $0 ~ "^" section ":" { current_section = section; depth = 0; next }
-        $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
-        current_section == section && depth == 0 && /^  - / {
-            val = $0
-            sub(/^  - /, "", val)
-            gsub(/["\047]/, "", val)
-            print val
-        }
-        current_section == section && depth == 2 && /^    - / {
-            val = $0
-            sub(/^    - /, "", val)
-            gsub(/["\047]/, "", val)
-            print val
-        }
-    ' "$file"
+    ' "$1"
+}
+
+# What pkr_alias_ok accepts, in the words every message that refuses an alias
+# uses.
+# shellcheck disable=SC2034
+IS_PKG_ALIAS_RULE="two or more of A-Z a-z 0-9 . _ -, starting with a letter or digit"
+
+# pkg_alias_valid <alias> — true when <alias> is well formed (pkr_alias_ok). The
+# value travels through the environment: `awk -v` would interpret backslashes.
+pkg_alias_valid() {
+    IS_PKR_CANDIDATE="$1" awk "$IS_PKG_REF_AWK"'BEGIN { exit !pkr_alias_ok(ENVIRON["IS_PKR_CANDIDATE"]) }'
+}
+
+# source_reference_problem_var <state> <alias> <holders> — set IS_SOURCE_PROBLEM
+# to why a reference in that state renders nothing, "" for path and ok. The one
+# wording of `sync`'s WARNING: line and of `status --check`.
+# shellcheck disable=SC2034
+source_reference_problem_var() {
+    case "$1" in
+        unknown) IS_SOURCE_PROBLEM="names alias '$2', which no package in packages: declares" ;;
+        ambiguous) IS_SOURCE_PROBLEM="names alias '$2', which several packages declare ($3) — an alias names one package" ;;
+        invalid) IS_SOURCE_PROBLEM="names no directory inside its package — the part after the package must be one or more '/'-separated segments, none empty, '.' or '..'" ;;
+        *) IS_SOURCE_PROBLEM="" ;;
+    esac
 }
 
 # load_yaml_list <file> <section> — fill the global IS_YAML_LIST with the
@@ -2388,21 +2633,19 @@ load_yaml_list() {
     esac
 }
 
-# load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
-# sections in one manifest pass. Each section runs read_yaml_list's own state
-# machine, so every cached value is what load_yaml_list would have stored.
-load_yaml_lists() {
-    local file="$1" out line s v j
-    shift
-    for s in "$@"; do
-        case "$s" in
-            rules|agents|skills|ignore|submodules) ;;
-            *) return 1 ;;
-        esac
-    done
-    out="$(awk -v sections="$*" '
+# The manifest readers below share their awk programs, so the combined pass in
+# load_manifest_view reads each shape exactly as its single-purpose reader does.
+# Rule order matters when they are joined: the targets program ends its rules
+# with `next`, so it runs last and never hides a line from the others.
+#
+# The lists program carries the package-reference parser with it: it sees every
+# line, so `packages:` is collected wherever it stands, and each source list is
+# expanded exactly as read_yaml_list expands it. A reference that resolves to
+# nothing comes out as a `!` row, which _yaml_lists_store keeps in
+# IS_YL_UNRESOLVED.
+_IS_AWK_LISTS="$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK"'
         BEGIN { n = split(sections, want, " ") }
-        { sub(/\r$/, "") }
+        { sub(/\r$/, ""); pkr_collect($0) }
         {
             for (k = 1; k <= n; k++) {
                 s = want[k]
@@ -2411,49 +2654,53 @@ load_yaml_lists() {
                 if ($0 ~ "^" s ":") { cur[k] = s; dep[k] = 0; continue }
                 if ($0 ~ "^  " s ":") { cur[k] = s; dep[k] = 2; continue }
                 if (cur[k] == s && dep[k] == 0 && /^  - /) {
-                    val = $0
-                    sub(/^  - /, "", val)
-                    gsub(/["\047]/, "", val)
-                    print s "\037" val
+                    got_s[++ng] = s
+                    got_v[ng] = yaml_item(substr($0, 5))
                 }
                 if (cur[k] == s && dep[k] == 2 && /^    - /) {
-                    val = $0
-                    sub(/^    - /, "", val)
-                    gsub(/["\047]/, "", val)
-                    print s "\037" val
+                    got_s[++ng] = s
+                    got_v[ng] = yaml_item(substr($0, 7))
                 }
             }
         }
-    ' "$file")"
-    for s in "$@"; do
-        j=""
-        while IFS= read -r line; do
-            [ "${line%%$'\037'*}" = "$s" ] || continue
-            v="${line#*$'\037'}"
-            j="$j$v"$'\n'
-        done <<< "$out"
-        while [[ "$j" == *$'\n' ]]; do j="${j%$'\n'}"; done
-        printf -v "IS_YL_${s}_FILE" '%s' "$file"
-        printf -v "IS_YL_${s}_VAL" '%s' "$j"
-    done
-}
+        END {
+            m = ng + 0
+            for (i = 1; i <= m; i++) {
+                s = got_s[i]
+                val = got_v[i]
+                if (s != "rules" && s != "agents" && s != "skills") { print s "\037" val; continue }
+                dir = pkr_expand(val)
+                if (PKR_STATE == "path" || PKR_STATE == "ok") print s "\037" dir
+                else print "!\037" s "\037" val "\037" PKR_STATE "\037" dir "\037" PKR_ALIAS "\037" PKR_HOLDERS
+            }
+        }
+'
 
-# load_targets_cache <file> — parse the whole targets: section once into the
-# global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
-# matching is_target_enabled and get_target_output semantics: inline and block
-# forms, first occurrence wins, `enabled` defaults to 0 when the block ends
-# without one and to empty at end of file. The engine warms this once;
-# both readers consult it before spawning awk.
-load_targets_cache() {
-    local file="$1"
-    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
-        return 0
-    fi
-    IS_TGT_TSV="$(awk '
+# get_yaml_field: the first `  fkey:` inside the first `fsection:` block. A
+# top-level key closes the block; ftag prefixes the printed value.
+_IS_AWK_FIELD='
+        { sub(/\r$/, "") }
+        !fdone {
+            if ($0 ~ "^" fsection ":") fin = 1
+            else if (fin && /^[a-zA-Z]/) fdone = 1
+            else if (fin && $0 ~ "^  " fkey ":") {
+                fval = $0
+                sub(/.*:[[:space:]]*["\047]?/, "", fval)
+                sub(/["\047]?[[:space:]]*$/, "", fval)
+                ffound = 1
+                fdone = 1
+            }
+        }
+        END { if (ffound) print ftag fval }
+'
+
+# load_targets_cache: one `name<TAB>enabled<TAB>output` row per target, each
+# prefixed with ttag.
+_IS_AWK_TARGETS='
         function flush_target(at_sibling) {
             if (name == "") return
             if (enabled == "" && at_sibling) enabled = 0
-            printf "%s\t%s\t%s\n", name, enabled, output
+            printf "%s%s\t%s\t%s\n", ttag, name, enabled, output
             name = ""
         }
         { sub(/\r$/, "") }
@@ -2489,9 +2736,146 @@ load_targets_cache() {
             output = val
         }
         END { flush_target(0) }
-    ' "$file")"
+'
+
+# _yaml_lists_store <file> <awk-output> <section>... — fill the load_yaml_list
+# cache for each section from `<section><US><value>` rows, and IS_YL_UNRESOLVED
+# from the `!` rows: one read_source_entries-shaped line each, the section in
+# front.
+_yaml_lists_store() {
+    local file="$1" out="$2" line v s k saved_ifs="$IFS"
+    local -a lines=() names=() vals=()
+    shift 2
+    names=("$@")
+    IFS=$'\n'
+    set -f
+    # shellcheck disable=SC2206  # rows are `<section><US><value>`, never empty
+    lines=($out)
+    set +f
+    IFS="$saved_ifs"
+    IS_YL_UNRESOLVED=""
+    # One pass over the rows in this shell: reading a here-string again per
+    # section costs a system call per byte on Git Bash.
+    for line in "${lines[@]+"${lines[@]}"}"; do
+        s="${line%%$'\037'*}"
+        v="${line#*$'\037'}"
+        if [ "$s" = "!" ]; then
+            IS_YL_UNRESOLVED="$IS_YL_UNRESOLVED$v"$'\n'
+            continue
+        fi
+        for ((k = 0; k < ${#names[@]}; k++)); do
+            [ "${names[k]}" = "$s" ] || continue
+            vals[k]="${vals[k]-}$v"$'\n'
+        done
+    done
+    for ((k = 0; k < ${#names[@]}; k++)); do
+        v="${vals[k]-}"
+        while [[ "$v" == *$'\n' ]]; do v="${v%$'\n'}"; done
+        printf -v "IS_YL_${names[k]}_FILE" '%s' "$file"
+        printf -v "IS_YL_${names[k]}_VAL" '%s' "$v"
+    done
+}
+
+# load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
+# sections in one manifest pass. Each section runs read_yaml_list's own state
+# machine and its reference expansion, so every cached value is what
+# load_yaml_list would have stored. The same pass leaves the references that
+# resolve to nothing in IS_YL_UNRESOLVED, one read_source_entries-shaped line
+# each with the section in front, for the WARNING: lines `sync` prints.
+load_yaml_lists() {
+    local file="$1" out s
+    shift
+    for s in "$@"; do
+        case "$s" in
+            rules|agents|skills|ignore|submodules) ;;
+            *) return 1 ;;
+        esac
+    done
+    out="$(awk -v sections="$*" "$_IS_AWK_LISTS" "$file")"
+    _yaml_lists_store "$file" "$out" "$@"
+}
+
+# load_targets_cache <file> — parse the whole targets: section once into the
+# global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
+# matching is_target_enabled and get_target_output semantics: inline and block
+# forms, first occurrence wins, `enabled` defaults to 0 when the block ends
+# without one and to empty at end of file. The engine warms this once;
+# both readers consult it before spawning awk.
+load_targets_cache() {
+    local file="$1"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        return 0
+    fi
+    IS_TGT_TSV="$(awk "$_IS_AWK_TARGETS" "$file")"
     IS_TGT_FILE="$file"
 }
+
+# load_manifest_view <file> <field-section> <field-key> <section>... — one
+# awk pass for what the CLI's preflight reads of a manifest: the
+# load_yaml_lists cache for each <section>, the targets cache, and the one
+# get_yaml_field answer that get_yaml_field_var then returns without a process.
+# Each reader's program is the one it runs alone, so the answers cannot differ.
+# A caller that overlaps the pass with other work runs manifest_view_run (it
+# prints) and hands the output to manifest_view_store itself.
+load_manifest_view() {
+    local out
+    out="$(manifest_view_run "$@")" || return 1
+    manifest_view_store "$out" "$@"
+}
+
+manifest_view_run() {
+    local file="$1" fsection="$2" fkey="$3" s
+    shift 3
+    for s in "$@"; do
+        case "$s" in
+            rules|agents|skills|ignore|submodules) ;;
+            *) return 1 ;;
+        esac
+    done
+    awk -v sections="$*" -v fsection="$fsection" -v fkey="$fkey" \
+        -v ftag=$'\036F' -v ttag=$'\036T' \
+        "$_IS_AWK_LISTS$_IS_AWK_FIELD$_IS_AWK_TARGETS" "$file"
+}
+
+# manifest_view_store <output> <file> <field-section> <field-key> <section>...
+manifest_view_store() {
+    local out="$1" file="$2" fsection="$3" fkey="$4" line lists="" targets="" field="" found=0
+    local saved_ifs="$IFS"
+    local -a lines=()
+    shift 4
+    IFS=$'\n'
+    set -f
+    # shellcheck disable=SC2206  # every row is tagged or `<section><US>`, never empty
+    lines=($out)
+    set +f
+    IFS="$saved_ifs"
+    for line in "${lines[@]+"${lines[@]}"}"; do
+        case "$line" in
+            $'\036T'*) targets="$targets${line#??}"$'\n' ;;
+            $'\036F'*) field="${line#??}"; found=1 ;;
+            *) lists="$lists$line"$'\n' ;;
+        esac
+    done
+    while [[ "$targets" == *$'\n' ]]; do targets="${targets%$'\n'}"; done
+    _yaml_lists_store "$file" "$lists" "$@"
+    IS_TGT_TSV="$targets"
+    IS_TGT_FILE="$file"
+    IS_YF_KEY="$file"$'\037'"$fsection"$'\037'"$fkey"
+    IS_YF_VALUE="$field"
+    IS_YF_FOUND="$found"
+}
+
+# manifest_view_reset — forget every manifest answer cached in this shell. A
+# process that has the manifest rewritten (by a child it ran) calls it before
+# reading again.
+manifest_view_reset() {
+    local s
+    for s in rules agents skills ignore submodules; do
+        unset "IS_YL_${s}_FILE" "IS_YL_${s}_VAL"
+    done
+    unset IS_TGT_FILE IS_TGT_TSV IS_YF_KEY IS_YF_VALUE IS_YF_FOUND IS_YL_UNRESOLVED
+}
+
 
 # _targets_cache_row <target> — scan the cached TSV; sets IS_TGT_ROW_ENABLED /
 # IS_TGT_ROW_OUTPUT. Returns 1 when the target has no row (reader falls back
@@ -2714,18 +3098,23 @@ get_yaml_field() {
     local file="$1"
     local section="$2"
     local key="$3"
-    awk -v section="$section" -v key="$key" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" section ":" { in_section = 1; next }
-        in_section && /^[a-zA-Z]/ { exit }
-        in_section && $0 ~ "^  " key ":" {
-            val = $0
-            sub(/.*:[[:space:]]*["\047]?/, "", val)
-            sub(/["\047]?[[:space:]]*$/, "", val)
-            print val
-            exit
-        }
-    ' "$file"
+    if [ "${IS_YF_KEY:-}" = "$file"$'\037'"$section"$'\037'"$key" ]; then
+        [ "$IS_YF_FOUND" != 1 ] || printf '%s\n' "$IS_YF_VALUE"
+        return 0
+    fi
+    awk -v fsection="$section" -v fkey="$key" "$_IS_AWK_FIELD" "$file"
+}
+
+# get_yaml_field_var <file> <section> <key> — get_yaml_field into
+# IS_YAML_FIELD, without a process when load_manifest_view read it.
+# shellcheck disable=SC2034  # IS_YAML_FIELD is the return channel
+get_yaml_field_var() {
+    if [ "${IS_YF_KEY:-}" = "$1"$'\037'"$2"$'\037'"$3" ]; then
+        IS_YAML_FIELD=""
+        [ "$IS_YF_FOUND" != 1 ] || IS_YAML_FIELD="$IS_YF_VALUE"
+        return 0
+    fi
+    IS_YAML_FIELD="$(get_yaml_field "$@")"
 }
 
 # Get project name from config.yaml (project.name)

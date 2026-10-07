@@ -1030,6 +1030,8 @@ EOF
     # Outside the source, nowhere, or enclosing itself.
     link_skill "$EL/outside" outside
     ln -s "$EL/outside" "$LS/outside"
+    mkdir -p "$EL/outside-empty"
+    ln -s "$EL/outside-empty" "$LS/outside-empty"
     mkdir -p "$LS/outside-md"
     printf -- '---\nname: outside-md\ndescription: "ELSEWHERE_MARKER"\n---\n' > "$EL/outside-md.md"
     ln -s "$EL/outside-md.md" "$LS/outside-md/SKILL.md"
@@ -1059,7 +1061,7 @@ EOF
         for skill in plain aliased linked-md policy-linked agents-linked esc-policy esc-agents; do
             chk test -f "$tree/$skill/SKILL.md"
         done
-        for skill in outside outside-md rel-out dangling stale-link _shared; do
+        for skill in outside outside-empty outside-md rel-out dangling stale-link _shared; do
             chknot test -e "$tree/$skill"
         done
         chk grep -Fqx 'GUIDE_MARKER' "$tree/plain/references/guide.md"
@@ -1083,7 +1085,7 @@ EOF
         chk test -f "$LNK/.opencode/commands/$skill.md"
         chk grep -q "intelligence/skills/$skill/SKILL.md" "$LNK/AGENTS.md"
     done
-    for skill in outside outside-md rel-out dangling; do
+    for skill in outside outside-empty outside-md rel-out dangling; do
         chknot test -e "$LNK/.opencode/commands/$skill.md"
         chknot grep -q "intelligence/skills/$skill/" "$LNK/AGENTS.md"
     done
@@ -1104,6 +1106,7 @@ EOF
     S_REL="intelligence/skills"
     WANT_WARNINGS=(
         "WARNING: skill 'outside' is left out of every output: $S_REL/outside is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'outside-empty' is left out of every output: $S_REL/outside-empty is a symlink that resolves outside $S_REL"
         "WARNING: skill 'outside-md' is left out of every output: $S_REL/outside-md/SKILL.md is a symlink that resolves outside $S_REL"
         "WARNING: skill 'rel-out' is left out of every output: $S_REL/rel-out is a symlink that resolves outside $S_REL"
         "WARNING: skill 'dangling' is left out of every output: $S_REL/dangling is a dangling symlink"
