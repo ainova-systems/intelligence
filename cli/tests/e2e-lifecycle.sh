@@ -724,6 +724,31 @@ chk grep -Fqx 'model_reasoning_effort = "low"' "$TIERS/.codex/agents/light-agent
 chk grep -Fqx "model = \"$(default_model codex heavy)\"" "$TIERS/.codex/agents/untiered-agent.toml"
 chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/untiered-agent.toml"
 chk grep -Fqx "model: $(default_model claude heavy)" "$TIERS/.claude/agents/untiered-agent.md"
+# A tier nothing resolves still renders, but never silently: one warning per
+# tool and tier, however many agents carry it. A custom tier the manifest
+# overrides resolves quietly for that tool.
+for name in typo-agent typo-twin; do
+    printf -- '---\nname: %s\ndescription: "Typo"\ntier: haevy\naccess: full\n---\n\n# Agent\n' "$name" \
+        > "$TIERS/intelligence/agents/$name.md"
+done
+printf -- '---\nname: custom-agent\ndescription: "Custom"\ntier: review-deep\naccess: full\n---\n\n# Agent\n' \
+    > "$TIERS/intelligence/agents/custom-agent.md"
+printf '%s\n' 'models:' '  claude:' '    review-deep: "claude-opus-5-5"' >> "$TIERS/intelligence.yaml"
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/tiers-unknown.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier sync"; cat "$OUT/tiers-unknown.txt"; fail=1; }
+chk test "$(grep -Fc "no claude model for tier 'haevy'" "$OUT/tiers-unknown.txt")" -eq 1
+chk grep -Fq "no codex model for tier 'haevy'" "$OUT/tiers-unknown.txt"
+chknot grep -Fq "no claude model for tier 'review-deep'" "$OUT/tiers-unknown.txt"
+chk grep -Fqx 'model: claude-opus-5-5' "$TIERS/.claude/agents/custom-agent.md"
+chknot grep -Fq "tier 'heavy'" "$OUT/tiers-unknown.txt"
+# `sync --compact` keeps only unindented WARNING: lines, so the warning must be
+# one: on a full render, and on the unchanged run that replays it.
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact --force > "$OUT/tiers-compact.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier compact sync"; cat "$OUT/tiers-compact.txt"; fail=1; }
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/tiers-replay.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier compact replay"; cat "$OUT/tiers-replay.txt"; fail=1; }
+chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-compact.txt"
+chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-replay.txt"
 
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,
@@ -767,6 +792,77 @@ printf -- '---\nname: owner-only\ndescription: "Owner only"\n---\n\n# Owner only
 (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-resync.txt" 2>&1) \
     || { echo "FAIL: skill-policy resync"; cat "$OUT/policy-resync.txt"; fail=1; }
 chknot test -e "$POL/.agents/skills/owner-only/agents/openai.yaml"
+# An author's file that sets no policy gains one in the output copy, inside an
+# existing `policy:` block or as a new one, with every other line kept; the
+# source file stays as written.
+pol_skill() {
+    mkdir -p "$POL/intelligence/skills/$1/agents"
+    printf -- '---\nname: %s\ndescription: "%s"\ndisable-model-invocation: true\n---\n\n# %s\n' "$1" "$1" "$1" \
+        > "$POL/intelligence/skills/$1/SKILL.md"
+    printf '%s\n' "${@:2}" > "$POL/intelligence/skills/$1/agents/openai.yaml"
+}
+pol_skill interface-only 'interface:' '  display_name: "Interface only"'
+pol_skill policy-block 'policy:' '    products: []' 'interface:' '  display_name: "Block"'
+# Only a direct child of `policy:` is the key Codex reads: a deeper one gains
+# the direct key beside it, and a flat flow mapping holding it is kept as is.
+pol_skill nested-key 'policy:' '  products:' '    allow_implicit_invocation: false'
+pol_skill flow-policy 'policy: {allow_implicit_invocation: false}'
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-merge.txt" 2>&1) \
+    || { echo "FAIL: skill-policy merge sync"; cat "$OUT/policy-merge.txt"; fail=1; }
+chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+chknot grep -q 'allow_implicit_invocation' "$POL/intelligence/skills/interface-only/agents/openai.yaml"
+chk grep -Fqx '    allow_implicit_invocation: false' "$POL/.agents/skills/policy-block/agents/openai.yaml"
+chk grep -Fqx '    products: []' "$POL/.agents/skills/policy-block/agents/openai.yaml"
+chk test "$(grep -c '^policy:' "$POL/.agents/skills/policy-block/agents/openai.yaml")" -eq 1
+chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/nested-key/agents/openai.yaml"
+chk grep -Fqx '    allow_implicit_invocation: false' "$POL/.agents/skills/nested-key/agents/openai.yaml"
+chk cmp -s "$POL/intelligence/skills/flow-policy/agents/openai.yaml" "$POL/.agents/skills/flow-policy/agents/openai.yaml"
+# A file whose policy contradicts the field, or states it in a shape sync does
+# not read as the plain boolean, refuses the render and restores it.
+pol_skill contradicts 'policy:' '  allow_implicit_invocation: true'
+pol_skill quoted-false 'policy:' '  allow_implicit_invocation: "false"'
+pol_skill inline-true 'policy: {allow_implicit_invocation: true}'
+pol_skill inline-string 'policy: "allow_implicit_invocation: false"'
+RC=0
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-refuse.txt" 2>&1) || RC=$?
+chk test "$RC" -ne 0
+chk grep -Fq 'contradicts sets disable-model-invocation: true, but its agents/openai.yaml sets policy.allow_implicit_invocation: true' \
+    "$OUT/policy-refuse.txt"
+chk grep -Fq 'quoted-false sets disable-model-invocation: true, but its agents/openai.yaml sets policy.allow_implicit_invocation: "false"' \
+    "$OUT/policy-refuse.txt"
+chk grep -Fq 'inline-true sets disable-model-invocation: true, but its agents/openai.yaml has policy: {allow_implicit_invocation: true}' \
+    "$OUT/policy-refuse.txt"
+chk grep -Fq 'inline-string sets disable-model-invocation: true, but its agents/openai.yaml has policy: "allow_implicit_invocation: false"' \
+    "$OUT/policy-refuse.txt"
+for skill in contradicts quoted-false inline-true inline-string; do
+    chknot test -e "$POL/.agents/skills/$skill"
+    rm -rf "$POL/intelligence/skills/$skill"
+done
+chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+# A symlinked SKILL.md or agents/openai.yaml is emitted as-is, so nothing is
+# read, derived or rewritten through it; the run says so instead of passing it
+# silently. Probed: some hosts cannot create a symlink and copy the file instead.
+mkdir -p "$OUT/linked-skill" "$POL/intelligence/skills/linked"
+printf -- '---\nname: linked\ndescription: "Linked"\ndisable-model-invocation: true\n---\n\n# Linked\n' \
+    > "$OUT/linked-skill/SKILL.md"
+if ln -s "$OUT/linked-skill/SKILL.md" "$POL/intelligence/skills/linked/SKILL.md" 2>/dev/null \
+    && [ -L "$POL/intelligence/skills/linked/SKILL.md" ]; then
+    pol_skill linked-policy 'interface:' '  display_name: "Linked policy"'
+    mv "$POL/intelligence/skills/linked-policy/agents/openai.yaml" "$OUT/linked-skill/openai.yaml"
+    ln -s "$OUT/linked-skill/openai.yaml" "$POL/intelligence/skills/linked-policy/agents/openai.yaml"
+    (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --force > "$OUT/policy-link.txt" 2>&1) \
+        || { echo "FAIL: skill-policy link sync"; cat "$OUT/policy-link.txt"; fail=1; }
+    chk grep -Fq 'linked/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it' \
+        "$OUT/policy-link.txt"
+    chknot test -e "$POL/.agents/skills/linked/agents"
+    chk grep -Fq 'linked-policy/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced' \
+        "$OUT/policy-link.txt"
+    chk test -L "$POL/.agents/skills/linked-policy/agents/openai.yaml"
+    chknot grep -q 'allow_implicit_invocation' "$OUT/linked-skill/openai.yaml"
+else
+    echo "  NOTE: this host cannot create a symlink — symlinked SKILL.md case skipped"
+fi
 
 echo "== Copilot output is ignored by default; commit_output keeps it tracked =="
 # Copilot in the editor reads its files from disk after sync, as Cursor and

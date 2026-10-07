@@ -27,6 +27,12 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
 
+### Fixed
+
+- A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, or not as a plain boolean directly under `policy:`, naming the skill. Codex could still select such a skill on its own.
+- Sync warns when a `SKILL.md` or an owner-only skill's `agents/openai.yaml` is a symlink, since no Codex invocation policy is derived or enforced through it.
+- Sync warns once per tool and tier when an agent's `tier` resolves to no model — no built-in default and no `models.<tool>.<tier>` override, a typo as a rule — instead of rendering an empty `model` in silence (#39).
+
 ## [0.18.0]
 
 ### Added
