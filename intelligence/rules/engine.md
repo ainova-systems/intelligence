@@ -57,7 +57,8 @@ same change.
 
 Tool-specific limits and diagnostics stay inside their adapter. Shared reporting
 may expose measurements, but it does not interpret adapter policy. Compact sync
-preserves generic context measurements and actionable adapter warnings.
+preserves generic context measurements and every warning, adapter or engine, in
+the one form the shell conventions define for it: a `WARNING:` line.
 
 ## Adapters
 
@@ -81,6 +82,13 @@ copied with `copy_skill_bundle`; adapters sharing `.agents/skills/` use
 into a source, the store, the repository root, or outside the repository. Never
 delete a whole tool root when the adapter owns only subpaths — hand-authored sibling
 files live there. A full sync is transactional across every selected adapter path.
+
+A symlink in a skills source renders as the file or directory it points at while it
+stays inside that source, and is left out with a `WARNING:` line otherwise; no
+generated tree holds a link (decision 0017). `skill_source_inventory` settles every
+link once per run, and every skill tree takes its answer: `copy_skill_bundle` applies
+its plan, and an adapter that globs a skills source filters with
+`skill_source_rendered`.
 
 A per-file loop never spawns a process per file: on Git Bash for Windows one fork
 costs tens of milliseconds, so per-file awk/cp/mv turned large projects into

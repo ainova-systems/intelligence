@@ -85,7 +85,7 @@ while IFS= read -r name; do
         if [ "$probe_rc" -ne 0 ]; then
             # No answer is not "no change": reporting up to date here would
             # freeze the pin exactly as the ref-name comparison used to.
-            echo "  WARN: $name: cannot reach $url — ref '$ref' was not checked" >&2
+            echo "WARNING: $name: cannot reach $url — ref '$ref' was not checked" >&2
             echo "  $name: $ref (not checked — remote unreachable)"
             continue
         fi
@@ -104,7 +104,7 @@ while IFS= read -r name; do
                     echo "  $name: $(short_sha "$ref") (pinned commit)"
                     ;;
                 *)
-                    echo "  WARN: $name pins ref '$ref', which $url no longer advertises" >&2
+                    echo "WARNING: $name pins ref '$ref', which $url no longer advertises" >&2
                     echo "  $name: $ref (unresolvable — gone upstream)"
                     ;;
             esac

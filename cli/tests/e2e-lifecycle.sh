@@ -899,6 +899,8 @@ printf -- '---\nname: open\ndescription: "Open"\n---\n\n# Open\n' > "$POL/intell
     || { echo "FAIL: skill-policy sync"; cat "$OUT/policy-sync.txt"; fail=1; }
 chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/owner-only/agents/openai.yaml"
 chk grep -Fqx '  display_name: "Kept"' "$POL/.agents/skills/own-policy/agents/openai.yaml"
+# A file that already sets the policy is kept byte for byte, never given the key twice.
+chk cmp -s "$POL/intelligence/skills/own-policy/agents/openai.yaml" "$POL/.agents/skills/own-policy/agents/openai.yaml"
 chknot test -e "$POL/.agents/skills/open/agents"
 chknot test -e "$POL/intelligence/skills/owner-only/agents"
 # Dropping the field drops the derived file on the next sync.
@@ -955,28 +957,178 @@ for skill in contradicts quoted-false inline-true inline-string; do
     rm -rf "$POL/intelligence/skills/$skill"
 done
 chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
-# A symlinked SKILL.md or agents/openai.yaml is emitted as-is, so nothing is
-# read, derived or rewritten through it; the run says so instead of passing it
-# silently. Probed: some hosts cannot create a symlink and copy the file instead.
-mkdir -p "$OUT/linked-skill" "$POL/intelligence/skills/linked"
-printf -- '---\nname: linked\ndescription: "Linked"\ndisable-model-invocation: true\n---\n\n# Linked\n' \
-    > "$OUT/linked-skill/SKILL.md"
-if ln -s "$OUT/linked-skill/SKILL.md" "$POL/intelligence/skills/linked/SKILL.md" 2>/dev/null \
-    && [ -L "$POL/intelligence/skills/linked/SKILL.md" ]; then
-    pol_skill linked-policy 'interface:' '  display_name: "Linked policy"'
-    mv "$POL/intelligence/skills/linked-policy/agents/openai.yaml" "$OUT/linked-skill/openai.yaml"
-    ln -s "$OUT/linked-skill/openai.yaml" "$POL/intelligence/skills/linked-policy/agents/openai.yaml"
-    (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --force > "$OUT/policy-link.txt" 2>&1) \
-        || { echo "FAIL: skill-policy link sync"; cat "$OUT/policy-link.txt"; fail=1; }
-    chk grep -Fq 'linked/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it' \
-        "$OUT/policy-link.txt"
-    chknot test -e "$POL/.agents/skills/linked/agents"
-    chk grep -Fq 'linked-policy/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced' \
-        "$OUT/policy-link.txt"
-    chk test -L "$POL/.agents/skills/linked-policy/agents/openai.yaml"
-    chknot grep -q 'allow_implicit_invocation' "$OUT/linked-skill/openai.yaml"
+
+echo "== symlinks in a skill source: rendered inside it, left out otherwise =="
+# Decision 0017. A link that resolves inside its own skills source renders as
+# the regular file or directory it points at, in every skill tree, with the
+# quoting and Codex policy any other file gets. One that resolves outside the
+# source (the repository included), nowhere, or to a directory enclosing it is
+# left out with one WARNING: line naming the skill and the link itself. No tree
+# ever holds a link. Probed: some hosts cannot create a symlink and copy instead.
+LNK="$OUT/skill-links"
+LS="$LNK/intelligence/skills"
+EL="$OUT/skill-links-elsewhere"
+mkdir -p "$LS/_shared/aliased/references" "$LS/_shared/assets" "$LS/_shared/agents-dir" \
+    "$LS/plain/references" "$EL/outside" "$EL/agents" "$LNK/beside-source/rel-out"
+if ln -s ../../_shared/aliased "$LS/plain/probe" 2>/dev/null && [ -L "$LS/plain/probe" ]; then
+    rm "$LS/plain/probe"
+    git -C "$LNK" init --quiet
+    cat > "$LNK/intelligence.yaml" <<EOF
+project:
+  name: skill-links
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+  agents:
+  skills:
+    - "intelligence/skills"
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  claude: { enabled: true, output: ".claude" }
+  codex: { enabled: true, output: ".codex" }
+  cursor: { enabled: true, output: ".cursor" }
+  copilot: { enabled: true, output: ".github" }
+  opencode: { enabled: true, output: ".opencode" }
+  pi: { enabled: true, output: ".pi" }
+EOF
+    # link_skill <dir> <name> [frontmatter line] — a minimal skill.
+    link_skill() {
+        mkdir -p "$1"
+        {
+            printf -- '---\nname: %s\ndescription: "%s"\n' "$2" "$2"
+            [ -z "${3:-}" ] || printf '%s\n' "$3"
+            printf -- '---\n\n# %s\n' "$2"
+        } > "$1/SKILL.md"
+    }
+    printf 'ELSEWHERE_MARKER\n' > "$EL/host.txt"
+    # Inside the source: a whole skill directory, a resource file and
+    # directory, a link inside a linked directory, SKILL.md itself, an
+    # authored agents/openai.yaml and the agents directory holding one.
+    link_skill "$LS/plain" plain
+    printf 'GUIDE_MARKER\n' > "$LS/_shared/guide.md"
+    printf '\000\001binary\377' > "$LS/_shared/assets/data.bin"
+    ln -s ../../_shared/guide.md "$LS/plain/references/guide.md"
+    ln -s ../_shared/assets "$LS/plain/assets"
+    link_skill "$LS/_shared/aliased" aliased 'effort: ultra'
+    ln -s ../../guide.md "$LS/_shared/aliased/references/guide.md"
+    ln -s _shared/aliased "$LS/aliased"
+    mkdir -p "$LS/linked-md"
+    printf -- '---\nname: linked-md\ndescription: Linked: colon\neffort: ultra\ndisable-model-invocation: true\n---\n\n# Linked md\n' \
+        > "$LS/_shared/linked-md.md"
+    ln -s ../_shared/linked-md.md "$LS/linked-md/SKILL.md"
+    link_skill "$LS/policy-linked" policy-linked 'disable-model-invocation: true'
+    mkdir -p "$LS/policy-linked/agents"
+    printf '%s\n' 'policy:' '  allow_implicit_invocation: false' 'interface:' '  display_name: "Linked policy"' \
+        > "$LS/_shared/openai.yaml"
+    ln -s ../../_shared/openai.yaml "$LS/policy-linked/agents/openai.yaml"
+    link_skill "$LS/agents-linked" agents-linked 'disable-model-invocation: true'
+    printf '%s\n' 'interface:' '  display_name: "Agents dir"' > "$LS/_shared/agents-dir/openai.yaml"
+    ln -s ../_shared/agents-dir "$LS/agents-linked/agents"
+    # Outside the source, nowhere, or enclosing itself.
+    link_skill "$EL/outside" outside
+    ln -s "$EL/outside" "$LS/outside"
+    mkdir -p "$EL/outside-empty"
+    ln -s "$EL/outside-empty" "$LS/outside-empty"
+    mkdir -p "$LS/outside-md"
+    printf -- '---\nname: outside-md\ndescription: "ELSEWHERE_MARKER"\n---\n' > "$EL/outside-md.md"
+    ln -s "$EL/outside-md.md" "$LS/outside-md/SKILL.md"
+    link_skill "$LNK/beside-source/rel-out" rel-out
+    ln -s ../../beside-source/rel-out "$LS/rel-out"
+    ln -s "$EL/host.txt" "$LS/plain/references/host"
+    ln -s ../../_shared/missing.md "$LS/plain/references/gone"
+    ln -s . "$LS/plain/loop"
+    ln -s missing-skill "$LS/dangling"
+    link_skill "$LS/esc-policy" esc-policy 'disable-model-invocation: true'
+    mkdir -p "$LS/esc-policy/agents"
+    printf '%s\n' 'policy:' '  allow_implicit_invocation: true' > "$EL/openai.yaml"
+    ln -s "$EL/openai.yaml" "$LS/esc-policy/agents/openai.yaml"
+    link_skill "$LS/esc-agents" esc-agents 'disable-model-invocation: true'
+    printf '%s\n' 'policy:' '  allow_implicit_invocation: true' > "$EL/agents/openai.yaml"
+    ln -s "$EL/agents" "$LS/esc-agents/agents"
+    # A link an older sync copied verbatim is pruned, not kept.
+    mkdir -p "$LNK/.claude/skills"
+    ln -s "$EL/outside" "$LNK/.claude/skills/stale-link"
+    (cd "$LNK" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/skill-links.txt" 2>&1) \
+        || { echo "FAIL: skill-links sync"; cat "$OUT/skill-links.txt"; fail=1; }
+    TREES=("$LNK/.claude/skills" "$LNK/.agents/skills" "$LNK/.cursor/skills" "$LNK/.github/skills")
+    links_left="$(find "${TREES[@]}" "$LNK/.opencode" "$LNK/.pi" -type l 2>&1)"
+    [ -z "$links_left" ] || { echo "FAIL: generated output holds symlinks:"; printf '%s\n' "$links_left"; fail=1; }
+    chknot grep -rq ELSEWHERE_MARKER "${TREES[@]}" "$LNK/.opencode" "$LNK/.pi" "$LNK/AGENTS.md"
+    for tree in "${TREES[@]}"; do
+        for skill in plain aliased linked-md policy-linked agents-linked esc-policy esc-agents; do
+            chk test -f "$tree/$skill/SKILL.md"
+        done
+        for skill in outside outside-empty outside-md rel-out dangling stale-link _shared; do
+            chknot test -e "$tree/$skill"
+        done
+        chk grep -Fqx 'GUIDE_MARKER' "$tree/plain/references/guide.md"
+        chk grep -Fqx 'GUIDE_MARKER' "$tree/aliased/references/guide.md"
+        chk cmp -s "$LS/_shared/assets/data.bin" "$tree/plain/assets/data.bin"
+        chknot test -e "$tree/plain/references/host"
+        chknot test -e "$tree/plain/references/gone"
+        chknot test -e "$tree/plain/loop"
+        # SKILL.md behind a link gets the frontmatter quoting every SKILL.md gets.
+        chk grep -Fqx 'description: "Linked: colon"' "$tree/linked-md/SKILL.md"
+    done
+    # ... and the effort each tree renders (#47): Claude's level, the neutral
+    # value in the shared tree, no key where the tool has no field.
+    for skill in linked-md aliased; do
+        chk grep -Fqx 'effort: max' "$LNK/.claude/skills/$skill/SKILL.md"
+        chk grep -Fqx 'effort: ultra' "$LNK/.agents/skills/$skill/SKILL.md"
+        chknot grep -q '^effort:' "$LNK/.github/skills/$skill/SKILL.md"
+        chknot grep -q '^effort:' "$LNK/.cursor/skills/$skill/SKILL.md"
+    done
+    for skill in plain aliased linked-md policy-linked agents-linked esc-policy esc-agents; do
+        chk test -f "$LNK/.opencode/commands/$skill.md"
+        chk grep -q "intelligence/skills/$skill/SKILL.md" "$LNK/AGENTS.md"
+    done
+    for skill in outside outside-empty outside-md rel-out dangling; do
+        chknot test -e "$LNK/.opencode/commands/$skill.md"
+        chknot grep -q "intelligence/skills/$skill/" "$LNK/AGENTS.md"
+    done
+    # Codex reads the policy from the materialized files: derived for a linked
+    # SKILL.md, kept byte for byte when a linked file already sets it, added to
+    # a file in a linked agents directory, and derived in place of one left out.
+    OPEN="$LNK/.agents/skills"
+    chk grep -Fqx '  allow_implicit_invocation: false' "$OPEN/linked-md/agents/openai.yaml"
+    chk cmp -s "$LS/_shared/openai.yaml" "$OPEN/policy-linked/agents/openai.yaml"
+    chk grep -Fqx '  allow_implicit_invocation: false' "$OPEN/agents-linked/agents/openai.yaml"
+    chk grep -Fqx '  display_name: "Agents dir"' "$OPEN/agents-linked/agents/openai.yaml"
+    chknot grep -q 'allow_implicit_invocation' "$LS/_shared/agents-dir/openai.yaml"
+    for skill in esc-policy esc-agents; do
+        chk grep -q '^# Generated by intelligence-sync' "$OPEN/$skill/agents/openai.yaml"
+        chknot grep -q 'allow_implicit_invocation: true' "$OPEN/$skill/agents/openai.yaml"
+    done
+    # One warning per link, naming the skill and the path that is the link.
+    S_REL="intelligence/skills"
+    WANT_WARNINGS=(
+        "WARNING: skill 'outside' is left out of every output: $S_REL/outside is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'outside-empty' is left out of every output: $S_REL/outside-empty is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'outside-md' is left out of every output: $S_REL/outside-md/SKILL.md is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'rel-out' is left out of every output: $S_REL/rel-out is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'dangling' is left out of every output: $S_REL/dangling is a dangling symlink"
+        "WARNING: skill 'plain' renders without references/host: $S_REL/plain/references/host is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'plain' renders without references/gone: $S_REL/plain/references/gone is a dangling symlink"
+        "WARNING: skill 'plain' renders without loop: $S_REL/plain/loop is a symlink to a directory that encloses it"
+        "WARNING: skill 'esc-policy' renders without agents/openai.yaml: $S_REL/esc-policy/agents/openai.yaml is a symlink that resolves outside $S_REL"
+        "WARNING: skill 'esc-agents' renders without agents: $S_REL/esc-agents/agents is a symlink that resolves outside $S_REL"
+    )
+    for want in "${WANT_WARNINGS[@]}"; do
+        [ "$(grep -Fxc -- "$want" "$OUT/skill-links.txt")" = 1 ] \
+            || { echo "FAIL: expected exactly one line: $want"; fail=1; }
+    done
+    chk test "$(grep -c '^WARNING: skill ' "$OUT/skill-links.txt")" -eq "${#WANT_WARNINGS[@]}"
+    # The same warnings are compact output's to keep.
+    (cd "$LNK" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact --force > "$OUT/skill-links-compact.txt" 2>&1) \
+        || { echo "FAIL: skill-links compact sync"; cat "$OUT/skill-links-compact.txt"; fail=1; }
+    for want in "${WANT_WARNINGS[@]}"; do
+        chk grep -Fqx -- "$want" "$OUT/skill-links-compact.txt"
+    done
 else
-    echo "  NOTE: this host cannot create a symlink — symlinked SKILL.md case skipped"
+    echo "  NOTE: this host cannot create a symlink — symlinks in a skill source not exercised"
 fi
 
 echo "== Copilot output is ignored by default; commit_output keeps it tracked =="

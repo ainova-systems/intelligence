@@ -311,6 +311,8 @@ skill-name/
 
 The engine copies the complete skill directory. Promote a helper outside the skill only when multiple skills share it.
 
+A symlink inside a skills source renders as the file or directory it points at when that stays inside the same source, so one source can alias a skill or share a resource between skills. A link that leaves its source, dangles or points at a directory enclosing it is left out with a `WARNING:` line; a skill whose directory or `SKILL.md` is such a link is left out entirely. Add a skill kept elsewhere as its own source or package instead of linking it in. Generated skill directories never contain symlinks.
+
 Size limits are backstops, not quotas:
 
 | Artifact | Hard cap | Response |

@@ -132,7 +132,7 @@ while `main`'s cache hit took six. These are observations on one host, not a
 latency guarantee; the tests prove skipped renders, untouched files and exit
 codes instead of timings.
 
-## Amendment ? isolated check rendering (#60)
+## Amendment — isolated check rendering (#60)
 
 The check's render transaction now runs in a private project copy, excluding
 Git history and the live project lock, and discards that copy. Restoring live

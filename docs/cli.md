@@ -186,10 +186,13 @@ and skill entry points), followed by a numeric rendered `AGENTS.md` byte count
 and its `generated`, `not-generated`, or `disabled` status. Supporting skill
 assets are excluded because they load only when a skill reads them.
 
-`--compact` prints that context summary and actionable one-line warnings,
-followed by the final machine-readable status and completion line when sync
-succeeds. If lifecycle preflight, restore or rendering fails, it prints the
-complete captured diagnostics and preserves the original exit code.
+`--compact` prints that context summary and every warning, followed by the final
+machine-readable status and completion line when sync succeeds. A warning is one
+line starting `WARNING:` — among them the frontmatter checks, such as a `name`
+over 64 or a `description` over 1024 characters that the tool will reject at
+load time. An unchanged run replays the same warnings. If lifecycle preflight,
+restore or rendering fails, it prints the complete captured diagnostics and
+preserves the original exit code.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before alignment or restoration. Restore the
@@ -229,7 +232,7 @@ It answers in one of two ways:
   the exact answer.
 - **By rendering.** Without a usable record — none yet, damaged, from an older
   CLI, or made by other code or in another environment (a different `PATH` is
-  enough) ? the engine renders in a private project copy, compares every owned
+  enough) � the engine renders in a private project copy, compares every owned
   and managed path with its snapshot, and discards the copy. The live project's
   bytes, modification times and concurrent edits stay untouched. Names, entry
   kinds, link targets, bytes and executable bits count; links are never followed

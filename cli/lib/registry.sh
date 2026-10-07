@@ -61,7 +61,7 @@ resolve_package_source() {
             [ -n "$reg_url" ] || continue
             index="$(_fetch_index "${reg_url#git+}")"
             if [ -z "$index" ]; then
-                echo "  WARN: registry unreachable or missing index.yaml, skipped: $reg_url" >&2
+                echo "WARNING: registry unreachable or missing index.yaml, skipped: $reg_url" >&2
                 continue
             fi
             RES_URL="$(qmap_field "$index" "packages" "$name" "url")"

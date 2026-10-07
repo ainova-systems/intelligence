@@ -435,7 +435,7 @@ while IFS="$LOCK_SEP" read -r pack name url ref mirror; do
     # Containment before deletion: a mirror value is config input, and rm -rf
     # must never follow it out of the repository.
     case "$mirror" in
-        ""|/*|*..*) [ -n "$mirror" ] && echo "  WARN: mirror '$mirror' not repo-contained — left in place" >&2; continue ;;
+        ""|/*|*..*) [ -n "$mirror" ] && echo "WARNING: mirror '$mirror' not repo-contained — left in place" >&2; continue ;;
     esac
     if [ -d "$root/$mirror" ]; then
         rm -rf "${root:?}/$mirror"

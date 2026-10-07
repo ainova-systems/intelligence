@@ -28,7 +28,7 @@ case "${1:-}" in
     */engine/sync.sh)
         echo engine >> "$LOG"
         if [ -e "$LOG.exit2" ]; then echo 'Simulated renderer status 2' >&2; exit 2; fi
-        if [ -e "$LOG.warnings" ]; then printf '  WARN: Probe warning\n    Probe continuation\n' >&2; fi
+        if [ -e "$LOG.warnings" ]; then printf 'WARNING: Probe warning\n    Probe continuation\n' >&2; fi
         ;;
 esac
 exec "$REAL" "$@"
@@ -242,11 +242,11 @@ check test "$RC" -eq 0
 run --check
 check test "$RC" -eq 0
 check not_rendered
-check err_has '  WARN: Probe warning'
+check err_has 'WARNING: Probe warning'
 check err_has '    Probe continuation'
 run --check --force
 check test "$RC" -eq 0
-check err_has '  WARN: Probe warning'
+check err_has 'WARNING: Probe warning'
 check err_has '    Probe continuation'
 rm "$TMP/operations.warnings"
 run --force
@@ -427,11 +427,16 @@ source_link="$PROJECT/intelligence/skills/demo/assets/link"
 if MSYS=winsymlinks:nativestrict ln -s "$TMP/link-target/file" "$source_link" 2>/dev/null && [ -L "$source_link" ]; then
     run
     check test "$RC" -eq 0
-    check test -L "$PROJECT/.claude/skills/demo/assets/link"
+    check test ! -e "$PROJECT/.claude/skills/demo/assets/link"
+    check test ! -e "$PROJECT/.agents/skills/demo/assets/link"
+    # Skills never emit escaping links; a hand-edited generated link still
+    # belongs to the rollback snapshot and must come back untouched.
+    ln -s "$TMP/link-target/file" "$PROJECT/.claude/skills/demo/assets/link"
+    ln -s "$TMP/link-target/file" "$PROJECT/.agents/skills/demo/assets/link"
     save_outputs
     # The fingerprint cannot carry a link, so every check takes the render path.
     run --check
-    check test "$RC" -eq 0
+    check test "$RC" -eq 2
     check rendered
     check outputs_kept
     check test "$(readlink "$PROJECT/.claude/skills/demo/assets/link")" = "$TMP/link-target/file"
@@ -442,29 +447,6 @@ if MSYS=winsymlinks:nativestrict ln -s "$TMP/link-target/file" "$source_link" 2>
     check test "$RC" -eq 0
     run --check --force
     check test "$RC" -eq 0
-    # Each of these broke diff -r because targets resolve from the snapshot.
-    rm "$source_link"
-    ln -s missing-target "$source_link"
-    run
-    check test "$RC" -eq 0
-    run --check
-    check test "$RC" -eq 0
-    run --check --force
-    check test "$RC" -eq 0
-    check test "$(readlink "$PROJECT/.claude/skills/demo/assets/link")" = missing-target
-    rm "$source_link"
-    ln -s ../../../../outside.txt "$source_link"
-    printf external > "$PROJECT/outside.txt"
-    run
-    check test "$RC" -eq 0
-    run --check --force
-    check test "$RC" -eq 0
-    # Link -> file with identical bytes is still a generated entry-kind change.
-    rm "$source_link"
-    printf external > "$source_link"
-    run --check --force
-    check test "$RC" -eq 2
-    check test -L "$PROJECT/.claude/skills/demo/assets/link"
     rm "$source_link"
     run
     check test "$RC" -eq 0

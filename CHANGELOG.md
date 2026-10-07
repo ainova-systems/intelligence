@@ -14,6 +14,9 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
 
+- Every warning sync and the CLI print is a `WARNING:` line, so `sync --compact`, its unchanged-run replay and `init` keep it — the frontmatter lint's "will be REJECTED at load time" included (#51).
+- A symlink in a skills source whose target stays inside that source is rendered as regular files in every skill tree, with quoting, effort and the Codex invocation policy applied; a link that escapes its source, dangles or loops is left out of every output with one `WARNING:` naming the skill and the link. Claude Code, Cursor and Copilot no longer receive raw links, and a skills source directory that is itself a symlink is read everywhere (decision 0017, #44, #47).
+
 ### Fixed
 
 - `sync --check` preserves hand-edited source lists while restoring the package store and forwards complete renderer warnings to stderr.

@@ -178,6 +178,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown, quote free-text frontmatter, and keep a valid `effort:` as written, as the shared skills tree does. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
 | `copy_skill_bundle_dirs_for(tool, dest_root, src...)` | The batch form for a tree one tool reads: `SKILL.md`'s `effort:` becomes that tool's level, or is removed when it has none. |
+| `skill_source_rendered(skill_dir)` | Whether sync renders a skill directory an adapter listed with its own glob; a skill left out for its symlinks fails it. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
 | `finalize_output_files(file...)` / `finalize_copy_files(dest, src...)` | Batch forms: finalize in place, or copy-and-finalize into a directory, in one process. |
@@ -212,6 +213,8 @@ If a new adapter relies on `AGENTS.md` for always-on rules, its target must requ
 
 Every successful sync prints an adapter-agnostic `CONTEXT:` summary with source byte totals and file counts. It separates always-on rules from custom context (scoped rules, agent prompts and skill entry points), then reports a numeric `agents-md` byte count and `generated`, `not-generated`, or `disabled` status; supporting skill assets are excluded until explicitly read. Adapter-specific hard limits and suppression controls stay inside the adapter that owns them.
 
+Print an adapter warning on stderr as one unindented line starting `WARNING:`. `sync --compact`, which `intelligence init` runs, keeps exactly those lines and drops indented progress, so a warning in any other form never reaches the reader.
+
 The Codex adapter checks its `project_doc_max_bytes` default (32 KiB). When generated `AGENTS.md` exceeds it, sync prints the byte count and a sufficient Codex setting. The warning says "may truncate" because a developer can already have a larger override. `targets.codex.warn_project_doc_limit` accepts `true` or omission for the default threshold, a positive byte count to match another effective limit, or `false` to disable the Intelligence warning. Both inline and block target forms work, and the field does not change Codex configuration. The warning remains visible in `sync --compact`.
 
 The Antigravity adapter checks the 12,000-character limit its documentation
@@ -237,7 +240,9 @@ Skills follow the [Agent Skills standard](https://agentskills.io). Copy each ski
 copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
 ```
 
-Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, avoids materializing symlink targets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It renders `effort:` as the shared tree does; a tree only one tool reads uses `copy_skill_bundle_dirs_for <tool>`, so the copy carries that tool's level or no effort at all.
+Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It renders `effort:` as the shared tree does; a tree only one tool reads uses `copy_skill_bundle_dirs_for <tool>`, so the copy carries that tool's level or no effort at all. It never writes a symlink; how a link in a skills source renders is defined in [conventions](conventions.md#skill-body-and-resources).
+
+An adapter that lists a skills source with its own glob checks each directory with `skill_source_rendered`. A skill whose directory or `SKILL.md` is a link leaving its source is left out of every output, and sync has already warned about it once.
 
 Antigravity, Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
 

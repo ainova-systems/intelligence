@@ -63,7 +63,7 @@ if [ -n "$manifest" ]; then
         [ -n "$url" ] || continue
         index="$(_fetch_index "${url#git+}")"
         if [ -z "$index" ]; then
-            echo "  WARN: registry unreachable or missing index.yaml: $url" >&2
+            echo "WARNING: registry unreachable or missing index.yaml: $url" >&2
             continue
         fi
         emit_index "$index" "$url"
