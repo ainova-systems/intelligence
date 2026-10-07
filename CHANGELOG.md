@@ -19,6 +19,8 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
+- A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, or not as a plain boolean directly under `policy:`, naming the skill. Codex could still select such a skill on its own.
+- Sync warns when a `SKILL.md` or an owner-only skill's `agents/openai.yaml` is a symlink, since no Codex invocation policy is derived or enforced through it.
 - `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
 
 ### Breaking
