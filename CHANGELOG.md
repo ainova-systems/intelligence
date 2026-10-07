@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.19.0]
+
+### Fixed
+
+- `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
+
 ## [0.18.1]
 
 ### Changed
