@@ -1132,7 +1132,7 @@ load_model_tiers() {
 # the tool has no default for and the manifest overrides nowhere — a typo, as a
 # rule — still renders an empty model, but never silently: the run warns once
 # per tool and tier, unindented on purpose because `sync --compact` keeps only
-# `WARNING:` lines.
+# `WARNING:` lines (decision 0016).
 # shellcheck disable=SC2034  # IS_MODEL is the return channel read by adapters
 resolve_model_var() {
     case "$1" in
