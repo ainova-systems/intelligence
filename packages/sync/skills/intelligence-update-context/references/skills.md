@@ -26,7 +26,9 @@ agent: <existing-agent>
 ---
 ```
 
-Omit optional fields that do not apply. Add the skill to its matching agent's
+Omit optional fields that do not apply. Add `effort:` only when the procedure
+needs a reasoning effort other than the session's, using the scale in the
+authoring conventions' effort mappings. Add the skill to its matching agent's
 `skills:` list when that agent is project-owned; propose an upstream change for
 a package-owned agent instead of editing the installed copy. Verify bindings,
 relative resource links, executable steps, and final success criteria. Apply the

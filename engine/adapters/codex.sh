@@ -9,7 +9,9 @@
 # Skills: copy skill directories in full to .agents/skills/{name}/ (Codex
 #   reads from $REPO_ROOT/.agents/skills exclusively per official docs)
 # Agents: -> .codex/agents/{name}.toml (name, description, model,
-#   model_reasoning_effort, sandbox_mode, developer_instructions)
+#   model_reasoning_effort, sandbox_mode, developer_instructions).
+#   model_reasoning_effort comes from `effort:` alone — never from the tier —
+#   and is omitted without one, so Codex's own setting applies.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -97,18 +99,12 @@ sync_codex_agents() {
     if [ "${#files[@]}" -gt 0 ]; then
         load_model_tiers "$config_file" "codex"
 
-        local path tier access description name effort sandbox spec="" report="" LS=$'\x1e'
-        while IFS=$'\x1f' read -r path tier access description; do
+        local path tier access description effort name sandbox spec="" report="" LS=$'\x1e'
+        while IFS=$'\x1f' read -r path tier access description effort; do
             [ -n "$path" ] || continue
             name="${path##*/}"; name="${name%.md}"
             resolve_model_var "$tier"
-            case "$tier" in
-                frontier) effort="xhigh" ;;
-                heavy|"") effort="high" ;;
-                standard) effort="medium" ;;
-                light)    effort="low" ;;
-                *)        effort="medium" ;;
-            esac
+            map_effort_var codex "$effort"
             case "$access" in
                 readonly) sandbox="read-only" ;;
                 *)        sandbox="workspace-write" ;;
@@ -121,7 +117,7 @@ sync_codex_agents() {
             header="${LS}name = \"$name_escaped\""
             header+="${LS}description = \"$description_escaped\""
             header+="${LS}model = \"$IS_MODEL\""
-            header+="${LS}model_reasoning_effort = \"$effort\""
+            [ -z "$IS_EFFORT" ] || header+="${LS}model_reasoning_effort = \"$IS_EFFORT\""
             header+="${LS}sandbox_mode = \"$sandbox\""
             header+="${LS}"
             header+="${LS}developer_instructions = \"\"\""
@@ -129,7 +125,7 @@ sync_codex_agents() {
             spec+="$path"$'\x1f'"$output_dir/$name.toml"$'\x1f'"fence"$'\x1f'"1"$'\x1f'"toml"$'\x1f'"$header"$'\x1f'"${LS}\"\"\""$'\n'
             report+="  agent: $name.toml"$'\n'
             count=$((count + 1))
-        done < <(frontmatter_index "tier,access,description" "${files[@]}")
+        done < <(frontmatter_index "tier,access,description,effort" "${files[@]}")
 
         emit_wrapped_bodies "$spec"
         printf '%s' "$report"

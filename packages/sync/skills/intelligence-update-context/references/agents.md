@@ -8,7 +8,10 @@
    difficulty justifies the most capable and most expensive model. Check the
    target's actual permission mapping when external read tools are required.
    If native read-only restrictions exclude those tools, use `full` only with a
-   clear read-only boundary in the body.
+   clear read-only boundary in the body. The tier selects the model only: add
+   `effort:` (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`) only when the
+   role needs a reasoning effort other than the tool's own setting, as the
+   authoring conventions' effort mappings describe.
 3. Keep the body thin: Expertise, Boundaries, and Build & Verify. Carry its own
    completion criteria and limitations. Reference constraints by name instead
    of copying rules, and put reusable procedures in skills.
@@ -27,7 +30,8 @@ skills:
 ```
 
 Quote free-text YAML strings and escape embedded quotes; malformed scalars can
-prevent discovery. Verify every skill binding resolves, the tier and access use
-the supported vocabulary, and the body defines a role rather than a checklist.
+prevent discovery. Verify every skill binding resolves, the tier, effort and
+access use the supported vocabulary, and the body defines a role rather than a
+checklist; sync warns about an effort it does not recognize and ignores it.
 Apply the agent size and description limits from the authoring conventions,
 then return to the shared sync and verification steps.
