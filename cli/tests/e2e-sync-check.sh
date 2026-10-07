@@ -287,6 +287,31 @@ else
     echo 'SKIP executable-bit cases: filesystem derives executable bits from content'
 fi
 
+echo '== Links in generated paths come back as links, when links are available =='
+mkdir "$TMP/link-target"
+printf external > "$TMP/link-target/file"
+source_link="$PROJECT/intelligence/skills/demo/assets/link"
+if MSYS=winsymlinks:nativestrict ln -s "$TMP/link-target/file" "$source_link" 2>/dev/null && [ -L "$source_link" ]; then
+    run
+    check test "$RC" -eq 0
+    check test -L "$PROJECT/.claude/skills/demo/assets/link"
+    save_outputs
+    # The fingerprint cannot carry a link, so every check takes the render path.
+    run --check
+    check test "$RC" -eq 0
+    check rendered
+    check outputs_kept
+    check test "$(readlink "$PROJECT/.claude/skills/demo/assets/link")" = "$TMP/link-target/file"
+    check test "$(readlink "$PROJECT/.agents/skills/demo/assets/link")" = "$TMP/link-target/file"
+    rm "$source_link"
+    run
+    check test "$RC" -eq 0
+    check test ! -e "$PROJECT/.claude/skills/demo/assets/link"
+else
+    rm -f "$source_link"
+    echo 'SKIP link cases: host cannot create native symlinks'
+fi
+
 echo '== Renderer failures keep their status, restore outputs and record nothing =='
 run --check
 check test "$RC" -eq 0
