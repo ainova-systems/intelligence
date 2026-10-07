@@ -5,7 +5,8 @@
 # All YAML reading goes through the engine's lib/common.sh — the CLI never
 # grows a parallel parser for shapes the engine can already read. The only
 # CLI-owned parsing lives in lib/manifest.sh (quoted-key `packages:` /
-# `registries:` blocks, which the engine deliberately never reads).
+# `registries:` blocks, which the engine never reads beyond the package names
+# and aliases its list parser resolves `sources:` references against).
 
 # Engine libraries (readers, is_status, IS_RC_*, engine_version). CLI_DIR /
 # IS_ENGINE_DIR come exported from the dispatcher.
@@ -545,6 +546,8 @@ project_store_missing() {
         assert_valid_pkg_name "$name"
         [ -d "$root/.intelligence/packages/$name" ] || return 0
     done < <(qmap_keys "$manifest" "packages")
+    # The parser hands a package reference over as the store directory it
+    # names, so every spelling is checked here as that directory.
     for section in rules agents skills; do
         while IFS= read -r src; do
             case "$src" in

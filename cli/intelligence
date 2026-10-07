@@ -61,7 +61,7 @@ Usage: intelligence <command> [args]
     --latest              Move one named package past its range to the newest version
   upgrade [--next] [--preview|--apply]  Replace the installed CLI with the newest npm version
     --next                Follow the prerelease line instead of the stable one
-  package <command>       add | remove | list | search
+  package <command>       add | remove | alias | list | search
   source <command>        add | remove | list — the sources: block (own directories)
   adapter <command>       list | create | enable | disable | remove
   status [--check]        Project state; --check runs deep consistency checks

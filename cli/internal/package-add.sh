@@ -9,15 +9,18 @@ set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
 spec="${1:-}"
-[ -n "$spec" ] || die "usage: intelligence package add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]>"
+[ -n "$spec" ] || die "usage: intelligence package add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]> [--name @scope/name] [--alias <alias>] [--no-sync]"
 shift || true
 
 no_sync=0
 name_override=""
+alias_given=0
+alias_req=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-sync) no_sync=1 ;;
         --name) shift; name_override="${1:-}" ;;
+        --alias) shift; alias_given=1; alias_req="${1:-}" ;;
         *) die "unknown option '$1'" ;;
     esac
     shift || true
@@ -77,6 +80,20 @@ esac
 [ -n "$name_override" ] && name="$name_override"
 assert_valid_pkg_name "$name"
 
+# The alias is settled before anything is fetched or written: a refusal leaves
+# the manifest, the lock and the store as they were. Re-adding a package keeps
+# the alias it declares unless --alias names another one, and never takes away
+# an alias `sources:` still spells entries with.
+alias="$(package_alias_of "$manifest" "$name")"
+if [ "$alias_given" -eq 1 ]; then
+    assert_valid_alias "$alias_req"
+    assert_alias_free "$manifest" "$name" "$alias_req"
+    if [ -n "$alias" ] && [ "$alias" != "$alias_req" ]; then
+        assert_alias_unused "$manifest" "$name" "$alias" replace
+    fi
+    alias="$alias_req"
+fi
+
 if [ "$mode" = "registry" ]; then
     resolve_package_source "$manifest" "$name"
     url="$RES_URL"; path="$RES_PATH"
@@ -129,8 +146,6 @@ rel=".intelligence/packages/$name"
 store_record_remove "$IP_ROOT" "$name"
 sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 
-wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
-
 # The manifest records requested intent only. The resolved source URL/path,
 # tag/ref and SHA live in the required lock. Re-adding a package is the
 # explicit operation for changing its trusted source.
@@ -142,6 +157,12 @@ elif [ -n "$requested" ]; then
 else
     die "internal: package '$name' has neither a requested version nor ref"
 fi
+[ -z "$alias" ] || qmap_set "$manifest" "packages" "$name" "alias" "$alias"
+
+# Wired once the package and its alias are declared, so a section that already
+# names one of its directories as @scope/name/<dir> or <alias>:<dir> is left as
+# it stands instead of gaining the store path beside it.
+wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
 
 lock_upsert "$lock" "$name" "$requested" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
 store_record_set "$IP_ROOT" "$name" "$url" "$path" "${ref:-$resolved_tag}" "$sha"
@@ -150,7 +171,7 @@ sections=""
 for s in rules agents skills; do
     [ -d "$IP_ROOT/$rel/$s" ] && sections="$sections $s"
 done
-echo "+ $name@${resolved_tag:-${ref:-HEAD}} (${sections# })"
+echo "+ $name@${resolved_tag:-${ref:-HEAD}} (${sections# })${alias:+ alias $alias}"
 
 if [ "$no_sync" -eq 0 ]; then
     exec bash "$CLI_DIR/commands/sync.sh"

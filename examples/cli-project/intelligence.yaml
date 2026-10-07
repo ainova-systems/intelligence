@@ -35,7 +35,8 @@ targets:
   claude: { enabled: true, output: ".claude" }
   cursor: { enabled: true, output: ".cursor" }
 
-# CLI-owned blocks — the engine never reads below this line.
+# CLI-owned blocks — below this line the engine reads only package names and
+# aliases.
 packages:
   "@ainova-systems/sync":
     version: "0.19.0"

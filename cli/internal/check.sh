@@ -119,6 +119,18 @@ while IFS= read -r name; do
     fi
 done < <(qmap_keys "$manifest" "packages")
 
+# Aliases name packages in sources: (decision 0019). One the engine would not
+# resolve, or one two packages state, leaves every <alias>:<dir> entry naming
+# nothing. An invalid alias is never echoed: it is manifest input that may hold
+# anything.
+while IFS=$'\037' read -r name alias verdict; do
+    [ -n "$name" ] || continue
+    case "$verdict" in
+        invalid) warn "$name declares an alias that is not one — expected $IS_PKG_ALIAS_RULE: intelligence package alias $name <alias>" ;;
+        ambiguous) warn "$name declares alias '$alias', which another package declares too — an alias names one package" ;;
+    esac
+done < <(read_package_aliases "$manifest")
+
 # Adapter contracts are the shared source of truth for dependencies, rollback,
 # onboarding backup and Git policy. Validate every declared target, including
 # disabled ones, so a later enable cannot reveal a stale custom adapter.
@@ -199,22 +211,50 @@ if [ "$lock_valid" -eq 1 ] && [ -f "$lock" ]; then
 fi
 
 # Sources must exist (a missing dir is silently skipped by the engine, which
-# is exactly why doctor names it).
+# is exactly why doctor names it). Each entry is judged by the directory the
+# engine renders it as, read through the same parser: a package reference by
+# its store path, one that resolves to nothing by why.
 for section in rules agents skills; do
-    while IFS= read -r src; do
+    seen=$'\n'
+    while IFS=$'\037' read -r src state dir alias holders; do
         [ -n "$src" ] || continue
+        case "$state" in
+            unknown|ambiguous|invalid)
+                source_reference_problem_var "$state" "$alias" "$holders"
+                case "$state" in
+                    unknown) warn "sources.$section '$src' $IS_SOURCE_PROBLEM — declare it with 'intelligence package alias <@scope/name> $alias', or correct the entry" ;;
+                    *) warn "sources.$section '$src' $IS_SOURCE_PROBLEM" ;;
+                esac
+                continue
+                ;;
+        esac
+        # One package directory under two spellings is listed twice, and the
+        # later one moves the package past every entry between them.
+        case "$dir" in
+            .intelligence/packages/*)
+                case "$seen" in
+                    *$'\n'"$dir"$'\037'*)
+                        first="${seen#*$'\n'"$dir"$'\037'}"
+                        first="${first%%$'\n'*}"
+                        [ "$first" = "$src" ] \
+                            || warn "sources.$section names $dir twice, as '$first' and as '$src' — keep one: where it stands decides which artifacts win"
+                        ;;
+                    *) seen="$seen$dir"$'\037'"$src"$'\n' ;;
+                esac
+                ;;
+        esac
         case "$src" in
-            git+*|@*) continue ;;
+            git+*) continue ;;
         esac
         # A hand-edited entry the engine cannot render is worse than a missing
         # one: it is skipped without a word and the sync still reports ok.
-        problem="$(source_entry_problem "$IP_ROOT" "$src")"
+        problem="$(source_entry_problem "$IP_ROOT" "$dir")"
         if [ -n "$problem" ]; then
             warn "sources.$section '$src' $problem"
             continue
         fi
-        if [ ! -d "$IP_ROOT/$src" ]; then
-            case "$src" in
+        if [ ! -d "$IP_ROOT/$dir" ]; then
+            case "$dir" in
                 # Store content is restorable state: absent means un-installed.
                 .intelligence/*)
                     if [ "$lock_valid" -eq 1 ]; then
@@ -230,7 +270,7 @@ for section in rules agents skills; do
                 *) ok "sources.$section '$src' — not created yet (optional)" ;;
             esac
         fi
-    done < <(read_yaml_list "$manifest" "$section")
+    done < <(read_source_entries "$manifest" "$section")
 done
 
 if [ "$problems" -eq 0 ]; then
