@@ -19,6 +19,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - [ ] Every Codex agent that should keep a reasoning effort states it as `effort:` in its source; after sync, `.codex/agents/*.toml` carries `model_reasoning_effort` only for agents whose source sets a valid `effort:`.
 
+### Fixed
+
+- `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
+
 ## [0.18.1]
 
 ### Changed
