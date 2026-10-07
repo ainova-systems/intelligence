@@ -264,6 +264,87 @@ for ide in claude cursor copilot codex antigravity opencode; do
     done
 done
 
+echo "== effort: an independent expected matrix =="
+# map_effort_var is the one mapping every adapter and the skill-copy pass
+# render through (decision 0015), so this matrix pins the table itself.
+# Columns follow the neutral scale; `-` means the tool receives no effort.
+chk eq "$IS_EFFORT_LEVELS" "low medium high xhigh max ultra"
+while read -r tool low medium high xhigh max ultra; do
+    row="$tool:"
+    for level in $IS_EFFORT_LEVELS; do
+        map_effort_var "$tool" "$level"
+        row+=" ${IS_EFFORT:--}"
+    done
+    chk eq "$row" "$tool: $low $medium $high $xhigh $max $ultra"
+done <<'EOF'
+claude      low medium high xhigh max max
+codex       low medium high xhigh max ultra
+open        low medium high xhigh max ultra
+copilot     -   -      -    -     -   -
+cursor      -   -      -    -     -   -
+opencode    -   -      -    -     -   -
+antigravity -   -      -    -     -   -
+pi          -   -      -    -     -   -
+EOF
+# Off the scale is matched exactly, case and quotes included, and is absent.
+for tool in claude codex open; do
+    for value in "" hiigh High HIGH " high" "high " '"high"' "low medium" ultra-high; do
+        map_effort_var "$tool" "$value"
+        chk eq "$tool [$value] -> [$IS_EFFORT]" "$tool [$value] -> []"
+    done
+done
+chk eq "$(map_effort claude ultra)" "max"
+# The awk passes receive map_effort_var's own answers, never a second table.
+effort_map_var claude
+chk eq "$IS_EFFORT_MAP" $'low=low\nmedium=medium\nhigh=high\nxhigh=xhigh\nmax=max\nultra=max\n'
+effort_map_var copilot
+chk eq "$IS_EFFORT_MAP" ""
+
+echo "== lint_frontmatter_files: an off-scale effort warns once, an empty one never =="
+L="$OUT/lint-effort"
+mkdir -p "$L"
+printf '%s\n' '---' 'effort: hiigh' 'effort: high' '---' 'effort: a body line' > "$L/typo.md"
+printf '%s\n' '---' 'effort: High' '---' > "$L/case.md"
+printf '%s\n' '---' 'effort: high' 'effort: hiigh' '---' > "$L/second.md"
+printf '%s\n' '---' 'effort:' '---' > "$L/bare.md"
+printf '%s\n' '---' 'effort: ""' '---' > "$L/empty.md"
+printf '%s\n' '---' 'effort: "xhigh"' '---' > "$L/quoted.md"
+printf '%s\r\n' '---' 'effort: ultra' '---' > "$L/crlf.md"
+printf '%s\n' 'effort: hiigh' > "$L/nofm.md"
+warnings="$(lint_frontmatter_files "$L"/*.md 2>&1 >/dev/null)"
+chk eq "$(printf '%s\n' "$warnings" | grep -c 'effort')" 2
+chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/typo.md:2 effort \"hiigh\" is not one of low, medium, high, xhigh, max, ultra")" 1
+chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/case.md:2 effort \"High\" is not one of")" 1
+
+echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
+K="$OUT/skill-effort"
+mkdir -p "$K/src/up" "$K/src/typo" "$K/src/quoted" "$K/src/none/references"
+printf '%s\n' '---' 'name: up' 'effort: ultra' 'effort: low' '---' 'effort: a body line' > "$K/src/up/SKILL.md"
+printf '%s\n' '---' 'name: typo' 'effort: hiigh' '---' > "$K/src/typo/SKILL.md"
+printf '%s\n' '---' 'name: quoted' "effort: 'high'" '---' > "$K/src/quoted/SKILL.md"
+printf '%s\n' '---' 'name: none' '---' > "$K/src/none/SKILL.md"
+printf '%s\n' '---' 'effort: ultra' '---' > "$K/src/none/references/notes.md"
+skill_fm() { awk '/^---$/ { if (++n == 2) exit; next } /^effort:/' "$1"; }
+for tool in claude open copilot; do
+    copy_skill_bundle_dirs_for "$tool" "$K/$tool" "$K/src/up" "$K/src/typo" "$K/src/quoted" "$K/src/none"
+    chk eq "$(skill_fm "$K/$tool/typo/SKILL.md")" ""
+    chk eq "$(skill_fm "$K/$tool/none/SKILL.md")" ""
+    # Only the top-level SKILL.md is a skill's frontmatter; the body and the
+    # bundled references are the author's text.
+    chk eq "$(tail -n 1 "$K/$tool/up/SKILL.md")" "effort: a body line"
+    chk eq "$(skill_fm "$K/$tool/none/references/notes.md")" "effort: ultra"
+done
+chk eq "$(skill_fm "$K/claude/up/SKILL.md")" "effort: max"
+chk eq "$(skill_fm "$K/claude/quoted/SKILL.md")" "effort: 'high'"
+chk eq "$(skill_fm "$K/open/up/SKILL.md")" "effort: ultra"
+chk eq "$(skill_fm "$K/open/quoted/SKILL.md")" "effort: 'high'"
+chk eq "$(skill_fm "$K/copilot/up/SKILL.md")" ""
+chk eq "$(skill_fm "$K/copilot/quoted/SKILL.md")" ""
+# The plain form renders for the shared open-standard tree.
+copy_skill_bundle_dirs "$K/plain" "$K/src/up" "$K/src/typo"
+chk eq "$(skill_fm "$K/plain/up/SKILL.md")" "effort: ultra"
+chk eq "$(skill_fm "$K/plain/typo/SKILL.md")" ""
+
 echo "== count_matching_files: what find | wc -l reports per directory =="
 C="$OUT/counts"
 mkdir -p "$C/rules/nested" "$C/skills/one/refs" "$C/skills/two" "$C/agents" "$C/empty"

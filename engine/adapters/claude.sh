@@ -3,8 +3,9 @@
 # Transforms source prompts to .claude/ format
 #
 # Rules: copy as-is (paths: frontmatter preserved)
-# Skills: copy skill directories in full (SKILL.md + bundled resources)
-# Agents: tier -> model, access -> tools/disallowedTools
+# Skills: copy skill directories in full (SKILL.md + bundled resources),
+#   effort -> Claude's effort level
+# Agents: tier -> model, effort -> effort, access -> tools/disallowedTools
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -75,7 +76,7 @@ sync_claude_skills() {
         done
     done <<< "$list"
     [ "${#skill_dirs[@]}" -gt 0 ] || return 0
-    copy_skill_bundle_dirs "$output_dir/skills" "${skill_dirs[@]}"
+    copy_skill_bundle_dirs_for claude "$output_dir/skills" "${skill_dirs[@]}"
     for d in "${skill_dirs[@]}"; do
         skill_name="${d%/}"
         echo "  skill: ${skill_name##*/}"
@@ -83,7 +84,7 @@ sync_claude_skills() {
 }
 
 # Sync all agents to Claude format: one frontmatter pass resolves
-# tier/access for every file, one transform pass writes every output.
+# tier/effort/access for every file, one transform pass writes every output.
 sync_claude_agents() {
     local repo_root="$1"
     local config_file="$2"
@@ -106,19 +107,22 @@ sync_claude_agents() {
 
     load_model_tiers "$config_file" "claude"
 
-    local path tier access spec="" report=""
-    while IFS=$'\x1f' read -r path tier access; do
+    local path tier access effort spec="" report=""
+    while IFS=$'\x1f' read -r path tier access effort; do
         [ -n "$path" ] || continue
         resolve_model_var "$tier"
+        map_effort_var claude "$effort"
         map_access_to_claude_tools_var "$access"
         map_access_to_claude_disallowed_var "$access"
-        spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$IS_CLAUDE_TOOLS"$'\x1f'"$IS_CLAUDE_DISALLOWED"$'\n'
+        spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$IS_CLAUDE_TOOLS"$'\x1f'"$IS_CLAUDE_DISALLOWED"$'\x1f'"$IS_EFFORT"$'\n'
         report+="  agent: ${path##*/} (tier=$tier -> model=$IS_MODEL, access=$access)"$'\n'
-    done < <(frontmatter_index "tier,access" "${files[@]}")
+    done < <(frontmatter_index "tier,access,effort" "${files[@]}")
 
     # The transform used to run per file with the values injected via -v;
     # the batched form carries them per file through the environment (awk -v
-    # would reprocess backslash escapes).
+    # would reprocess backslash escapes). The first frontmatter `effort:` line
+    # becomes Claude's level in place, or goes when there is none; a later
+    # one goes too, since frontmatter_index read only the first.
     is_fin_awk_vars
     IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
@@ -127,18 +131,25 @@ sync_claude_agents() {
             for (i = 1; i <= n; i++) {
                 if (recs[i] == "") continue
                 split(recs[i], f, US)
-                MODEL[f[1]] = f[2]; TOOLS[f[1]] = f[3]; EXTRA[f[1]] = f[4]
+                MODEL[f[1]] = f[2]; TOOLS[f[1]] = f[3]; EXTRA[f[1]] = f[4]; EFFORT[f[1]] = f[5]
             }
         }
         FNR == 1 {
             if (out != "") close(out)
             out = dst "/" base_name(FILENAME)
             count = 0
+            fm = 0
+            effort_seen = 0
         }
         /^tier:/  { next }
         /^access:/ { next }
         { sub(/\r$/, "") }
+        FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
+        fm && count == 1 && substr($0, 1, 7) == "effort:" {
+            if (!effort_seen++ && EFFORT[FILENAME] != "") print fin_line("effort: " EFFORT[FILENAME]) > out
+            next
+        }
         count == 2 && /^---$/ {
             if (TOOLS[FILENAME] != "") print fin_line("tools: " TOOLS[FILENAME]) > out
             if (EXTRA[FILENAME] != "") print fin_line("disallowedTools: " EXTRA[FILENAME]) > out
