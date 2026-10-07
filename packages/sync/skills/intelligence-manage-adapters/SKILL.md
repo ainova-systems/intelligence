@@ -3,6 +3,7 @@ name: intelligence-manage-adapters
 description: "Enable, disable, or remove adapters and assess generated-output cleanup"
 argument-hint: "<enable|disable|remove> <adapter-name>"
 agent: intelligence-operator
+disable-model-invocation: true
 ---
 
 # Manage adapters

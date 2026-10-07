@@ -3,6 +3,7 @@ name: intelligence-upgrade
 description: "Upgrade Intelligence and installed packages with migration checks"
 argument-hint: "[@scope/name]"
 agent: intelligence-operator
+disable-model-invocation: true
 ---
 
 # Upgrade Intelligence and packages
