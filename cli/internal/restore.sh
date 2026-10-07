@@ -7,12 +7,13 @@
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
-frozen=0 force=0 no_sync=0
+frozen=0 force=0 no_sync=0 keep_sources=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --frozen) frozen=1 ;;
         --force) force=1 ;;
         --no-sync) no_sync=1 ;;
+        --keep-sources) keep_sources=1 ;;
         *) die "unknown option '$1'" ;;
     esac
     shift || true
@@ -117,7 +118,7 @@ if [ -f "$lock" ]; then
         mkdir -p "$(dirname "$IP_ROOT/$rel")"
         mv "$staging" "$IP_ROOT/$rel"
         store_record_set "$IP_ROOT" "$name" "$url" "$path" "$resolved" "$sha"
-        wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
+        [ "$keep_sources" = 1 ] || wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
         echo "= $name@${resolved:-HEAD}"
     done < <(lock_to_tsv "$lock")
 fi

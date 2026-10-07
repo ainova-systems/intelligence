@@ -2106,8 +2106,9 @@ IS_YAML_LIST_AWK='
 # Consults the load_yaml_list cache first: sync reads the same sections from
 # the same manifest dozens of times, and each awk spawn costs tens of
 # milliseconds on Windows. The cache is only ever populated by
-# load_yaml_list, which the engine calls for a manifest it never mutates, so
-# a CLI process that edits the manifest keeps reading the file directly.
+# load_yaml_list and load_yaml_lists. The engine never mutates its manifest;
+# CLI writers invalidate it through qmap_memo_reset; load_yaml_lists and the
+# project preloader also populate it.
 read_yaml_list() {
     local file="$1"
     local section="$2"

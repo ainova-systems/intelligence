@@ -222,17 +222,25 @@ It answers in one of two ways:
   root, layout, bash, locale, `PATH`, umask — answers without rendering. Equal
   sources and generated files exit 0. When the project's sources (manifest,
   lock, configured sources, installed packages) or its generated files differ
-  from the record, the check exits 2 at once and names the side that changed:
-  `sources changed` or `generated files changed`. A source change may still
+  from the record, changed sources exit 2 at once and name the side that
+  changed. Changes only to outputs render to distinguish generated changes
+  from preserved hand-written siblings in managed directories. A source change may still
   render to identical files — a manifest comment, for example; `--force` gives
   the exact answer.
 - **By rendering.** Without a usable record — none yet, damaged, from an older
   CLI, or made by other code or in another environment (a different `PATH` is
-  enough) — the engine renders inside its rollback transaction, compares every
-  owned and managed path with the snapshot it took first, and restores that
-  snapshot whatever the result, so bytes and modification times stay as they
-  were. A clean result is recorded under sync's rules, so the next check is
+  enough) ? the engine renders in a private project copy, compares every owned
+  and managed path with its snapshot, and discards the copy. The live project's
+  bytes, modification times and concurrent edits stay untouched. Names, entry
+  kinds, link targets, bytes and executable bits count; links are never followed
+  when comparing. A clean result is recorded under sync's rules, so the next check is
   fast; a difference records nothing.
+
+Project adapters receive the private project's absolute root during a check.
+They should render from project-relative inputs; adapters that embed the absolute
+root in their output may report a difference because the check's root differs.
+Absolute source links into the project are relocated within the copy; escaping
+links retain their targets and are judged by the normal source-link policy.
 
 `--check --force` always renders: the strict answer. An adapter name scopes the
 check to that adapter, and full and filtered records never stand in for each

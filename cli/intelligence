@@ -14,7 +14,7 @@ esac
 # An absolute spelling without `.` or `..` segments or doubled slashes is
 # already what `cd && pwd` prints; on Git Bash that subshell costs a fork.
 case "$CLI_DIR" in
-    */./*|*/.|*/../*|*/..|*//*|[!/]*) CLI_DIR="$(cd "$CLI_DIR" && pwd)" ;;
+    */|*/./*|*/.|*/../*|*/..|*//*|[!/]*) CLI_DIR="$(cd "$CLI_DIR" && pwd)" ;;
 esac
 export CLI_DIR
 
