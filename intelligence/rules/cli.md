@@ -31,7 +31,7 @@ candidate.
 
 ## Who owns what
 
-The engine reads ordinary local paths from `sources:` and nothing else. Registry
+The engine reads paths and package references from `sources:`, and from `packages:` only the names and aliases those references resolve against. Registry
 resolution, Git tags, semver ranges, store installation and `intelligence.lock` are
 the CLI's. The quoted-key `packages:` and `registries:` blocks are CLI-owned: parse
 and edit them through `cli/lib/manifest.sh`. Its shared `qmap.awk` tokenizer supplies

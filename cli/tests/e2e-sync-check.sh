@@ -413,4 +413,57 @@ check test "$RC" -ne 2
 check cmp "$TMP/store-agents" "$STORE_PROJECT/AGENTS.md"
 export PATH="$ORIGINAL_PATH"
 
+# Decision 0019: sources: may name a package's directory by full name or by
+# alias, and both render from the store path. The cache must fingerprint that
+# directory, or a change to the package's content would read as up to date.
+REFS="$TMP/references"
+mkdir "$REFS"
+OUT="$(cd "$REFS" && bash "$CLI" init --targets claude 2>&1)" || fail 'init of the references project'
+STORE_SYNC=".intelligence/packages/@ainova-systems/sync"
+package_rule="$REFS/$STORE_SYNC/rules/intelligence-authoring.md"
+rendered_rule="$REFS/.claude/rules/intelligence-authoring.md"
+check test -f "$package_rule"
+check test -f "$rendered_rule"
+# respell <from> <to> — e2e-sources.sh's: the first quoted "<from>… on each
+# manifest line becomes "<to>…; nothing else moves.
+respell() {
+    awk -v from="\"$1" -v to="\"$2" '
+        { i = index($0, from); if (i) $0 = substr($0, 1, i - 1) to substr($0, i + length(from)); print }
+    ' "$REFS/intelligence.yaml" > "$TMP/respelled"
+    cat "$TMP/respelled" > "$REFS/intelligence.yaml"
+}
+# package_content_change <marker> — edit the package's rule in the store, then
+# prove neither a check nor a sync answers from the record made before it.
+package_content_change() {
+    run_in "$REFS"
+    check test "$RC" -eq 0
+    run_in "$REFS" --check
+    check test "$RC" -eq 0
+    check not_rendered
+    printf '\n%s\n' "$1" >> "$package_rule"
+    run_in "$REFS" --check
+    check test "$RC" -eq 2
+    check has 'sources changed'
+    check not_rendered
+    run_in "$REFS"
+    check test "$RC" -eq 0
+    check rendered
+    check grep -qx "$1" "$rendered_rule"
+    run_in "$REFS" --check
+    check test "$RC" -eq 0
+    check not_rendered
+}
+
+echo '== A package source named by full name is fingerprinted at its store path =='
+respell "$STORE_SYNC/" "@ainova-systems/sync/"
+check grep -q '"@ainova-systems/sync/rules"' "$REFS/intelligence.yaml"
+check test "$(grep -c "$STORE_SYNC" "$REFS/intelligence.yaml" || true)" -eq 0
+package_content_change FULL_NAME_MARKER
+
+echo '== A package source named by alias is fingerprinted at its store path =='
+OUT="$(cd "$REFS" && bash "$CLI" package alias @ainova-systems/sync sync 2>&1)" || fail 'package alias'
+respell "@ainova-systems/sync/" "sync:"
+check grep -q '"sync:rules"' "$REFS/intelligence.yaml"
+package_content_change ALIAS_MARKER
+
 echo "== sync-check: $checks checks passed =="

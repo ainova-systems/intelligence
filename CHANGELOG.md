@@ -4,6 +4,16 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.20.0]
+
+### Added
+
+- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0018).
+
+### Changed
+
+- An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
+
 ## [0.19.0]
 
 ### Added
@@ -11,18 +21,21 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - Agents and skills accept a tool-neutral `effort:` — `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. Claude Code agents and skills receive it as `effort:` (`ultra` becomes `max`), Codex agents as `model_reasoning_effort`, and the shared `.agents/skills/` tree keeps it as written; Copilot, Cursor, OpenCode, Antigravity and Pi receive no effort key (decision 0015).
 - An `effort:` off that scale prints a `WARNING:` line naming the source file and the value, also under `sync --compact` and `init`, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
 - `targets.copilot.commit_output: true` keeps generated Copilot output tracked for Copilot on github.com (decision 0020).
-- `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0018).
+- `sources:` names a package's directory by the package as well as by its store path: `@scope/name/<dir>` for a package `packages:` declares, and `<alias>:<dir>` through the alias that package declares. Both render exactly as the store path. The CLI still writes store paths and rewrites no entry: wiring leaves a directory a section already names in any spelling where it stands, and `package remove` removes the package's entries in every spelling. An `@scope/name/…` entry for an undeclared package stays an ordinary path, which `status --check` now judges like any project directory. A CLI `0.18` or earlier reads a reference as a path that does not exist and skips it (decision 0019).
+- `intelligence package alias <@scope/name> <alias>` and `package add --alias <alias>` set the alias a package declares, `package alias <@scope/name> --remove` drops it, and `package list` shows it. Both refuse a malformed alias or one another package declares, and refuse to remove or replace an alias `sources:` still uses, naming the entries.
+- `sync` skips a reference that names nothing — an alias no package declares or two packages declare, or a `<dir>` that is empty or leaves its package — with a `WARNING:` line naming it, and `status --check` reports it, a malformed or shared alias, and a section that lists one package directory under two spellings. `source add` and `source remove` refuse a reference, naming `intelligence package`, and take any spelling of a package's directory as a `--before` / `--after` anchor.
 
 ### Changed
 
 - A tier no longer sets a reasoning effort in any tool. Codex agents without `effort:` no longer get a tier-derived `model_reasoning_effort` (`xhigh` for `frontier`, `high` for `heavy` or no tier, `medium` for `standard`, `low` for `light`), so Codex's own setting applies and `frontier` and `heavy` render identical Codex agents.
-- An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
 - Generated Copilot output is gitignored by default, as Cursor's and Claude Code's is: `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and the legacy `.github/copilot-instructions.md`. `.github/` itself, workflows and templates stay tracked.
 - `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding that `intelligence init` repairs names it as the fix.
 
 ### Fixed
 
 - `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
+- `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
+- An entry in `sources:`, `ignore:` or `submodules:` followed by a `# comment` reads without the comment, and without whitespace outside its quotes. The comment was read as part of the path, so sync skipped that source without a word and `status --check` refused the `#`; a `#` inside quotes is still part of the value, and the `source` and `package` commands read entries the same way.
 
 ### Breaking
 

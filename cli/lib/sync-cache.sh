@@ -121,6 +121,9 @@ sync_cache_dependencies() {
     for file in "$REPO_ROOT/$IS_CONTENT_REL/adapters"/*.sh; do
         [ ! -e "$file" ] && [ ! -L "$file" ] || return 1
     done
+    # The engine's list parser hands a package reference (decision 0019) over
+    # as the store path sync renders from, and leaves out one that resolves to
+    # nothing; only the manifest, an input itself, decides which.
     for section in rules agents skills; do
         load_yaml_list "$CONFIG_FILE" "$section"
         while IFS= read -r src; do

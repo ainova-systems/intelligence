@@ -43,9 +43,10 @@ by fourteen `awk` runs; every enabled adapter contract cost two forks.
 3. The cache record keeps three fingerprints apart: **tooling** (CLI and engine
    code, plus the invocation and environment that shape rendering — adapter
    filter, root, layout, bash, locale, `PATH`, umask), **inputs** (manifest,
-   lock, configured sources with installed packages, the project adapter
-   folder) and **outputs** (every path the enabled built-in adapters own or
-   manage). A record made by the same tooling answers without rendering: equal
+   lock, configured sources with installed packages — a package reference
+   (decision 0019) at the store path it renders from, resolved by the
+   engine's own list parser — the project adapter folder) and **outputs**
+   (every path the enabled built-in adapters own or manage). A record made by the same tooling answers without rendering: equal
    inputs and outputs exit 0; different ones exit 2 at once and name the side
    that changed. CLI and engine code count as tooling, so an upgrade renders
    instead of claiming that the project needs a sync.

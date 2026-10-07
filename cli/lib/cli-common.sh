@@ -5,7 +5,8 @@
 # All YAML reading goes through the engine's lib/common.sh — the CLI never
 # grows a parallel parser for shapes the engine can already read. The only
 # CLI-owned parsing lives in lib/manifest.sh (quoted-key `packages:` /
-# `registries:` blocks, which the engine deliberately never reads).
+# `registries:` blocks, which the engine never reads beyond the package names
+# and aliases its list parser resolves `sources:` references against).
 
 # Engine libraries (readers, is_status, IS_RC_*, engine_version). CLI_DIR /
 # IS_ENGINE_DIR come exported from the dispatcher.
@@ -573,7 +574,9 @@ project_reads_refresh() {
 
 # _yaml_list_var <file> <section> — read_yaml_list into IS_YAML_LIST: from the
 # preloaded manifest view when there is one, otherwise read now and cache
-# nothing, because this process may still edit the manifest.
+# nothing, because this process may still edit the manifest. Either way a
+# package reference arrives as the store path it names: the view runs the same
+# expanding list program as read_yaml_list.
 _yaml_list_var() {
     local file_var="IS_YL_${2}_FILE" val_var="IS_YL_${2}_VAL"
     if [ "${!file_var:-}" = "$1" ]; then
@@ -658,6 +661,8 @@ project_store_missing() {
         assert_valid_pkg_name "$name"
         [ -d "$root/.intelligence/packages/$name" ] || return 0
     done <<< "$IS_QMAP_OUT"
+    # The parser hands a package reference over as the store directory it
+    # names, so every spelling is checked here as that directory.
     for section in rules agents skills; do
         _yaml_list_var "$manifest" "$section"
         while IFS= read -r src; do

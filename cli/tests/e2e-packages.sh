@@ -11,6 +11,19 @@ CLI="$REPO/cli/intelligence"
 fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
+# is <label> <want> <got>
+is() { [ "$2" = "$3" ] || { echo "FAIL: $1 — want '$2', got '$3'"; fail=1; }; }
+# joined <manifest> <section> — sources.<section> as written, comma-joined.
+joined() {
+    awk -v sec="$2" '
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; next }
+        ins && /^[^ #]/ { ins = 0; f = 0 }
+        ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
+        ins && /^  [A-Za-z_]/ { f = 0 }
+        f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
+    ' "$1" | paste -sd, -
+}
 
 # --- fixture pack repo with tags ---
 PACK="$OUT/shared-intel"
@@ -119,9 +132,22 @@ echo "== update to a version that DROPPED a section dir =="
 git -C "$PACK" rm -rq skills
 git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -m drop-skills
 git -C "$PACK" tag v1.3.0
+# The section the new version drops is spelled through the package's alias and
+# the one it keeps by its full name (decision 0019): an update recognises its
+# own entries in every spelling, drops the lost one and leaves the kept one as
+# written instead of wiring the store path beside it.
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package alias @acme/shared shared >/dev/null)
+chk grep -qx '    alias: "shared"' "$PROJ/intelligence.yaml"
+awk '{ sub(/"\.intelligence\/packages\/@acme\/shared\/skills"/, "\"shared:skills\"")
+       sub(/"\.intelligence\/packages\/@acme\/shared\/rules"/, "\"@acme/shared/rules\""); print }' \
+    "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
+mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
+is "spellings before the shape-changing update" "shared:skills" "$(joined "$PROJ/intelligence.yaml" skills)"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply)
 chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
 chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
+chknot grep -q 'shared:skills' "$PROJ/intelligence.yaml"
+is "the kept section after the update" "@acme/shared/rules,intelligence/rules" "$(joined "$PROJ/intelligence.yaml" rules)"
 out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 grep -q '^IS_STATUS=ok' <<< "$out13" || { echo "FAIL: sync after shape-changing update"; fail=1; }
 
@@ -266,6 +292,10 @@ git -C "$RCLONE" init --quiet
 out_ref="$(cd "$RCLONE" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 grep -q '^IS_STATUS=ok' <<< "$out_ref" || { echo "FAIL: frozen restore of a ref pin"; fail=1; }
 chk grep -q 'BRANCH_MARKER_TWO' "$RCLONE/AGENTS.md"
+# The restore wires every package it installs, and recognises the one whose
+# rules the manifest names by full name: no store path is written back.
+chk cmp -s "$PROJ/intelligence.yaml" "$RCLONE/intelligence.yaml"
+chk grep -q 'PACK_RULE_MARKER' "$RCLONE/AGENTS.md"
 
 echo "== ref pin: a commit sha never moves =="
 awk '{ gsub(/ref: "pack-main"/, "ref: \"'"$BR_SHA1"'\""); print }' \
@@ -281,7 +311,22 @@ grep -q "${BR_SHA1:0:7} (pinned commit)" <<< "$pv_pin" \
     || { echo "FAIL: a commit pin was not reported as pinned"; fail=1; }
 grep -q 'updates available: 0 package' <<< "$pv_pin" \
     || { echo "FAIL: a commit pin was counted as an update"; fail=1; }
+
+echo "== update keeps a package's sources where they stand =="
+# @acme/branch was added after @acme/shared, so it sits first and shared's
+# same-named files override it. Updating shared changes its content, never which
+# package wins: an update used to unwire the package and wire it first again,
+# which reversed that order.
+is "order before the update" ".intelligence/packages/@acme/branch/rules,@acme/shared/rules,intelligence/rules" \
+    "$(joined "$PROJ/intelligence.yaml" rules)"
+git -C "$PACK" tag v2.2.0 v2.0.0
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --apply >/dev/null)
+chk grep -q 'resolved: "v2.2.0"' "$PROJ/intelligence.lock"
+is "order after the update" ".intelligence/packages/@acme/branch/rules,@acme/shared/rules,intelligence/rules" \
+    "$(joined "$PROJ/intelligence.yaml" rules)"
+is "a kept section after the update" ".intelligence/packages/@acme/shared/skills" "$(joined "$PROJ/intelligence.yaml" skills)"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/branch >/dev/null)
+is "survivors after a remove" "@acme/shared/rules,intelligence/rules" "$(joined "$PROJ/intelligence.yaml" rules)"
 
 echo "== ref pin: a deleted branch is reported, even when its name looks like a sha =="
 # The commit-pin verdict reads the locked sha, not the ref's shape: a branch

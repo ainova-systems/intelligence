@@ -104,6 +104,15 @@ echo ""
 load_targets_cache "$CONFIG_FILE"
 load_yaml_lists "$CONFIG_FILE" rules agents skills ignore submodules
 
+# A package reference that resolves to nothing is left out of every list, so
+# nothing renders from it — but it is a manifest error, not a directory that
+# does not exist yet, and it is named rather than skipped in silence.
+while IFS=$'\037' read -r section src state _dir alias holders; do
+    [ -n "$section" ] || continue
+    source_reference_problem_var "$state" "$alias" "$holders"
+    echo "WARNING: sources.$section '$src' $IS_SOURCE_PROBLEM — skipped; 'intelligence status --check' reports it" >&2
+done <<< "${IS_YL_UNRESOLVED:-}"
+
 # Lint frontmatter across all source files (rules, agents, skills).
 # Catches issues like unquoted colons that strict YAML consumers reject.
 LINT_FILES=()

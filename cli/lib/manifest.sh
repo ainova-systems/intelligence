@@ -2,9 +2,10 @@
 # The CLI-owned YAML shapes: quoted-key maps (`packages:`, `registries:` in
 # the manifest, `packages:` in the lock and in registry indexes).
 #
-# The engine deliberately never reads these blocks, and its readers cannot
-# hold `@scope/name` keys — so this is the CLI's single, deliberate parser,
-# scoped to exactly one shape:
+# The engine reads none of these blocks beyond the names and aliases in
+# `packages:`, which resolve package references in `sources:`
+# (engine/lib/common.sh), and its list readers cannot hold `@scope/name` keys —
+# so this is the CLI's single, deliberate parser, scoped to exactly one shape:
 #
 #   block:
 #     "@scope/name":            # 2-space indent, key always quoted
@@ -550,12 +551,14 @@ registries_remove() {
 # meaning: a later entry overrides a same-named artifact from an earlier one.
 # Reading goes through the engine's own list parser, so the CLI sees exactly
 # what the engine will render instead of a second reading of the same file.
+# The editors read it raw — a package reference as written, which is what they
+# compare and rewrite — and read_source_entries says what each one renders.
 
-# sources_list_entries <file> <section> — entries of sources.<section>, one per
-# line, in manifest order.
+# sources_list_entries <file> <section> — entries of sources.<section> as
+# written, one per line, in manifest order.
 sources_list_entries() {
     [ -f "$1" ] || return 0
-    read_yaml_list "$1" "$2"
+    read_yaml_list_raw "$1" "$2"
 }
 
 # sources_has_entry <file> <section> <entry> — true (0) when that section lists
@@ -582,7 +585,7 @@ sources_has_entry() {
 sources_add_entry() {
     local file="$1" section="$2" entry="$3" pos="${4:-last}" anchor="${5:-}"
     sources_has_entry "$file" "$section" "$entry" && return 0
-    _qmap_stage "$file" -v section="$section" -v entry="$entry" -v pos="$pos" -v anchor="$anchor" '
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" -v pos="$pos" -v anchor="$anchor" "$IS_YAML_ITEM_AWK"'
         function line() { return "    - \"" entry "\"" }
         function place() { print line(); done = 1 }
         # Blank lines inside sources: are held back so an insert lands next to
@@ -590,13 +593,11 @@ sources_add_entry() {
         # one section from the next.
         function flush_tail(   i) { for (i = 1; i <= ntail; i++) print tail[i]; blanks = ntail; ntail = 0 }
         function open_section() { flush_tail(); print "  " section ":"; place(); if (blanks) print "" }
+        # The entry as the engine reads it (yaml_item, engine/lib/common.sh).
         function value(s,   v) {
             v = s
-            sub(/^[ \t]*-[ \t]*/, "", v)
-            gsub(/["\x27]/, "", v)
-            sub(/[ \t]+#.*$/, "", v)
-            sub(/[ \t]+$/, "", v)
-            return v
+            sub(/^[ \t]*-/, "", v)
+            return yaml_item(v)
         }
         BEGIN { anchored = (pos == "before" || pos == "after") }
         { sub(/\r$/, "") }
@@ -652,24 +653,173 @@ sources_add_entry_first() {
 }
 
 # sources_remove_entry <file> <section> <entry> — remove `- "entry"` from
-# sources.<section>.
+# sources.<section>, matching each item as the engine reads it (yaml_item).
 sources_remove_entry() {
     local file="$1" section="$2" entry="$3"
     [ -f "$file" ] || return 0
-    _qmap_stage "$file" -v section="$section" -v entry="$entry" '
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" "$IS_YAML_ITEM_AWK"'
         { sub(/\r$/, "") }
         /^sources:[ \t]*$/ { ins = 1; print; next }
         ins && /^[^ #]/ { ins = 0; insec = 0 }
         ins && $0 ~ "^  " section ":[ \t]*$" { insec = 1; print; next }
         ins && /^  [A-Za-z_]/ { insec = 0 }
-        insec {
+        insec && /^[ \t]*-/ {
             line = $0
-            sub(/^[ \t]*-[ \t]*/, "", line)
-            gsub(/["\x27]/, "", line)
-            sub(/[ \t]+#.*$/, "", line)
-            sub(/[ \t]+$/, "", line)
-            if (line == entry) next
+            sub(/^[ \t]*-/, "", line)
+            if (yaml_item(line) == entry) next
         }
         { print }
     '
+}
+
+# --- package references and aliases ------------------------------------------
+# `sources:` may name a package's directory by its store path, by the package's
+# full name or by the alias its `packages:` entry declares (decision 0019). The
+# engine's list parser (IS_PKG_REF_AWK in engine/lib/common.sh) is the only
+# definition of those spellings; everything below reads through it, so the CLI
+# never judges an entry differently from the way the engine renders it. The CLI
+# itself only ever writes store paths, and writes an alias only through
+# `package add --alias` and `package alias`.
+
+# assert_valid_alias <alias> — refuse an alias the engine would never resolve.
+assert_valid_alias() {
+    pkg_alias_valid "$1" \
+        || die "invalid alias '$1' — expected $IS_PKG_ALIAS_RULE"
+}
+
+# package_alias_of <file> <@scope/name> — the alias that package declares, when it
+# is well formed; nothing otherwise (an invalid one resolves nothing).
+package_alias_of() {
+    local name alias verdict
+    while IFS=$'\037' read -r name alias verdict; do
+        [ "$name" = "$2" ] || continue
+        [ "$verdict" = invalid ] || printf '%s' "$alias"
+        return 0
+    done < <(read_package_aliases "$1")
+}
+
+# assert_alias_free <file> <@scope/name> <alias> — refuse an alias another package
+# already declares: one alias names exactly one package.
+assert_alias_free() {
+    local file="$1" self="$2" want="$3" name alias verdict
+    while IFS=$'\037' read -r name alias verdict; do
+        [ "$name" != "$self" ] && [ "$alias" = "$want" ] || continue
+        die "alias '$want' already names $name — one alias names one package; choose another"
+    done < <(read_package_aliases "$file")
+}
+
+# sources_alias_users <file> <alias> — every sources entry spelled <alias>:<dir>,
+# one `sources.<section> '<entry>'` line each.
+sources_alias_users() {
+    local file="$1" alias="$2" section entry
+    for section in rules agents skills; do
+        while IFS= read -r entry; do
+            case "$entry" in
+                "$alias":*) printf "sources.%s '%s'\n" "$section" "$entry" ;;
+            esac
+        done < <(sources_list_entries "$file" "$section")
+    done
+}
+
+# assert_alias_unused <file> <@scope/name> <alias> <remove|replace> — refuse to
+# take away an alias `sources:` still spells entries with: they would stop
+# resolving, and the package's content would leave the outputs in silence.
+assert_alias_unused() {
+    local file="$1" name="$2" alias="$3" verb="$4" users
+    users="$(sources_alias_users "$file" "$alias")"
+    [ -n "$users" ] || return 0
+    echo "ERROR: cannot $verb alias '$alias' of $name — sources: still uses it:" >&2
+    printf '%s\n' "$users" | sed 's/^/  /' >&2
+    echo "  Spell those entries $name/<dir> instead, then $verb the alias." >&2
+    exit 1
+}
+
+# sources_classify_entry <file> <entry> — `<state>\037<directory>` for an entry
+# that is not in the manifest (yet): what the engine would render it as against
+# the packages the manifest declares. States are pkr_parse's.
+sources_classify_entry() {
+    local file="$1"
+    [ -f "$file" ] || file=/dev/null
+    IS_PKR_CANDIDATE="$2" awk "$IS_PKG_REF_AWK"'
+        { sub(/\r$/, ""); pkr_collect($0) }
+        END { dir = pkr_expand(ENVIRON["IS_PKR_CANDIDATE"]); print PKR_STATE "\037" dir }
+    ' "$file"
+}
+
+# sources_find_entry <file> <section> <entry> — print the entry of
+# sources.<section>, as written, that names the same directory as <entry> in any
+# spelling; fail when the section names it nowhere. An entry that renders
+# nothing matches only itself.
+sources_find_entry() {
+    local file="$1" section="$2" entry="$3" want _state raw _st dir _rest
+    [ -f "$file" ] || return 1
+    IFS=$'\037' read -r _state want <<< "$(sources_classify_entry "$file" "$entry")"
+    while IFS=$'\037' read -r raw _st dir _rest; do
+        if [ "$raw" = "$entry" ] || { [ -n "$want" ] && [ "$dir" = "$want" ]; }; then
+            printf '%s' "$raw"
+            return 0
+        fi
+    done < <(read_source_entries "$file" "$section")
+    return 1
+}
+
+# package_source_listed <file> <section> <store-dir> — true when sources.<section>
+# already names <store-dir>, in whichever spelling.
+package_source_listed() {
+    local _raw _st dir _rest
+    [ -f "$1" ] || return 1
+    while IFS=$'\037' read -r _raw _st dir _rest; do
+        [ "$dir" = "$3" ] && return 0
+    done < <(read_source_entries "$1" "$2")
+    return 1
+}
+
+# sources_remove_package <file> <@scope/name> [section...] — drop the package's
+# entries from sources:, in every spelling. With sections, only the entry of
+# sources.<section> that names the package's own <section> directory goes;
+# without, every rules/agents/skills entry naming a directory inside the
+# package. The references resolve through `packages:`, so call it while the
+# package and its alias are still declared. Every other line survives byte for
+# byte, and an unchanged file is not rewritten.
+sources_remove_package() {
+    local file="$1" name="$2" tmp rc=0
+    shift 2
+    [ -f "$file" ] || return 0
+    tmp="$file.cli.tmp"
+    # A write to a qmap document forgets every remembered read, as _qmap_stage does.
+    qmap_memo_reset
+    awk -v name="$name" -v only=" $* " "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK"'
+        BEGIN { store = ".intelligence/packages/" name }
+        FNR == 1 { pass++ }
+        pass == 1 { sub(/\r$/, ""); pkr_collect($0); next }
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; print; next }
+        ins && /^[^ #]/ { ins = 0; sec = "" }
+        ins && /^  [A-Za-z_]/ {
+            sec = $0
+            sub(/^  /, "", sec)
+            sub(/:.*$/, "", sec)
+            if (sec != "rules" && sec != "agents" && sec != "skills") sec = ""
+            print
+            next
+        }
+        ins && sec != "" && /^[ \t]*-/ {
+            v = $0
+            sub(/^[ \t]*-/, "", v)
+            dir = pkr_expand(yaml_item(v))
+            if (only == "  ") drop = dir == store || index(dir, store "/") == 1
+            else drop = index(only, " " sec " ") && dir == store "/" sec
+            if (drop) { changed = 1; next }
+        }
+        { print }
+        END { exit (changed ? 0 : 10) }
+    ' "$file" "$file" > "$tmp" || rc=$?
+    case "$rc" in
+        0)
+            [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: sources edit produced an empty file for $file"; }
+            mv "$tmp" "$file"
+            ;;
+        10) rm -f "$tmp" ;;
+        *) rm -f "$tmp"; die "internal: sources edit refused (awk exit $rc) for $file" ;;
+    esac
 }
