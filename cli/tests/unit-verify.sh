@@ -53,6 +53,15 @@ git -C "$PROJ" -c user.email=t@t -c user.name=t commit --quiet -m fixture
 rm "$PROJ/engine/deleted.sh"
 printf '#!/bin/bash\necho untracked\n' > "$PROJ/engine/untracked.sh"
 printf '#!/bin/bash\necho ignored\n' > "$PROJ/engine/ignored.sh"
+# A link whose target is missing is still part of the tree git reports. Git Bash
+# without developer mode cannot create one; probe the link, not the platform.
+DANGLING=0
+if ln -s missing-target.sh "$PROJ/engine/dangling.sh" 2>/dev/null && [ -L "$PROJ/engine/dangling.sh" ]; then
+    DANGLING=1
+else
+    rm -f "$PROJ/engine/dangling.sh"
+    echo "  NOTE: this filesystem does not create symlinks — a dangling link in the copy is not exercised"
+fi
 
 export FAKE_WSL_LOG="$OUT/wsl.log" FAKE_SHELLCHECK_LOG="$OUT/shellcheck.log"
 RC=0
@@ -91,6 +100,10 @@ checked tracked.sh || { echo "FAIL: tracked file missing from the copy"; fail=1;
 checked untracked.sh || { echo "FAIL: untracked file missing from the copy"; fail=1; }
 if checked ignored.sh; then echo "FAIL: ignored file reached the copy"; fail=1; fi
 if checked deleted.sh; then echo "FAIL: deleted file reached the copy"; fail=1; fi
+if [ "$DANGLING" -eq 1 ] && ! checked dangling.sh; then
+    echo "FAIL: a dangling symlink git reports is missing from the copy"
+    fail=1
+fi
 if [ "$(grep -c '=== verify ok ===' <<< "$OUTPUT")" -ne 1 ]; then
     echo "FAIL: the verdict must be printed once, by the caller"
     fail=1

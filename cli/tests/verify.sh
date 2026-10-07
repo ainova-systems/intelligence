@@ -113,7 +113,7 @@ run_scope() {
 }
 
 # --- Windows: the same scope in WSL (decision 0014) -------------------------
-# Git Bash starts a process in 50-120 ms where Linux needs about one, and the
+# Git Bash starts a process in 55-120 ms where Linux needs about one, and the
 # suites start tens of thousands: the test scope takes close to an hour in
 # Git Bash and under three in WSL. The copy lives in the distribution's own
 # filesystem, because a /mnt/ path reaches the tree through 9P, which is slower
@@ -165,13 +165,14 @@ EOF
 
 # verify_in_wsl <scope> - the working tree as git sees it: tracked and untracked
 # files, minus ignored ones (the package store, scratch fixtures) and deletions
-# not yet staged.
+# not yet staged. A symlink belongs to that tree whether or not its target
+# exists, and `-e` alone follows it.
 verify_in_wsl() {
     local path
     banner "WSL: '$1' on a copy of this tree (INTELLIGENCE_VERIFY_NATIVE=1 keeps Git Bash)"
     git ls-files -z --cached --others --exclude-standard \
         | while IFS= read -r -d '' path; do
-            if [ -e "$path" ]; then printf '%s\0' "$path"; fi
+            if [ -e "$path" ] || [ -L "$path" ]; then printf '%s\0' "$path"; fi
         done \
         | tar --null -T - -cf - \
         | wsl_cmd --exec bash -c "$WSL_RUNNER" bash "$1"
