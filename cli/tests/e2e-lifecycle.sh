@@ -774,6 +774,10 @@ pol_skill() {
 }
 pol_skill interface-only 'interface:' '  display_name: "Interface only"'
 pol_skill policy-block 'policy:' '    products: []' 'interface:' '  display_name: "Block"'
+# Only a direct child of `policy:` is the key Codex reads: a deeper one gains
+# the direct key beside it, and a flat flow mapping holding it is kept as is.
+pol_skill nested-key 'policy:' '  products:' '    allow_implicit_invocation: false'
+pol_skill flow-policy 'policy: {allow_implicit_invocation: false}'
 (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-merge.txt" 2>&1) \
     || { echo "FAIL: skill-policy merge sync"; cat "$OUT/policy-merge.txt"; fail=1; }
 chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/interface-only/agents/openai.yaml"
@@ -782,29 +786,51 @@ chknot grep -q 'allow_implicit_invocation' "$POL/intelligence/skills/interface-o
 chk grep -Fqx '    allow_implicit_invocation: false' "$POL/.agents/skills/policy-block/agents/openai.yaml"
 chk grep -Fqx '    products: []' "$POL/.agents/skills/policy-block/agents/openai.yaml"
 chk test "$(grep -c '^policy:' "$POL/.agents/skills/policy-block/agents/openai.yaml")" -eq 1
-# A file whose policy contradicts the field refuses the render and restores it.
+chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/nested-key/agents/openai.yaml"
+chk grep -Fqx '    allow_implicit_invocation: false' "$POL/.agents/skills/nested-key/agents/openai.yaml"
+chk cmp -s "$POL/intelligence/skills/flow-policy/agents/openai.yaml" "$POL/.agents/skills/flow-policy/agents/openai.yaml"
+# A file whose policy contradicts the field, or states it in a shape sync does
+# not read as the plain boolean, refuses the render and restores it.
 pol_skill contradicts 'policy:' '  allow_implicit_invocation: true'
+pol_skill quoted-false 'policy:' '  allow_implicit_invocation: "false"'
+pol_skill inline-true 'policy: {allow_implicit_invocation: true}'
+pol_skill inline-string 'policy: "allow_implicit_invocation: false"'
 RC=0
 (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-refuse.txt" 2>&1) || RC=$?
 chk test "$RC" -ne 0
 chk grep -Fq 'contradicts sets disable-model-invocation: true, but its agents/openai.yaml sets policy.allow_implicit_invocation: true' \
     "$OUT/policy-refuse.txt"
-chknot test -e "$POL/.agents/skills/contradicts"
+chk grep -Fq 'quoted-false sets disable-model-invocation: true, but its agents/openai.yaml sets policy.allow_implicit_invocation: "false"' \
+    "$OUT/policy-refuse.txt"
+chk grep -Fq 'inline-true sets disable-model-invocation: true, but its agents/openai.yaml has policy: {allow_implicit_invocation: true}' \
+    "$OUT/policy-refuse.txt"
+chk grep -Fq 'inline-string sets disable-model-invocation: true, but its agents/openai.yaml has policy: "allow_implicit_invocation: false"' \
+    "$OUT/policy-refuse.txt"
+for skill in contradicts quoted-false inline-true inline-string; do
+    chknot test -e "$POL/.agents/skills/$skill"
+    rm -rf "$POL/intelligence/skills/$skill"
+done
 chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
-rm -rf "$POL/intelligence/skills/contradicts"
-# A symlinked SKILL.md is emitted as-is, so nothing is read or derived through
-# it; the run says so instead of passing it silently. Probed: some hosts cannot
-# create a symlink and copy the file instead.
+# A symlinked SKILL.md or agents/openai.yaml is emitted as-is, so nothing is
+# read, derived or rewritten through it; the run says so instead of passing it
+# silently. Probed: some hosts cannot create a symlink and copy the file instead.
 mkdir -p "$OUT/linked-skill" "$POL/intelligence/skills/linked"
 printf -- '---\nname: linked\ndescription: "Linked"\ndisable-model-invocation: true\n---\n\n# Linked\n' \
     > "$OUT/linked-skill/SKILL.md"
 if ln -s "$OUT/linked-skill/SKILL.md" "$POL/intelligence/skills/linked/SKILL.md" 2>/dev/null \
     && [ -L "$POL/intelligence/skills/linked/SKILL.md" ]; then
+    pol_skill linked-policy 'interface:' '  display_name: "Linked policy"'
+    mv "$POL/intelligence/skills/linked-policy/agents/openai.yaml" "$OUT/linked-skill/openai.yaml"
+    ln -s "$OUT/linked-skill/openai.yaml" "$POL/intelligence/skills/linked-policy/agents/openai.yaml"
     (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --force > "$OUT/policy-link.txt" 2>&1) \
         || { echo "FAIL: skill-policy link sync"; cat "$OUT/policy-link.txt"; fail=1; }
     chk grep -Fq 'linked/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it' \
         "$OUT/policy-link.txt"
     chknot test -e "$POL/.agents/skills/linked/agents"
+    chk grep -Fq 'linked-policy/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced' \
+        "$OUT/policy-link.txt"
+    chk test -L "$POL/.agents/skills/linked-policy/agents/openai.yaml"
+    chknot grep -q 'allow_implicit_invocation' "$OUT/linked-skill/openai.yaml"
 else
     echo "  NOTE: this host cannot create a symlink — symlinked SKILL.md case skipped"
 fi

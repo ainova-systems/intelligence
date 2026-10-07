@@ -254,7 +254,7 @@ argument-hint: "<route-name>"
 
 Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand.
 
-`disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none and refuses one that sets it otherwise.
+`disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 
 These limits reject a skill instead of degrading it:
 

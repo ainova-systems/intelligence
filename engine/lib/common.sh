@@ -678,9 +678,10 @@ sync_open_skill_dirs() {
 # policy file is derived here, in the open-standard tree Codex reads, so every
 # adapter sharing that tree writes the same bytes. A skill that ships its own
 # `agents/openai.yaml` keeps the rest of it: the output copy gains the policy
-# when the author's file sets none, and a file whose policy says otherwise
-# refuses the render — an owner-only skill Codex can still select is the exact
-# failure the field exists to prevent, so it never passes as a success.
+# when the author's file sets none, and a file whose policy says otherwise, or
+# that sync cannot read as saying it, refuses the render — an owner-only skill
+# Codex can still select is the exact failure the field exists to prevent, so
+# it never passes as a success.
 open_skill_invocation_policies() {
     local output_dir="$1" path dir flag rows refusals
     local -a skill_mds=() policy_dirs=() policies=() authored=()
@@ -718,7 +719,7 @@ open_skill_invocation_policies() {
     done <<< "$rows"
     if [ "${#authored[@]}" -gt 0 ]; then
         refusals="$(enforce_authored_invocation_policies "${authored[@]}")" || {
-            echo "ERROR: could not read agents/openai.yaml under $output_dir" >&2
+            echo "ERROR: could not read or rewrite agents/openai.yaml under $output_dir" >&2
             return 1
         }
         if [ -n "$refusals" ]; then
@@ -742,24 +743,38 @@ open_skill_invocation_policies() {
 # author-owned Codex files of skills that set `disable-model-invocation: true`.
 # A file already setting `policy.allow_implicit_invocation: false` is left
 # alone; one without that key gains it, inside an existing `policy:` block or
-# as a new block, every other line kept; one that sets it otherwise, or holds
-# an inline `policy:` it cannot extend safely, is printed as `<file>\t<reason>`
-# and left untouched for the caller to refuse.
+# as a new block, every other line kept. Only the plain boolean on a direct
+# child of `policy:` counts — the key Codex reads. A file that sets it
+# otherwise, or whose `policy:` sync cannot read or extend safely, is printed
+# as `<file>\t<reason>` and left untouched for the caller to refuse.
 enforce_authored_invocation_policies() {
     awk '
         function reset() {
             file = ""; n = 0; haspol = 0; inpol = 0; polline = 0
-            inline = ""; child = ""; val = ""
+            inline = ""; child = ""; val = ""; hasval = 0; bad = ""
         }
-        function finish(   i, ind, bad) {
+        # A one-line policy counts only as a flat flow mapping of plain
+        # scalars holding the key itself; a quoted or nested value is not read.
+        function inline_ok(s,   body, parts, k, i, p) {
+            if (s !~ /^\{.*\}$/) return 0
+            body = substr(s, 2, length(s) - 2)
+            if (body ~ /[{}"\047]/ || index(body, "[") || index(body, "]")) return 0
+            k = split(body, parts, ",")
+            for (i = 1; i <= k; i++) {
+                p = parts[i]
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", p)
+                if (p ~ /^allow_implicit_invocation[[:space:]]*:[[:space:]]*false$/) return 1
+            }
+            return 0
+        }
+        function finish(   i, ind) {
             if (file == "") return
-            bad = ""
-            if (inline != "" && inline !~ /allow_implicit_invocation[[:space:]]*:[[:space:]]*false/)
-                bad = "has an inline policy without allow_implicit_invocation: false"
-            else if (val != "" && val != "false")
-                bad = "sets policy.allow_implicit_invocation: " val
+            if (bad == "" && inline != "" && !inline_ok(inline))
+                bad = "has policy: " inline ", which does not plainly set allow_implicit_invocation: false"
+            if (bad == "" && hasval && val != "false")
+                bad = "sets policy.allow_implicit_invocation: " (val == "" ? "null" : val)
             if (bad != "") { printf "%s\t%s\n", file, bad; reset(); return }
-            if (inline != "" || val == "false") { reset(); return }
+            if (inline != "" || hasval) { reset(); return }
             ind = (child != "") ? child : "  "
             for (i = 1; i <= n; i++) {
                 print L[i] > file
@@ -775,23 +790,37 @@ enforce_authored_invocation_policies() {
         BEGIN { reset() }
         FNR == 1 { finish(); file = FILENAME }
         { sub(/\r$/, ""); L[++n] = $0 }
-        /^policy[[:space:]]*:/ {
+        /^["\047]?policy["\047]?[[:space:]]*:/ {
+            if (haspol) bad = "has more than one policy: key"
             haspol = 1; polline = n; inpol = 1
             rest = $0
-            sub(/^policy[[:space:]]*:[[:space:]]*/, "", rest)
-            sub(/[[:space:]]*#.*$/, "", rest)
+            sub(/^[^:]*:[[:space:]]*/, "", rest)
+            sub(/[[:space:]]+#.*$/, "", rest)
+            sub(/^#.*$/, "", rest)
+            sub(/[[:space:]]+$/, "", rest)
             if (rest != "") { inline = rest; inpol = 0 }
             next
         }
         inpol && /^[^[:space:]#]/ { inpol = 0 }
+        # The first indented line fixes the depth of the direct children of
+        # policy:, and a deeper line belongs to another key, not the one Codex
+        # reads.
         inpol && /^[[:space:]]+[^[:space:]#]/ {
-            if (child == "") { match($0, /^[[:space:]]+/); child = substr($0, 1, RLENGTH) }
-            if ($0 ~ /^[[:space:]]+allow_implicit_invocation[[:space:]]*:/) {
+            match($0, /^[[:space:]]+/)
+            cur = substr($0, 1, RLENGTH)
+            if (child == "") {
+                child = cur
+                if ($0 ~ /^[[:space:]]+-([[:space:]]|$)/) bad = "has a policy: that is not a mapping"
+            } else if (length(cur) < length(child)) {
+                bad = "has a policy: block indented inconsistently"
+            }
+            if (cur == child && $0 ~ /^[[:space:]]+["\047]?allow_implicit_invocation["\047]?[[:space:]]*:/) {
                 v = $0
                 sub(/^[^:]*:[[:space:]]*/, "", v)
-                sub(/[[:space:]]*#.*$/, "", v)
-                gsub(/["\047]/, "", v)
-                val = v
+                sub(/[[:space:]]+#.*$/, "", v)
+                sub(/^#.*$/, "", v)
+                sub(/[[:space:]]+$/, "", v)
+                hasval = 1; val = v
             }
         }
         END { finish() }
