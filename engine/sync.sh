@@ -272,7 +272,7 @@ wait_sync_jobs() {
 # 1 when one differs, 2 when the comparison itself failed. One process per
 # path plus one find for executable bits; nothing here writes.
 compare_sync_snapshot() {
-    local index rel present live snap rc sub snapshot_exec="" live_exec="" entry count=0
+    local index rel present live snap rc sub snapshot_exec="" live_exec="" entry
     local -a rel_of=() exec_starts=()
     while IFS=$'\t' read -r index rel present; do
         [ -n "$rel" ] || continue
@@ -311,17 +311,20 @@ compare_sync_snapshot() {
                 ;;
             "$REPO_ROOT/"*)
                 live_exec="$live_exec${entry#"$REPO_ROOT/"}"$'\n'
-                count=$((count + 1))
                 ;;
             *) return 2 ;;
         esac
     done < "$SYNC_TX_DIR/exec.list"
+    # Nested managed paths list one file under both of them, so compare the
+    # two sets both ways rather than count them.
     while IFS= read -r entry; do
         [ -n "$entry" ] || continue
-        count=$((count - 1))
-        case "$live_exec" in "$entry"$'\n'*|*$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
+        case $'\n'"$live_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
     done <<< "$snapshot_exec"
-    [ "$count" = 0 ] || return 1
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        case $'\n'"$snapshot_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
+    done <<< "$live_exec"
 }
 
 finish_sync_transaction() {
