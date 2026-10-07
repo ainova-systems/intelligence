@@ -174,8 +174,23 @@ for ide in claude copilot cursor; do
 done
 chk eq "$(get_nested_yaml_value "$M" packs "a.b" url)" "https://host/repo.git"
 chk eq "$(get_nested_yaml_value "$M" packs "axb" url)" ""
-load_model_tiers "$OUT/absent-models.yaml" claude
-chk eq "$IS_MODEL_FRONTIER/$IS_MODEL_HEAVY/$IS_MODEL_STANDARD/$IS_MODEL_LIGHT" "fable/opus/sonnet/sonnet"
+
+echo "== built-in model defaults: an independent expected matrix =="
+# Every other model assertion reads get_model_default as its oracle, so only
+# this matrix catches a wrong entry in the engine's table itself. Columns are
+# frontier, heavy, standard, light; a model bump updates this row with it.
+while read -r ide frontier heavy standard light; do
+    load_model_tiers "$OUT/absent-models.yaml" "$ide"
+    chk eq "$ide: $IS_MODEL_FRONTIER $IS_MODEL_HEAVY $IS_MODEL_STANDARD $IS_MODEL_LIGHT" \
+        "$ide: $frontier $heavy $standard $light"
+done <<'EOF'
+claude      fable                       opus                       sonnet                      sonnet
+cursor      inherit                     inherit                    inherit                     inherit
+copilot     gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
+codex       gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
+antigravity pro                         pro                        flash                       flash
+opencode    anthropic/claude-fable-5-1  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-sonnet-5-5
+EOF
 
 echo "== every built-in agent target has a default for every standard tier =="
 # An adapter writes whatever the tier resolves to, so a tier one tool has no

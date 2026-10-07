@@ -817,7 +817,9 @@ has_paths() {
 # --- Tier/Access Mappings ---
 
 # Hardcoded defaults: ide:tier -> model name. Where a tool has fewer models
-# than there are tiers, tiers share one (decision 0013). When you bump these, re-run sync in projects; any project whose config.yaml
+# than there are tiers, tiers share one (decision 0013). cli/tests/unit-engine.sh
+# pins this table independently, so a bump updates its expected matrix too.
+# When you bump these, re-run sync in projects; any project whose config.yaml
 # `models:` section diverges from these will print a drift warning so users
 # know their override is now stale.
 # get_model_default_var sets IS_MODEL_DEFAULT; get_model_default prints it.

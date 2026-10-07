@@ -192,7 +192,7 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 | `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
 | `light` | `sonnet` | `inherit` | `gpt-6-luna` | `anthropic/claude-sonnet-5-5` | `flash` | lookups and simple formatting |
 
-Codex also receives a reasoning effort per tier — `xhigh`, `high`, `medium`, `low` — which is what separates `frontier` from `heavy` in Codex. Copilot has no effort field, so its `frontier` and `heavy` agents are identical. Claude has no current Haiku, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
+Codex also receives a reasoning effort per tier — `xhigh`, `high`, `medium`, `low` — which is what separates `frontier` from `heavy` in Codex. Copilot has no effort field, so its `frontier` and `heavy` agents are identical. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default.
 

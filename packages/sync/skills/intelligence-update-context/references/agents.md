@@ -5,9 +5,10 @@
 2. Select tier and access: implementation normally uses `heavy` and `full`;
    review or validation uses `standard` and `readonly`; simple lookup uses
    `light` and `readonly`. Reserve `frontier` for long-horizon work whose
-   difficulty justifies the most capable and most expensive model. Check the target's actual permission mapping when
-   external read tools are required. If native read-only restrictions exclude
-   those tools, use `full` only with a clear read-only boundary in the body.
+   difficulty justifies the most capable and most expensive model. Check the
+   target's actual permission mapping when external read tools are required.
+   If native read-only restrictions exclude those tools, use `full` only with a
+   clear read-only boundary in the body.
 3. Keep the body thin: Expertise, Boundaries, and Build & Verify. Carry its own
    completion criteria and limitations. Reference constraints by name instead
    of copying rules, and put reusable procedures in skills.
