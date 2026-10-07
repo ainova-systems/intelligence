@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.18.1]
+
+### Changed
+
+- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+
 ## [0.18.0]
 
 ### Added
