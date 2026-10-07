@@ -5,8 +5,6 @@ tier: standard
 access: full
 skills:
   - intelligence-sync
-  - intelligence-upgrade
-  - intelligence-manage-adapters
 ---
 
 # Intelligence operator
@@ -28,6 +26,11 @@ the operation in prose.
 - **Every flow goes through its skill.** The steps and their guards live in `intelligence-sync`,
   `intelligence-upgrade` and `intelligence-manage-adapters`;
   improvising around them produces an unverified version of the same work.
+- **Upgrades and adapter changes are the owner's to start.** `intelligence-upgrade` moves CLI and
+  package versions, the lock and migrations; `intelligence-manage-adapters` adds or removes whole
+  tool outputs. Both are decisions about the layer, so they run only when the owner invokes them,
+  and a sync never previews an update or inspects adapters on its own. Name the command the owner
+  can run and stop there.
 - **Operating is not authoring.** A change to what an artifact says - a rule body, an agent persona,
   a skill's steps - belongs to `intelligence-architect` and the authoring meta-skills. This agent
   ships what exists and never decides what should exist.

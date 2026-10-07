@@ -253,6 +253,25 @@ for skill_root in "$FRESH/.intelligence/packages/@ainova-systems/sync/skills" \
     done
     chknot test -e "$skill_root/dev-build-adapter"
 done
+# Upgrades and adapter changes are the owner's decision: those two skills reach
+# every skill output marked so no agent selects them, and the operator a forked
+# sync runs as no longer preloads them.
+for skill_root in "$FRESH/.claude/skills" "$FRESH/.agents/skills"; do
+    for skill in intelligence-upgrade intelligence-manage-adapters; do
+        chk grep -Fqx 'disable-model-invocation: true' "$skill_root/$skill/SKILL.md"
+    done
+    chknot grep -Fq 'disable-model-invocation' "$skill_root/intelligence-sync/SKILL.md"
+done
+# Codex ignores that frontmatter key, so sync derives its policy file in the
+# tree Codex reads; the package source and the other outputs carry none.
+for skill in intelligence-upgrade intelligence-manage-adapters; do
+    chk grep -Fqx '  allow_implicit_invocation: false' "$FRESH/.agents/skills/$skill/agents/openai.yaml"
+    chknot test -e "$FRESH/.intelligence/packages/@ainova-systems/sync/skills/$skill/agents"
+    chknot test -e "$FRESH/.claude/skills/$skill/agents"
+done
+chknot test -e "$FRESH/.agents/skills/intelligence-sync/agents/openai.yaml"
+chk grep -Fqx '  - intelligence-sync' "$FRESH/.claude/agents/intelligence-operator.md"
+chknot grep -Eq '^  - intelligence-(upgrade|manage-adapters)$' "$FRESH/.claude/agents/intelligence-operator.md"
 chk grep -Fq 'intelligence.yaml' \
     "$FRESH/.claude/skills/intelligence-review-context/references/audit-checks.md"
 chknot grep -R -E -q '<(content-dir|module|manifest|sync-cmd)>' \
@@ -644,6 +663,49 @@ agr_rule_limit 10
 (cd "$AGR" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/agr-override-10.txt" 2>&1)
 override_chars="$(wc -c < "$AGR/.agents/rules/big.md" | tr -d '[:space:]')"
 chk grep -Fq ".agents/rules/big.md renders $override_chars;" "$OUT/agr-override-10.txt"
+
+echo "== skills only the owner invokes get Codex's policy at sync =="
+# The source states the intent once; Codex's own file is the engine's to write,
+# for project skills as much as package ones, and an author's own file is kept.
+POL="$OUT/skill-policy"
+mkdir -p "$POL/intelligence/skills/owner-only" "$POL/intelligence/skills/own-policy/agents" \
+    "$POL/intelligence/skills/open"
+git -C "$POL" init --quiet
+cat > "$POL/intelligence.yaml" <<EOF
+project:
+  name: skill-policy
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+  agents:
+  skills:
+    - "intelligence/skills"
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  codex: { enabled: true, output: ".codex" }
+EOF
+printf -- '---\nname: owner-only\ndescription: "Owner only"\ndisable-model-invocation: true\n---\n\n# Owner only\n' \
+    > "$POL/intelligence/skills/owner-only/SKILL.md"
+printf -- '---\nname: own-policy\ndescription: "Own policy"\ndisable-model-invocation: true\n---\n\n# Own policy\n' \
+    > "$POL/intelligence/skills/own-policy/SKILL.md"
+printf '%s\n' 'policy:' '  allow_implicit_invocation: false' 'interface:' '  display_name: "Kept"' \
+    > "$POL/intelligence/skills/own-policy/agents/openai.yaml"
+printf -- '---\nname: open\ndescription: "Open"\n---\n\n# Open\n' > "$POL/intelligence/skills/open/SKILL.md"
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-sync.txt" 2>&1) \
+    || { echo "FAIL: skill-policy sync"; cat "$OUT/policy-sync.txt"; fail=1; }
+chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/owner-only/agents/openai.yaml"
+chk grep -Fqx '  display_name: "Kept"' "$POL/.agents/skills/own-policy/agents/openai.yaml"
+chknot test -e "$POL/.agents/skills/open/agents"
+chknot test -e "$POL/intelligence/skills/owner-only/agents"
+# Dropping the field drops the derived file on the next sync.
+printf -- '---\nname: owner-only\ndescription: "Owner only"\n---\n\n# Owner only\n' \
+    > "$POL/intelligence/skills/owner-only/SKILL.md"
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-resync.txt" 2>&1) \
+    || { echo "FAIL: skill-policy resync"; cat "$OUT/policy-resync.txt"; fail=1; }
+chknot test -e "$POL/.agents/skills/owner-only/agents/openai.yaml"
 
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A
