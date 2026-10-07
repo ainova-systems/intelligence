@@ -216,6 +216,9 @@ adapter_contract_agents() {
     adapter_contract_version 1
     adapter_contract_owned "$output"
     adapter_contract_legacy "AGENTS.md"
+    # No ignore record, deliberately: AGENTS.md is the tool-neutral fallback
+    # every tool reads, and a fresh clone has it only if it is committed —
+    # before anyone has run a sync.
 }
 
 sync_to_agents() {

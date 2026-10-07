@@ -42,7 +42,9 @@
 # configured target output passed as $1. `owned` paths are exclusively managed;
 # `managed` paths share a directory with another adapter or hand-authored files.
 # Add `legacy` inputs to the initial backup, `preserve` for settings that must
-# never be replaced, and explicit ignore/include records for Git policy.
+# never be replaced, and explicit ignore/include records for Git policy. $2, when
+# given, is the manifest: read it only to choose Git policy (ignore versus
+# unignore), never ownership — callers that read ownership alone omit it.
 adapter_contract_<name>() {
     local output="${1%/}"
     adapter_contract_version 1

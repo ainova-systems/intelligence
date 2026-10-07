@@ -39,7 +39,7 @@ Behavior depends on discovered project state:
 |---|---|---|---|
 | No setup | Create an Intelligence manifest, lock/store, requested adapters and first sync | Show what would be created | Create without an interactive decision |
 | Legacy Intelligence Sync | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
-| Existing Intelligence project | Align schema/content if needed, restore missing store, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
+| Existing Intelligence project | Align schema/content if needed, restore missing store, reapply every enabled adapter's Git policy, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
 
 `--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--dir name` names the project's content directory — where its own rules, agents, skills and adapters live — when it should not be `intelligence/`; the name is recorded as `project.intelligence_dir` and must be a plain directory inside the repository, never an absolute path, a `..` path or the `.intelligence/` package store. Like `--targets` and `--bare`, it applies only when creating a new project. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
 
@@ -74,7 +74,8 @@ Setup announces the start and completion of its first compact sync. It then prin
 and toggling adapters and explains the generated-output version-control
 choices. Installing the starter package before learning lets repository
 analysis detect overlap with package-owned content. The CLI ignores restorable adapter-owned output while keeping
-`AGENTS.md`, `.github/`, and shared tool settings trackable. The exact patterns
+`AGENTS.md`, hand-written `.github/` files, and shared tool settings trackable;
+`targets.copilot.commit_output: true` keeps Copilot's output tracked too. The exact patterns
 are listed in the [artifact conventions](../packages/sync/references/conventions.md#generated-output-and-version-control).
 When `.vscodeignore`, `.npmignore`, or `.dockerignore` already exists, init
 also adds packaging exclusions for Intelligence development context and

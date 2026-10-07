@@ -70,8 +70,9 @@ sync_to_mytool() {
 }
 ```
 
-The contract accepts the configured repo-relative output path and emits only
-records through these helpers:
+The contract accepts the configured repo-relative output path and, as an optional
+second argument, the absolute path of `intelligence.yaml`. It emits only records
+through these helpers:
 
 | Record | Meaning |
 |---|---|
@@ -83,6 +84,17 @@ records through these helpers:
 | `adapter_contract_preserve <path>` | Settings or state preserved in place and included in the initial backup |
 | `adapter_contract_ignore <pattern>` | Exact `.gitignore` pattern managed on enable/init |
 | `adapter_contract_include <pattern>` | Exact negated `.gitignore` pattern managed on enable/init |
+| `adapter_contract_unignore <pattern>` | Exact `.gitignore` pattern removed from the CLI-managed block on enable/init |
+
+The manifest argument is for Git policy only: a target field may decide whether
+generated output is ignored, as `targets.copilot.commit_output` does. Ownership
+records never depend on it. The engine and the sync cache read ownership alone
+and pass no manifest, so a contract given none declares its default policy;
+init, enable and `status --check` pass it. `unignore` is how a configuration
+withdraws a default `ignore` an earlier init or enable already wrote: the CLI
+removes that exact line below its `# Intelligence generated state and tool
+output` header, never a line the project wrote above it, and `status --check`
+reports one still present.
 
 All paths are repository-relative. The CLI refuses missing, malformed, unsafe,
 or unsupported contracts before enabling or syncing an adapter. `owned` and
@@ -108,7 +120,14 @@ reads are not part of any contract.
 For an existing `.vscodeignore`, `.npmignore`, or `.dockerignore`, enable/init
 also excludes the configured adapter output plus its `owned`, `managed`, and
 `legacy` paths from published or build artifacts. This packaging policy is
-separate from the narrower Git policy expressed by `ignore` and `include`.
+separate from the narrower Git policy expressed by `ignore`, `include` and
+`unignore`.
+
+The Copilot adapter ignores its four generated directories — `instructions/`,
+`prompts/`, `agents/` and `skills/` under its output — like Cursor and Claude
+Code ignore theirs, and never `.github/` itself. `targets.copilot.commit_output:
+true` keeps them tracked for Copilot on github.com; the setting is defined in
+[Generated output and version control](conventions.md#generated-output-and-version-control).
 
 The engine calls:
 

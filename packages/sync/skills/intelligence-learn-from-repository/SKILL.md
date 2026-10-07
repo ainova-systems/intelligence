@@ -100,8 +100,9 @@ explains itself well.
     `IS_STATUS=ok`, a clean final check, and no `onboarding is pending` header
     after accepted migration.
 11. Report what was created, updated, removed, or deliberately kept. Remind the
-    user to commit source, manifest, lock, `AGENTS.md`, and shared `.github/`
-    changes. Keep or remove the initial backup only by separate user approval.
+    user to commit source, manifest, lock and `AGENTS.md` changes, plus Copilot's
+    `.github/` output only when `targets.copilot.commit_output` is `true`. Keep or
+    remove the initial backup only by separate user approval.
 
 ## Later learning
 
