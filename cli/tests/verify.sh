@@ -114,7 +114,7 @@ run_scope() {
 
 # --- Windows: the same scope in WSL (decision 0014) -------------------------
 # Git Bash starts a process in 50-120 ms where Linux needs about one, and the
-# suites start tens of thousands: the test scope takes over twenty minutes in
+# suites start tens of thousands: the test scope takes close to an hour in
 # Git Bash and under three in WSL. The copy lives in the distribution's own
 # filesystem, because a /mnt/ path reaches the tree through 9P, which is slower
 # than Git Bash itself. CI never delegates.

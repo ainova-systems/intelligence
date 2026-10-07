@@ -6,10 +6,11 @@ Status: accepted
 ## Context
 
 `bash cli/tests/verify.sh tests` could not finish inside a working session on the
-maintainer's Windows host. Under Git Bash the first ten suites alone took 20
-minutes: `e2e-lifecycle` 573 s, `e2e-packages` 360 s, and `unit-manifest` 56 s
-for a parser suite. On the same host, in a WSL 2 Ubuntu distribution, all
-seventeen suites took 167 s, and `cli-e2e` takes 79 s on `ubuntu-latest`.
+maintainer's Windows host. Under Git Bash, fifteen of the seventeen suites took
+48 minutes: `e2e-sync-cache` 635 s, `e2e-negative` 633 s, `e2e-lifecycle` 573 s,
+and `unit-manifest` 56 s for a parser suite. On the same host, in a WSL 2 Ubuntu
+distribution, all seventeen suites took 167 s, and `cli-e2e` takes 79 s on
+`ubuntu-latest`.
 
 The cause is the platform's process cost, not the code under test or the files it
 reads. Git Bash emulates `fork` and takes 55–120 ms to start a process; Linux
@@ -43,7 +44,7 @@ four times slower there than under Git Bash.
 ## Consequences
 
 - On the maintainer's host the test scope finishes in under three minutes
-  instead of well over twenty, and lint in 16 s.
+  instead of close to an hour, and lint in 16 s.
 - A delegated run tests Linux semantics, as CI does, and does not test Git
   Bash. Windows-only paths in the suites, such as the junction case in
   `e2e-sync-cache` and the `cygpath` spellings in `unit-upgrade`, run only under

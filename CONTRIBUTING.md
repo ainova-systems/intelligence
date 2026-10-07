@@ -55,7 +55,7 @@ Without an argument it reads the diff against `main`, runs the applicable gates 
 
 The lint gate needs `shellcheck` on `PATH` and refuses to report success without it. The unexpanded adapter template is intentionally excluded from its scope.
 
-On Windows, Git Bash starts processes so slowly that the suites take well over twenty minutes. When a WSL distribution has `git`, `awk`, `tar` and `mktemp` (plus `shellcheck` for lint), the runner copies the working tree into it, runs the same scope there, and says so. That takes a few minutes. Set `INTELLIGENCE_VERIFY_WSL_DISTRO` to choose a distribution. Set `INTELLIGENCE_VERIFY_NATIVE=1` to stay in Git Bash, for example for a change to Windows path handling. Decision 0014 records the trade-off.
+On Windows, Git Bash starts processes so slowly that the suites take close to an hour. When a WSL distribution has `git`, `awk`, `tar` and `mktemp` (plus `shellcheck` for lint), the runner copies the working tree into it, runs the same scope there, and says so. That takes a few minutes. Set `INTELLIGENCE_VERIFY_WSL_DISTRO` to choose a distribution. Set `INTELLIGENCE_VERIFY_NATIVE=1` to stay in Git Bash, for example for a change to Windows path handling. Decision 0014 records the trade-off.
 
 The end-to-end tests use local `file://` Git fixtures. Keep new tests hermetic and independent of public registries.
 
