@@ -11,7 +11,11 @@ case "$0" in
     */*) CLI_DIR="${0%/*}"; [ -n "$CLI_DIR" ] || CLI_DIR="/" ;;
     *) CLI_DIR="." ;;
 esac
-CLI_DIR="$(cd "$CLI_DIR" && pwd)"
+# An absolute spelling without `.` or `..` segments or doubled slashes is
+# already what `cd && pwd` prints; on Git Bash that subshell costs a fork.
+case "$CLI_DIR" in
+    */./*|*/.|*/../*|*/..|*//*|[!/]*) CLI_DIR="$(cd "$CLI_DIR" && pwd)" ;;
+esac
 export CLI_DIR
 
 # Engine discovery, by role (sync.sh + VERSION). The repo and the npm package
@@ -52,9 +56,10 @@ Usage: intelligence <command> [args]
   init [--preview|--apply]  Initialize, convert, restore or align this project
     --targets a,b --dir name --bare --no-sync   New-project options
     --force               Accept a dirty worktree during legacy project conversion
-  sync [adapter] [--compact] [--force]  Restore locked content, then render enabled adapters
+  sync [adapter] [--compact] [--force] [--check]  Restore locked content, then render enabled adapters
     --compact            On success show context, warnings and final status; on failure show diagnostics
     --force              Render again and refresh discovery of unconfigured source directories
+    --check              Change no generated file; exit 0 when up to date, 2 when sync is needed
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking
@@ -108,5 +113,13 @@ if [ ! -f "$cmd_file" ]; then
     esac
     echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2
     exit 1
+fi
+# `sync` runs on every save hook and CI check, so it runs in this process: a
+# second bash start is a large share of an unchanged sync on Git Bash. It
+# exits on every path and reads nothing of this script but the exports.
+if [ "$cmd" = sync ]; then
+    # shellcheck source=commands/sync.sh
+    source "$cmd_file"
+    exit $?
 fi
 exec bash "$cmd_file" "$@"

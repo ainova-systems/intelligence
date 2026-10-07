@@ -11,7 +11,7 @@
 project:
   name: cli-project
 
-schema_version: "0.19.0"
+schema_version: "0.20.0"
 
 # Package sources come first, project sources last: adapters copy in order
 # and the last write wins, so a project file overrides a same-named package
@@ -39,7 +39,7 @@ targets:
 # aliases.
 packages:
   "@ainova-systems/sync":
-    version: "0.19.0"
+    version: "0.20.0"
   "@ainova-systems/core":
     version: "^0.3.0"
 

@@ -16,13 +16,17 @@ content alignment is the CLI's preflight — `init --apply` is the reviewed path
 
 `IS_CLI=1`, `CONFIG_FILE`, `REPO_ROOT`, `IS_CONTENT_REL`, `IS_MODULE_REL`,
 `IS_MANIFEST_NAME`, `IS_SYNC_CMD`, `IS_PROTECTED_DIRS`. Read them; never rederive a
-value one of them already carries.
+value one of them already carries. `sync --check` adds `IS_SYNC_CHECK`: the engine
+renders as it always does, compares every snapshotted path with what the render
+left, restores the snapshot whatever the answer, and writes `same` or `differs`
+to that file. A check changes no file, so the restore is not a failure path.
 
 `engine/lib/contract.sh` owns the permanent top-level `schema_version` key, its
 compatibility guard, and the stable `IS_STATUS` / `IS_RC_*` contract: `0` ok,
 `1` error, `2` config missing, `3` ambiguous, `4` ahead, `5` aborted incomplete,
 `6` needs update. Those numbers are public — the CLI and the meta-skills branch on
-them, so never renumber one.
+them, so never renumber one. `sync --check` alone reuses `2` for `out-of-date`,
+which the engine never emits.
 
 Preserve a command's real status with `rc=0; cmd || rc=$?`. Writing
 `if ! cmd; then rc=$?` captures the negation instead, so a `6` arrives as `1` and the

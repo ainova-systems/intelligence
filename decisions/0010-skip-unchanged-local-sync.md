@@ -119,6 +119,26 @@ but unrelated host activity made timings variable; these figures are observation
 not a latency guarantee. All 566 generated files matched the released output,
 and a subsequent candidate cache hit preserved every file's bytes and mtime.
 
+### Single-walk fingerprint follow-up
+
+Version 0.20.0 keeps this decision's contract and cuts the processes a hit
+starts (decision 0018): one `find | awk | git hash-object` pipeline fingerprints
+tooling, inputs and outputs together, the package descriptor, manifest and lock
+are read in one pass each of the CLI's and the engine's readers, and the record
+is sealed by its own hash instead of a separate report check. Inputs are still
+rechecked after rendering, outputs still come from the built-in contracts, and
+a damaged or older record still authorizes nothing.
+
+On a Windows/Git Bash scratch export of this repository's own project (four
+adapters, about 300 tooling, source and output entries), seven alternating
+cache hits measured a median 3.90 seconds for `main` and 0.74 seconds for this
+change (runs 3.67 to 4.76 and 0.70 to 1.09). While other processes loaded the
+host — a bare `bash` start took 94 to 122 milliseconds instead of 37 — the
+medians were 6.02 and 1.04 seconds: both are process-bound. A forced render by
+`main` followed by one from this change left no difference in the repository;
+cache-hit, forced and compact output streams matched, and a hit kept every
+output's bytes and modification time.
+
 ## Rejected
 
 - Timestamp-only checks: editors can preserve timestamps and file sizes.

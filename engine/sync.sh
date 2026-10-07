@@ -10,6 +10,8 @@
 #   IS_CONTENT_REL     the project's content dir, repo-relative
 #   IS_MODULE_REL      the installed sync package, repo-relative
 #   IS_PROTECTED_DIRS  dirs an adapter output may never overlap
+#   IS_SYNC_CHECK      optional: render, compare and restore, then write
+#                      `same` or `differs` to this file (`sync --check`)
 #
 # Usage: intelligence sync [target]
 
@@ -272,6 +274,66 @@ wait_sync_jobs() {
     done
     SYNC_BG_PIDS=()
     return "$first"
+}
+
+# compare_sync_snapshot — after a render, 0 when every snapshotted path holds
+# exactly what it held before (names, entry kinds, bytes and executable bits),
+# 1 when one differs, 2 when the comparison itself failed. One process per
+# path plus one find for executable bits; nothing here writes.
+compare_sync_snapshot() {
+    local index rel present live snap rc sub snapshot_exec="" live_exec="" entry
+    local -a rel_of=() exec_starts=()
+    while IFS=$'\t' read -r index rel present; do
+        [ -n "$rel" ] || continue
+        rel_of[index]="$rel"
+        live="$REPO_ROOT/$rel"
+        snap="$SYNC_TX_DIR/data/$index"
+        if [ "$present" != 1 ]; then
+            if [ -e "$live" ] || [ -L "$live" ]; then return 1; fi
+            continue
+        fi
+        # A render replaces a link or writes through it; either way the bytes
+        # behind it are not the snapshot's to vouch for.
+        if [ -L "$snap" ] || [ -L "$live" ]; then return 1; fi
+        rc=0
+        if [ -f "$snap" ] && [ -f "$live" ]; then
+            cmp -s "$snap" "$live" || rc=$?
+            if [ -x "$snap" ]; then [ -x "$live" ] || return 1; else [ ! -x "$live" ] || return 1; fi
+        elif [ -d "$snap" ] && [ -d "$live" ]; then
+            diff -r "$snap" "$live" > /dev/null 2>&1 || rc=$?
+            exec_starts+=("$snap" "$live")
+        else
+            return 1
+        fi
+        case "$rc" in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    done < "$SYNC_TX_INDEX"
+    [ "${#exec_starts[@]}" -gt 0 ] || return 0
+    # Executable bits inside directories, compared as repository paths: the
+    # snapshot side is data/<index>/<path>, the rendered side <root>/<path>.
+    find "${exec_starts[@]}" -type f -perm -100 -print > "$SYNC_TX_DIR/exec.list" || return 2
+    while IFS= read -r entry; do
+        case "$entry" in
+            "$SYNC_TX_DIR/data/"*)
+                entry="${entry#"$SYNC_TX_DIR/data/"}"
+                index="${entry%%/*}" sub="${entry#*/}"
+                snapshot_exec="$snapshot_exec${rel_of[index]}/$sub"$'\n'
+                ;;
+            "$REPO_ROOT/"*)
+                live_exec="$live_exec${entry#"$REPO_ROOT/"}"$'\n'
+                ;;
+            *) return 2 ;;
+        esac
+    done < "$SYNC_TX_DIR/exec.list"
+    # Nested managed paths list one file under both of them, so compare the
+    # two sets both ways rather than count them.
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        case $'\n'"$live_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
+    done <<< "$snapshot_exec"
+    while IFS= read -r entry; do
+        [ -n "$entry" ] || continue
+        case $'\n'"$snapshot_exec" in *$'\n'"$entry"$'\n'*) ;; *) return 1 ;; esac
+    done <<< "$live_exec"
 }
 
 finish_sync_transaction() {
@@ -623,6 +685,25 @@ if [ $synced -eq 0 ]; then
         echo "WARNING: No targets enabled in $CONFIG_FILE"
     fi
     exit 1
+fi
+
+# A check renders exactly like a sync, then compares every snapshotted path
+# with what the render left and restores the snapshot whatever the answer: it
+# never changes a file. The transaction stays active until the restore is
+# complete, so an interrupted restore is finished by the EXIT handler.
+if [ -n "${IS_SYNC_CHECK:-}" ]; then
+    check_rc=0
+    compare_sync_snapshot || check_rc=$?
+    case "$check_rc" in
+        0) check_verdict=same ;;
+        1) check_verdict=differs ;;
+        *)
+            echo "ERROR: sync --check could not compare the rendered output with its snapshot." >&2
+            exit 1
+            ;;
+    esac
+    restore_sync_snapshot
+    printf '%s\n' "$check_verdict" > "$IS_SYNC_CHECK"
 fi
 
 SYNC_TX_ACTIVE=0

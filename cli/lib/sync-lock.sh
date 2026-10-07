@@ -31,7 +31,11 @@ sync_lock_pgid() {
     local stat
     local -a fields
     IS_PGID=""
-    if [ -r "/proc/$$/stat" ] && IFS= read -r stat < "/proc/$$/stat"; then
+    # Cygwin and MSYS publish the group on its own; composing their stat file
+    # takes tens of milliseconds.
+    if [ -r "/proc/$$/pgid" ] && IFS= read -r IS_PGID < "/proc/$$/pgid"; then
+        :
+    elif [ -r "/proc/$$/stat" ] && IFS= read -r stat < "/proc/$$/stat"; then
         # pid (comm) state ppid pgrp …: comm may hold spaces, so cut after it.
         read -r -a fields <<< "${stat##*) }"
         IS_PGID="${fields[2]:-}"
@@ -87,7 +91,8 @@ sync_lock_is_stale() {
 # sync_lock_acquire <root> — take <root>/.intelligence/sync.lock or refuse.
 sync_lock_acquire() {
     local root="$1" lock="$1/.intelligence/sync.lock" took=0 age=""
-    mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
+    # A process start costs tens of milliseconds on Git Bash: skip the usual case.
+    [ -d "$root/.intelligence" ] || mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
     if mkdir "$lock" 2>/dev/null; then
         took=1
     elif mkdir "$lock.takeover" 2>/dev/null; then
@@ -145,4 +150,16 @@ sync_lock_release() {
         rm -rf "$SYNC_LOCK_HELD"
     fi
     SYNC_LOCK_HELD=""
+}
+
+# project_lock_scratch <root> — set IS_LOCK_SCRATCH to a path prefix inside the
+# lock this process holds or joined, for files that live only as long as the
+# run: releasing the lock removes them with it, so a hot path needs no process
+# to create or delete a temporary directory. Names carry the pid, because a
+# joined child shares the directory with its holder.
+# shellcheck disable=SC2034  # IS_LOCK_SCRATCH is the return channel
+project_lock_scratch() {
+    local lock="$1/.intelligence/sync.lock"
+    [ -d "$lock" ] && [ ! -L "$lock" ] || return 1
+    IS_LOCK_SCRATCH="$lock/scratch.$$"
 }

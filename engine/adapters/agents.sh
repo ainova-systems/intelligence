@@ -14,7 +14,9 @@
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
 
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+# The engine and the CLI load the shared library before any adapter. Only a
+# standalone source of this file loads it here: that costs a dirname process.
+declare -F finalize_output_file >/dev/null 2>&1 || source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 # Repo-relative paths to the project's content dir and to the installed sync
 # package, taken from the env contract — never hardcoded. The content dir is
@@ -212,7 +214,8 @@ agents_md_append_rules_list() {
 # Main entry point for AGENTS.md adapter
 adapter_contract_agents() {
     local output
-    output="$(agents_output_path "$1")"
+    agents_output_path_var "$1"
+    output="$IS_AGENTS_OUTPUT_PATH"
     adapter_contract_version 1
     adapter_contract_owned "$output"
     adapter_contract_legacy "AGENTS.md"
