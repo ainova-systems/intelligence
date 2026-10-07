@@ -188,22 +188,40 @@ if [ "$lock_valid" -eq 1 ] && [ -f "$lock" ]; then
 fi
 
 # Sources must exist (a missing dir is silently skipped by the engine, which
-# is exactly why doctor names it).
+# is exactly why doctor names it). Each entry is judged by what the engine
+# renders it as: a package token through its expansion, from the same parser.
 for section in rules agents skills; do
-    while IFS= read -r src; do
+    while IFS=$'\037' read -r src state dir candidates; do
         [ -n "$src" ] || continue
+        # A package token that resolves to no declared package names no
+        # directory, so it is skipped like a missing source.
+        case "$state" in
+            unknown|undeclared)
+                warn "sources.$section '$src' matches no declared package — 'intelligence package add' installs one, or correct the entry"
+                continue
+                ;;
+            ambiguous)
+                short="${src#package:}"
+                warn "sources.$section '$src' is ambiguous: $candidates are all named '${short%%/*}' — name one in full: package:<@scope/name>/${short#*/}"
+                continue
+                ;;
+            invalid)
+                warn "sources.$section '$src' is not a package source — expected package:<name>/<dir>"
+                continue
+                ;;
+        esac
         case "$src" in
             git+*|@*) continue ;;
         esac
         # A hand-edited entry the engine cannot render is worse than a missing
         # one: it is skipped without a word and the sync still reports ok.
-        problem="$(source_entry_problem "$IP_ROOT" "$src")"
+        problem="$(source_entry_problem "$IP_ROOT" "$dir")"
         if [ -n "$problem" ]; then
             warn "sources.$section '$src' $problem"
             continue
         fi
-        if [ ! -d "$IP_ROOT/$src" ]; then
-            case "$src" in
+        if [ ! -d "$IP_ROOT/$dir" ]; then
+            case "$dir" in
                 # Store content is restorable state: absent means un-installed.
                 .intelligence/*)
                     if [ "$lock_valid" -eq 1 ]; then
@@ -219,7 +237,7 @@ for section in rules agents skills; do
                 *) ok "sources.$section '$src' — not created yet (optional)" ;;
             esac
         fi
-    done < <(read_yaml_list "$manifest" "$section")
+    done < <(read_source_entries "$manifest" "$section")
 done
 
 if [ "$problems" -eq 0 ]; then

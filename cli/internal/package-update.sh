@@ -167,13 +167,19 @@ while IFS= read -r name; do
     fi
     rel=".intelligence/packages/$name"
     # Fetch into staging FIRST: a failed clone must leave the current install
-    # fully wired and intact. Only after success is the old shape unwired
-    # (the new version may have dropped a section dir), the store swapped,
-    # and the new shape wired.
+    # fully wired and intact. Only after success are the sections the new
+    # version dropped unwired, the store swapped, and the sections it gained
+    # wired. A section it keeps stays where it stands in the list: position is
+    # the override order between packages, and an update changes content, not
+    # which package wins.
     staging="$IP_ROOT/.intelligence/.staging-$$"
     rm -rf "$staging"
     sha="$(fetch_package "$url" "$tag" "$path" "$staging")"
-    unwire_package_sources "$manifest" "$rel"
+    dropped=()
+    for section in rules agents skills; do
+        [ -d "$staging/$section" ] || dropped+=("$section")
+    done
+    package_sources_respell "$manifest" = "$name" ${dropped[@]+"${dropped[@]}"}
     store_record_remove "$IP_ROOT" "$name"
     rm -rf "${IP_ROOT:?}/$rel"
     mkdir -p "$(dirname "$IP_ROOT/$rel")"

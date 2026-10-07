@@ -4,30 +4,30 @@
 # state is committed in intelligence.lock next to this file.
 #
 # Nothing here is written by hand in practice: `intelligence init` generates
-# it and `intelligence package add` maintains packages: and the store's sources
-# entries. The engine's own content (@ainova-systems/sync) is an ordinary
-# package too — auto-added by init and aligned with the bundled engine by the
-# universal project preflight.
+# it and `intelligence package add` maintains packages: and their
+# `package:<name>/<dir>` sources entries. The engine's own content
+# (@ainova-systems/sync) is an ordinary package too — auto-added by init and
+# aligned with the bundled engine by the universal project preflight.
 project:
   name: cli-project
 
-schema_version: "0.18.1"
+schema_version: "0.19.0"
 
 # Package sources come first, project sources last: adapters copy in order
 # and the last write wins, so a project file overrides a same-named package
 # artifact.
 sources:
   rules:
-    - ".intelligence/packages/@ainova-systems/core/rules"
-    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "package:core/rules"
+    - "package:sync/rules"
     - "intelligence/rules"
   agents:
-    - ".intelligence/packages/@ainova-systems/core/agents"
-    - ".intelligence/packages/@ainova-systems/sync/agents"
+    - "package:core/agents"
+    - "package:sync/agents"
     - "intelligence/agents"
   skills:
-    - ".intelligence/packages/@ainova-systems/core/skills"
-    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "package:core/skills"
+    - "package:sync/skills"
     - "intelligence/skills"
 
 targets:
@@ -35,10 +35,11 @@ targets:
   claude: { enabled: true, output: ".claude" }
   cursor: { enabled: true, output: ".cursor" }
 
-# CLI-owned blocks — the engine never reads below this line.
+# CLI-owned blocks — below this line the engine reads only the package names,
+# which `package:` sources resolve against.
 packages:
   "@ainova-systems/sync":
-    version: "0.18.1"
+    version: "0.19.0"
   "@ainova-systems/core":
     version: "^0.3.0"
 

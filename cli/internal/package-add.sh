@@ -129,7 +129,10 @@ rel=".intelligence/packages/$name"
 store_record_remove "$IP_ROOT" "$name"
 sha="$(fetch_package "$url" "${ref:-$resolved_tag}" "$path" "$IP_ROOT/$rel")"
 
-wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT"
+# Before the packages: entry below: a short token another package already
+# holds still resolves against the set without this one, and is respelled in
+# full when the names collide.
+wire_package_sources "$manifest" "$name" "$rel" "$IP_ROOT" declaring
 
 # The manifest records requested intent only. The resolved source URL/path,
 # tag/ref and SHA live in the required lock. Re-adding a package is the

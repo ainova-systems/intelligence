@@ -11,6 +11,19 @@ CLI="$REPO/cli/intelligence"
 fail=0
 chk() { if ! "$@" >/dev/null 2>&1; then echo "FAIL: $*"; fail=1; fi; }
 chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
+# is <label> <want> <got>
+is() { [ "$2" = "$3" ] || { echo "FAIL: $1 — want '$2', got '$3'"; fail=1; }; }
+# joined <manifest> <section> — sources.<section> as written, comma-joined.
+joined() {
+    awk -v sec="$2" '
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; next }
+        ins && /^[^ #]/ { ins = 0; f = 0 }
+        ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
+        ins && /^  [A-Za-z_]/ { f = 0 }
+        f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
+    ' "$1" | paste -sd, -
+}
 
 # --- fixture pack repo with tags ---
 PACK="$OUT/shared-intel"
@@ -62,8 +75,10 @@ chk grep -q '"@acme/shared"' "$PROJ/intelligence.yaml"
 chk grep -q 'version: "\^1.1.0"' "$PROJ/intelligence.yaml"
 chknot grep -q '^[[:space:]]*url:' "$PROJ/intelligence.yaml"
 chknot grep -q '^[[:space:]]*path:' "$PROJ/intelligence.yaml"
-chk grep -q '\.intelligence/packages/@acme/shared/rules' "$PROJ/intelligence.yaml"
-chk grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
+# Wired as the package's name, not its store path: no scope in sources.
+chk grep -qx '    - "package:shared/rules"' "$PROJ/intelligence.yaml"
+chk grep -qx '    - "package:shared/skills"' "$PROJ/intelligence.yaml"
+chknot grep -q '\.intelligence/packages/' "$PROJ/intelligence.yaml"
 chk test -f "$PROJ/intelligence.lock"
 chk grep -q 'resolved: "v1.1.0"' "$PROJ/intelligence.lock"
 chk grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.lock"
@@ -121,7 +136,8 @@ git -C "$PACK" -c user.email=t@t -c user.name=t commit --quiet -m drop-skills
 git -C "$PACK" tag v1.3.0
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --apply)
 chk grep -q 'resolved: "v1.3.0"' "$PROJ/intelligence.lock"
-chknot grep -q '\.intelligence/packages/@acme/shared/skills' "$PROJ/intelligence.yaml"
+chknot grep -q 'package:shared/skills' "$PROJ/intelligence.yaml"
+chk grep -qx '    - "package:shared/rules"' "$PROJ/intelligence.yaml"
 out13="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 grep -q '^IS_STATUS=ok' <<< "$out13" || { echo "FAIL: sync after shape-changing update"; fail=1; }
 
@@ -281,7 +297,20 @@ grep -q "${BR_SHA1:0:7} (pinned commit)" <<< "$pv_pin" \
     || { echo "FAIL: a commit pin was not reported as pinned"; fail=1; }
 grep -q 'updates available: 0 package' <<< "$pv_pin" \
     || { echo "FAIL: a commit pin was counted as an update"; fail=1; }
+
+echo "== update keeps a package's sources where they stand =="
+# @acme/branch was added after @acme/shared, so it sits first and shared's
+# same-named files override it. Updating shared changes its content, never which
+# package wins: until 0.19.0 an update unwired the package and wired it first
+# again, which reversed that order.
+is "order before the update" "package:branch/rules,package:shared/rules,intelligence/rules" "$(joined "$PROJ/intelligence.yaml" rules)"
+git -C "$PACK" tag v2.2.0 v2.0.0
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --apply >/dev/null)
+chk grep -q 'resolved: "v2.2.0"' "$PROJ/intelligence.lock"
+is "order after the update" "package:branch/rules,package:shared/rules,intelligence/rules" "$(joined "$PROJ/intelligence.yaml" rules)"
+is "kept section after the update" "package:shared/skills" "$(joined "$PROJ/intelligence.yaml" skills)"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/branch >/dev/null)
+is "survivors after a remove" "package:shared/rules,intelligence/rules" "$(joined "$PROJ/intelligence.yaml" rules)"
 
 echo "== ref pin: a deleted branch is reported, even when its name looks like a sha =="
 # The commit-pin verdict reads the locked sha, not the ref's shape: a branch
@@ -340,6 +369,45 @@ chknot grep -q 'PACK_RULE_MARKER' "$PROJ/AGENTS.md"
 echo "== idempotent second sync =="
 out2="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 grep -q '^IS_STATUS=ok' <<< "$out2" || { echo "FAIL: final sync not ok"; fail=1; }
+
+echo "== a short name two packages share is spelled in full, then short again =="
+# The engine's own content is `package:sync/<dir>` until a second package named
+# `sync` arrives; from then on both are written with their scope, and removing
+# the newcomer returns the survivor to the short form — each in place.
+SHORT="$OUT/short-names"
+mkdir -p "$SHORT"
+git -C "$SHORT" init --quiet
+(cd "$SHORT" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --targets claude >/dev/null 2>&1) \
+    || { echo "FAIL: init for the short-name project"; fail=1; }
+for s in rules agents skills; do
+    is "sources.$s after init" "package:sync/$s,intelligence/$s" "$(joined "$SHORT/intelligence.yaml" "$s")"
+done
+ACME="$OUT/acme-sync"
+mkdir -p "$ACME/rules"
+printf '# Acme\n\nACME_SYNC_MARKER\n' > "$ACME/rules/acme.md"
+git -C "$ACME" init --quiet
+git -C "$ACME" -c user.email=t@t -c user.name=t add -A
+git -C "$ACME" -c user.email=t@t -c user.name=t commit --quiet -m acme
+(cd "$SHORT" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+file://$ACME" --name @acme/sync >/dev/null 2>&1) \
+    || { echo "FAIL: package add @acme/sync"; fail=1; }
+is "rules once two packages are named sync" \
+    "package:@acme/sync/rules,package:@ainova-systems/sync/rules,intelligence/rules" "$(joined "$SHORT/intelligence.yaml" rules)"
+is "a section only the first package has is respelled too" \
+    "package:@ainova-systems/sync/agents,intelligence/agents" "$(joined "$SHORT/intelligence.yaml" agents)"
+chknot grep -q '"package:sync/' "$SHORT/intelligence.yaml"
+chk test -f "$SHORT/.claude/rules/acme.md"
+chk grep -q ACME_SYNC_MARKER "$SHORT/.claude/rules/acme.md"
+chk test -f "$SHORT/.claude/skills/intelligence-sync/SKILL.md"
+(cd "$SHORT" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null 2>&1) \
+    || { echo "FAIL: status --check with two packages named sync"; fail=1; }
+(cd "$SHORT" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package remove @acme/sync >/dev/null 2>&1) \
+    || { echo "FAIL: package remove @acme/sync"; fail=1; }
+chknot grep -q '@acme/sync' "$SHORT/intelligence.yaml"
+for s in rules agents skills; do
+    is "sources.$s after the collision is removed" "package:sync/$s,intelligence/$s" "$(joined "$SHORT/intelligence.yaml" "$s")"
+done
+chknot test -e "$SHORT/.claude/rules/acme.md"
+chk test -f "$SHORT/.claude/skills/intelligence-sync/SKILL.md"
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E: ALL OK"
 exit "$fail"

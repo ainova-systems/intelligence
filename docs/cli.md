@@ -275,25 +275,27 @@ intelligence source list
 
 Manages the project's own entries in `sources:` — a monorepo's per-component
 directories, or a pack developed inside the repository that ships it. Installed
-package content is not managed here: `.intelligence/` entries belong to
-`package add` / `package remove`, and an entry hand-placed under the store does
-not survive the next lifecycle alignment.
+package content is not managed here: [`package:<name>/<dir>`](#package-sources)
+entries, and `.intelligence/` store paths, belong to `package add` /
+`package remove`. `add` refuses either and names `package add`; `remove`
+refuses either and names `package remove`.
 
 `sources:` is an ordered list and the order is the override rule, so placement
 is the command's real work. `add` appends by default: the end of the section is
 the project's own territory, where a directory the project added wins over every
 installed package. `--before` / `--after` place an entry relative to one the
-section already lists — this is how content that should behave like a package
-lands after the store entries and ahead of the project's own. Adding an entry
-the section already holds is a no-op; adding it *with* a position moves it.
-Every mutation prints the resulting order.
+section already lists, a `package:` token included — this is how content that
+should behave like a package lands after the package entries and ahead of the
+project's own (`source add rules packs/local/rules --after package:sync/rules`).
+Adding an entry the section already holds is a no-op; adding it *with* a
+position moves it. Every mutation prints the resulting order.
 
 Five inputs are refused. Four of them fail silently after a green sync; the
 fifth renders the wrong thing loudly:
 
 - an absolute path — the engine resolves every entry as `$REPO_ROOT/<entry>`, so it matches nothing and the source is simply skipped;
 - a path leaving the repository (`../`, or a symlink pointing out) — it renders, but has no committable path, so `AGENTS.md` carries bare artifact names instead of links;
-- a path under `.intelligence/` — package territory, as above;
+- a `package:` token or a path under `.intelligence/` — package territory, as above;
 - a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes);
 - the repository root itself (`.` and `./`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
 
@@ -301,7 +303,12 @@ Spellings of the same directory are one entry: `./intelligence/rules/`,
 `intelligence/./rules` and `intelligence/rules` are stored, compared and
 reported identically.
 `status --check` reports the same five through the same definition, so an entry
-a hand edit placed before this command existed is judged identically.
+a hand edit placed before this command existed is judged identically. It judges
+a `package:` token by the store directory it names, and reports one that names
+no declared package or that two declared packages share.
+
+`list` shows each entry as written, marks package content `package`, and marks
+a `package:` token that resolves to no declared package `UNRESOLVED`.
 
 A directory that does not exist yet is a warning, not a refusal: the manifest
 documents intent, and sync renders the source once the directory appears.
@@ -361,7 +368,7 @@ A newer globally installed CLI cannot update projects at npm installation time b
 
 This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
 
-The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`intelligence upgrade`) to align the project again.
+The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`intelligence upgrade`) to align the project again. One shape breaks this within the `0.x` major: [`package:` sources](#package-sources) arrived in `0.19.0`, and an older CLI reads such a token as a path, so it renders a migrated project without its package content.
 
 CI is intentionally different. When `CI` is true and tracked alignment is pending, implicit preflight refuses and prints:
 
@@ -376,6 +383,26 @@ CI therefore never hides a schema/content change inside generated output. The co
 A package name is its global identity in the manifest, lock and store (`.intelligence/packages/@scope/name/`). One version of a name may exist in a project because generated tool namespaces are flat and duplicate versions would collide artifact-by-artifact.
 
 Whichever top-level `rules/`, `agents/` and `skills/` directories a package provides are wired into the corresponding manifest sources. Package sources precede project sources, so a same-named project artifact may override package content deliberately.
+
+### Package sources
+
+A package's directories enter `sources:` by the package's name, not by its store path:
+
+```yaml
+sources:
+  rules:
+    - "package:core/rules"      # .intelligence/packages/@ainova-systems/core/rules
+    - "package:sync/rules"      # .intelligence/packages/@ainova-systems/sync/rules
+    - "intelligence/rules"
+```
+
+`package:<name>/<dir>` names `<dir>` inside an installed package. `<name>` is the full `@scope/name`, or the part after its `/` when exactly one package declared in `packages:` carries that part. The full form, `package:@ainova-systems/sync/rules`, is always accepted. The engine renders a token exactly as it renders the store path it stands for: expansion happens inside the list parser every reader shares, so `sync`, `status --check` and project adapters all see the same directory.
+
+The CLI writes one canonical spelling: short while no other declared package shares the short name, full for every package that does. `package add`, `package remove`, `update`, restore and alignment all apply it. Adding a package whose short name collides rewrites the existing short tokens of that name to the full form; removing it returns the survivor to the short form. Every rewrite happens in place — the order of `sources:` is the override rule, so no entry moves. `update` likewise leaves a package's entries where they stand, adding a section a new version gained and dropping one it lost.
+
+A token that names no declared package, a short name two declared packages share, or a malformed token renders nothing: `sync` skips it with a `WARNING:` line, and `status --check` reports it as a problem naming the entry. A missing store directory behind a valid token is reported like any missing package content, with `run 'intelligence sync'`.
+
+Manifests written before `0.19.0` used the store path. Lifecycle alignment rewrites every `.intelligence/packages/<declared name>/<dir>` entry in place to its canonical token and prints `migrating: package store paths in sources -> package:<name>/<dir>`; the generated output is byte-identical before and after. A store path of a package the manifest does not declare is left as written. A CLI older than `0.19.0` reads a token as a path and renders the project without package content, so every teammate needs `0.19.0` or later once the migration is committed — the [`0.19.0` changelog](../CHANGELOG.md) lists it under Breaking.
 
 ### Resolution and trust
 
@@ -452,7 +479,7 @@ outputs; the saved lock may still require recovery before the CLI can use it.
 
 ## Manifest ownership
 
-The engine reads `project:`, `schema_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:`. The CLI owns the quoted-key `packages:` and ordered `registries:` blocks:
+The engine reads `project:`, `schema_version:`, `sources:`, `targets:`, `models:`, `ignore:` and `submodules:`, and the names in `packages:` — only the names, to resolve [`package:` sources](#package-sources). The CLI owns the quoted-key `packages:` and ordered `registries:` blocks:
 
 ```yaml
 packages:
@@ -467,7 +494,7 @@ registries:
 
 `project.intelligence_dir` selects a content directory other than `intelligence/`. `schema_version` is the permanent top-level applied-schema contract and always remains a plain engine version without an npm prerelease suffix.
 
-`sources:` is engine-readable but CLI-edited: `package add` / `package remove` own the `.intelligence/` entries, `source add` / `source remove` own the project's own, and both place entries in a list whose order decides which artifact wins.
+`sources:` is engine-readable but CLI-edited: `package add` / `package remove` own the `package:<name>/<dir>` entries, `source add` / `source remove` own the project's own, and both place entries in a list whose order decides which artifact wins.
 
 Package entries never contain `url` or `path`. Those resolved fields live in
 the committed lock whether the package came from a registry, `github:`,

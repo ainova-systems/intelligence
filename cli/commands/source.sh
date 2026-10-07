@@ -9,9 +9,10 @@
 # content that should behave like a package (a pack developed in the repository
 # that ships it) belongs after the store entries and before the project's.
 #
-# Installed package content is NOT managed here: `.intelligence/` entries are
-# written by `package add` and removed by `package remove`, and a hand-placed
-# entry under the store does not survive the next lifecycle alignment.
+# Installed package content is NOT managed here: `package:<name>/<dir>` entries
+# — and the `.intelligence/` store paths they replaced — are written by
+# `package add` and removed by `package remove`. A token is still a valid
+# `--before` / `--after` anchor: that is how a directory lands next to a package.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -39,13 +40,16 @@ assert_source_section() {
 # assert_valid_source_dir <root> <dir> — refuse what the engine cannot report.
 # The shape checks are `source_entry_problem`, shared with `status --check` so
 # one definition covers both the entry about to be written and the one already
-# in the manifest; the store rule is this command's alone, because a
-# `.intelligence/` entry is legitimate when `package add` wrote it.
+# in the manifest; the package rule is this command's alone, because a
+# `package:` or `.intelligence/` entry is legitimate when `package add` wrote it.
 assert_valid_source_dir() {
     local root="$1" dir="$2" problem
     [ -n "$dir" ] || die "$USAGE"
     case "$dir" in
         *\\*) die "invalid source '$dir' — manifest paths use '/': ${dir//\\//}" ;;
+        package:*)
+            die "'$dir' names installed package content — install it with 'intelligence package add', which wires its sources automatically"
+            ;;
         .intelligence|.intelligence/*)
             die "'$dir' is inside the CLI-managed package store — install content with 'intelligence package add', and it is wired into sources automatically"
             ;;
@@ -58,18 +62,25 @@ assert_valid_source_dir() {
 # Position is the whole point of the block, so every mutation ends by showing
 # the order it produced rather than only naming what it wrote.
 print_section() {
-    local manifest="$1" root="$2" section="$3" entry n=0 note
+    local manifest="$1" root="$2" section="$3" entry state dir n=0 note
     echo "sources.$section (a later entry overrides an earlier one):"
-    while IFS= read -r entry; do
+    [ -f "$manifest" ] || { echo "  (none)"; return 0; }
+    # Listed as written; judged by the directory the engine renders it as.
+    while IFS=$'\037' read -r entry state dir _; do
         [ -n "$entry" ] || continue
         n=$((n + 1))
         note=""
-        case "$entry" in
-            .intelligence/*) note="  package" ;;
+        case "$state" in
+            ok|undeclared) note="  package" ;;
+            unknown|ambiguous|invalid) note="  UNRESOLVED — intelligence status --check" ;;
+            *) case "$dir" in .intelligence/*) note="  package" ;; esac ;;
         esac
-        [ -d "$root/$entry" ] || note="$note  MISSING"
+        case "$state" in
+            unknown|ambiguous|invalid) ;;
+            *) [ -d "$root/$dir" ] || note="$note  MISSING" ;;
+        esac
         printf '  %d. %s%s\n' "$n" "$entry" "$note"
-    done < <(sources_list_entries "$manifest" "$section")
+    done < <(read_source_entries "$manifest" "$section")
     [ "$n" -eq 0 ] && echo "  (none)"
     return 0
 }
@@ -143,7 +154,7 @@ case "$action" in
         [ $# -le 2 ] || die "$USAGE"
         dir="$(normalize_source_dir "$dir")"
         case "$dir" in
-            .intelligence|.intelligence/*)
+            package:*|.intelligence|.intelligence/*)
                 die "'$dir' is installed package content — remove the package instead: intelligence package remove <@scope/name>"
                 ;;
         esac

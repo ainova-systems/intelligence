@@ -165,5 +165,71 @@ grep -q '^IS_STATUS=ok' <<< "$out" || { echo "FAIL: sync after remove not ok"; f
 chknot grep -q BACKEND_MARKER "$PROJ/AGENTS.md"
 chk test -f "$PROJ/backend/intelligence/rules/backend.md"
 
+echo "== package tokens: a new project names its package, not the store =="
+TOK="$OUT/tokens"
+mkdir -p "$TOK"
+git -C "$TOK" init --quiet
+trun() { (cd "$TOK" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" "$@"); }
+# entries_in <section> — the token project's section as written, comma-joined.
+entries_in() {
+    awk -v sec="$1" '
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; next }
+        ins && /^[^ #]/ { ins = 0; f = 0 }
+        ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
+        ins && /^  [A-Za-z_]/ { f = 0 }
+        f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
+    ' "$TOK/intelligence.yaml" | paste -sd, -
+}
+chk trun init --targets claude
+for s in rules agents skills; do
+    is "sources.$s after init" "package:sync/$s,intelligence/$s" "$(entries_in "$s")"
+done
+is "no vendor scope in sources:" "0" "$(sed -n '/^sources:/,/^[a-z]/p' "$TOK/intelligence.yaml" | grep -c @ainova-systems || true)"
+chk test -f "$TOK/.claude/skills/intelligence-sync/SKILL.md"
+chk trun status --check
+out="$(trun source list)"
+grep -q '1\. package:sync/rules  package$' <<< "$out" || { echo "FAIL: source list does not show the token as package content: $out"; fail=1; }
+
+echo "== status --check names a token no declared package matches =="
+cp "$TOK/intelligence.yaml" "$OUT/tokens-before.yaml"
+awk '{ print } /^  rules:$/ { print "    - \"package:nope/rules\"" }' "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
+rc=0
+out="$(trun status --check 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL: status --check accepted package:nope/rules"; fail=1; }
+grep -q "'package:nope/rules' matches no declared package" <<< "$out" \
+    || { echo "FAIL: status --check does not name package:nope/rules: $out"; fail=1; }
+# Sync skips it, like any source that names no directory, and says so.
+out="$(trun sync 2>&1)" || { echo "FAIL: sync with an unresolved token failed"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out" || { echo "FAIL: sync with an unresolved token not ok"; fail=1; }
+grep -q "WARNING: sources.rules 'package:nope/rules' resolves to no single declared package" <<< "$out" \
+    || { echo "FAIL: sync did not warn about package:nope/rules"; fail=1; }
+chk test -f "$TOK/.claude/skills/intelligence-sync/SKILL.md"
+out="$(trun source list)"
+grep -q 'package:nope/rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag the unresolved token: $out"; fail=1; }
+# A malformed token and a short name two declared packages share are judged too.
+awk '{ print } /^  rules:$/ { print "    - \"package:sync\"" } /^packages:$/ { print "  \"@acme/sync\":"; print "    ref: \"HEAD\"" }' \
+    "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
+out="$(trun status --check 2>&1 || true)"
+grep -q "'package:sync' is not a package source" <<< "$out" || { echo "FAIL: --check accepts a malformed token"; fail=1; }
+grep -qF "'package:sync/rules' is ambiguous: @acme/sync, @ainova-systems/sync are all named 'sync' — name one in full: package:<@scope/name>/rules" <<< "$out" \
+    || { echo "FAIL: --check does not report an ambiguous short token: $out"; fail=1; }
+cp "$OUT/tokens-before.yaml" "$TOK/intelligence.yaml"
+
+echo "== source add|remove leave package tokens to package, and anchor on them =="
+mkdir -p "$TOK/docs/rules"
+printf '# Docs\n\nDOCS_MARKER\n' > "$TOK/docs/rules/docs.md"
+err="$(trun source add rules package:sync/rules 2>&1 || true)"
+grep -q 'intelligence package add' <<< "$err" || { echo "FAIL: source add of a token does not name package add: $err"; fail=1; }
+err="$(trun source remove rules package:sync/rules 2>&1 || true)"
+grep -q 'intelligence package remove' <<< "$err" || { echo "FAIL: source remove of a token does not name package remove: $err"; fail=1; }
+chknot trun source add rules package:sync/rules
+chknot trun source remove rules package:sync/rules
+chk diff -q "$OUT/tokens-before.yaml" "$TOK/intelligence.yaml"
+chk trun source add rules docs/rules --after package:sync/rules
+is "--after a token" "package:sync/rules,docs/rules,intelligence/rules" "$(entries_in rules)"
+chk trun sync
+chk grep -q DOCS_MARKER "$TOK/.claude/rules/docs.md"
+
 [ "$fail" -eq 0 ] && echo "CLI-E2E-SOURCES: ALL OK"
 exit "$fail"

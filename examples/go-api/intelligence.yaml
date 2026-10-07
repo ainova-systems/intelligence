@@ -4,17 +4,17 @@
 project:
   name: my-api
 
-schema_version: "0.18.1"
+schema_version: "0.19.0"
 
 sources:
   rules:
-    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "package:sync/rules"
     - "intelligence/rules"
   agents:
-    - ".intelligence/packages/@ainova-systems/sync/agents"
+    - "package:sync/agents"
     - "intelligence/agents"
   skills:
-    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "package:sync/skills"
     - "intelligence/skills"
 
 targets:
@@ -30,9 +30,10 @@ targets:
   claude: { enabled: true, output: ".claude" }
   cursor: { enabled: true, output: ".cursor" }
 
-# CLI-owned blocks — the engine never reads below this line. The engine's own
-# content is an ordinary package, pinned to the engine and restored offline
-# from the CLI bundle.
+# CLI-owned blocks — below this line the engine reads only the package names,
+# which `package:` sources resolve against. The engine's own content is an
+# ordinary package, pinned to the engine and restored offline from the CLI
+# bundle.
 packages:
   "@ainova-systems/sync":
-    version: "0.18.1"
+    version: "0.19.0"

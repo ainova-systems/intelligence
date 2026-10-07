@@ -15,7 +15,8 @@ the same procedure. Updating the layer can create a new artifact.
 
 1. Read `<manifest>` and resolve its `sources.rules`, `sources.agents`, and
    `sources.skills` directories. `<content-dir>` names the project's content
-   directory; `<module>` is installed package content. Read the
+   directory; `<module>` is installed package content, and so is every
+   `package:<name>/<dir>` entry. Read the
    `intelligence-authoring` rule and `<module>/references/conventions.md`.
    Edit project-owned sources, never installed packages or generated output.
    When working in a package's own repository, use its authoritative source tree.

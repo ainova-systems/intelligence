@@ -50,26 +50,28 @@ The `intelligence-` name prefix is reserved for artifacts shipped by `@ainova-sy
 
 ## Manifest, packages and sources
 
-The engine consumes ordinary local source paths:
+The engine consumes local source directories. A package's directories are named by the package, not by their store path:
 
 ```yaml
 project:
   name: payments
   intelligence_dir: "intelligence"  # optional; this is the default
 
-schema_version: "0.11.1"
+schema_version: "0.19.0"
 
 sources:
   rules:
-    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "package:sync/rules"
     - "intelligence/rules"
   agents:
-    - ".intelligence/packages/@ainova-systems/sync/agents"
+    - "package:sync/agents"
     - "intelligence/agents"
   skills:
-    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "package:sync/skills"
     - "intelligence/skills"
 ```
+
+`package:<name>/<dir>` is `<dir>` inside an installed package: `package:sync/rules` renders `.intelligence/packages/@ainova-systems/sync/rules`. `<name>` is the full `@scope/name`, or only the part after its `/` while no other declared package shares that part. `intelligence package add` and `intelligence package remove` write and remove these entries, and they keep the spelling canonical: when two declared packages share a short name, both are written in full (`package:@acme/sync/rules`). Never write a `.intelligence/` store path into `sources:`; a manifest from before `0.19.0` that holds one is rewritten to its token by lifecycle alignment.
 
 Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
 

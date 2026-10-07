@@ -200,25 +200,31 @@ fetch_package() {
     printf '%s' "$sha"
 }
 
-# wire_package_sources <manifest> <@scope/name> <store-rel-dir>
+# wire_package_sources <manifest> <@scope/name> <store-rel-dir> <root> [declaring]
 # The provides convention: whichever of rules/agents/skills the installed
-# package has becomes a sources entry — inserted FIRST in its section, so
-# project-owned entries come later and win on same-named artifacts.
+# package has becomes a `package:<name>/<section>` entry — inserted FIRST in
+# its section, so project-owned entries come later and win on same-named
+# artifacts. An entry the section already holds stays where it is.
+#
+# `declaring` says the caller is about to write <name> into `packages:` (package
+# add): the spelling is chosen for the set that includes it, so a short name it
+# collides with is respelled in full now. Without it the declared set is taken
+# as it stands, and a package missing from it is spelled in full — a short token
+# resolves against declared packages only.
 wire_package_sources() {
-    local manifest="$1" name="$2" rel="$3" root="$4"
-    local section
+    local manifest="$1" name="$2" rel="$3" root="$4" change="=" prefix="" section
+    [ "${5:-}" != declaring ] || change="+"
+    package_sources_respell "$manifest" "$change" "$name"
     for section in rules agents skills; do
-        if [ -d "$root/$rel/$section" ]; then
-            sources_add_entry_first "$manifest" "$section" "$rel/$section"
-        fi
+        [ -d "$root/$rel/$section" ] || continue
+        [ -n "$prefix" ] || prefix="$(package_source_prefix "$manifest" "$name" "$change")"
+        sources_add_entry_first "$manifest" "$section" "$prefix$section"
     done
 }
 
-# unwire_package_sources <manifest> <store-rel-dir>
+# unwire_package_sources <manifest> <@scope/name> — drop every entry naming the
+# package's rules/agents/skills, whatever its spelling, and respell the rest for
+# the set without it. Call before the `packages:` entry is deleted.
 unwire_package_sources() {
-    local manifest="$1" rel="$2"
-    local section
-    for section in rules agents skills; do
-        sources_remove_entry "$manifest" "$section" "$rel/$section"
-    done
+    package_sources_respell "$1" - "$2" rules agents skills
 }

@@ -293,9 +293,10 @@ repo_rel_dir() {
     done
 }
 
-# Resolve a single source token to an absolute local directory. Every token is
-# a repo-relative path: the CLI resolves, fetches and pins packages, so by the
-# time the engine runs a package is just a directory under the store.
+# Resolve a single source entry to an absolute local directory. Every entry is
+# a repo-relative path by the time it gets here: the CLI resolves, fetches and
+# pins packages, so a package is just a directory under the store, and the list
+# parser has already expanded a `package:<name>/<dir>` token to that directory.
 # ALWAYS returns 0 (echoes nothing on failure) so `set -e` callers using
 # `dir="$(resolve_source_dir ...)"` never abort; the caller's existing
 # `[ -d "$dir" ] || continue` guard then skips an unresolved source.
@@ -1655,9 +1656,189 @@ report_context_source_sizes() {
 
 # --- Config Parsing ---
 
+# --- Package source tokens ---------------------------------------------------
+# A `sources:` entry may name a directory inside an installed package as
+# `package:<name>/<dir>` instead of by its store path
+# `.intelligence/packages/@scope/name/<dir>`, so the list a project reads carries
+# no vendor scope. <name> is the package's full `@scope/name`, or the part after
+# its `/` when exactly one package declared in `packages:` carries that part. The
+# full form names its package by itself and always expands; the short form
+# resolves against the declared names only.
+#
+# The list parser below expands a token in the awk pass that already reads the
+# manifest. That pass is the one point every reader goes through — adapters, the
+# engine's own loops and the CLI — so expansion costs no process, and the CLI sees
+# exactly what the engine renders (decision 0009). A token that does not resolve
+# passes through verbatim: it names no directory, so it is skipped like any
+# missing source, and `status --check` reports why (decision 0015).
+#
+# These functions are the token's only definition. The CLI's editors
+# (lib/manifest.sh) and `status --check` load this same string:
+#
+#   pkt_collect(line)             feed every manifest line; fills PKT_NAMES[1..PKT_N]
+#                                 with the declared package names, in order
+#   pkt_parse(entry)              classify one entry against PKT_NAMES; sets
+#                                 PKT_NAME, PKT_DIR and, when ambiguous, PKT_HITS
+#   pkt_expand(entry)             the entry as the engine renders it
+#   pkt_store(entry)              split a store path into PKT_NAME and PKT_DIR
+#   pkt_spell(name, dir, set, n)  the canonical token for <name>/<dir> when
+#                                 set[1..n] are the declared names
+IS_PKG_TOKEN_AWK='
+    function pkt_short(name) { return substr(name, index(name, "/") + 1) }
+    function pkt_seg_ok(s) { return s != "" && s != "." && s != ".." }
+    # The CLI refuses any other package name (assert_valid_pkg_name): a name
+    # becomes a store path, so one that is not a plain @scope/name never counts
+    # as declared.
+    function pkt_name_ok(name,   p) {
+        if (name !~ /^@[@A-Za-z0-9._-]*\/[@A-Za-z0-9._-]*$/) return 0
+        p = index(name, "/")
+        return pkt_seg_ok(substr(name, 2, p - 2)) && pkt_seg_ok(substr(name, p + 1))
+    }
+    function pkt_dir_ok(dir) {
+        if (dir == "" || substr(dir, 1, 1) == "/" || index(dir, "\\")) return 0
+        return index("/" dir "/", "/../") == 0
+    }
+    # The quoted keys of the top-level packages: block, read the way the CLI
+    # writes them. Only the names are read; nothing else in the block is.
+    function pkt_collect(line,   s, q, name) {
+        if (line ~ /^packages:[ \t]*$/) { pkt_in = 1; return }
+        if (!pkt_in) return
+        if (line ~ /^[^ #]/) { pkt_in = 0; return }
+        if (substr(line, 1, 3) != "  \"") return
+        s = substr(line, 4)
+        q = index(s, "\"")
+        if (q < 2) return
+        name = substr(s, 1, q - 1)
+        if (!pkt_name_ok(name) || (name in pkt_seen)) return
+        pkt_seen[name] = 1
+        PKT_NAMES[++PKT_N] = name
+    }
+    # Returns path (not a token), ok (a declared package), undeclared (the full
+    # form of a package packages: does not declare), unknown (a short name no
+    # declared package carries), ambiguous (a short name several carry) or
+    # invalid (no well-formed <name>/<dir> after the prefix).
+    function pkt_parse(entry,   body, p, rest, short, i, n, hits) {
+        PKT_NAME = ""; PKT_DIR = ""; PKT_HITS = ""
+        if (substr(entry, 1, 8) != "package:") return "path"
+        body = substr(entry, 9)
+        n = PKT_N + 0
+        if (substr(body, 1, 1) == "@") {
+            p = index(body, "/")
+            if (p == 0) return "invalid"
+            rest = substr(body, p + 1)
+            i = index(rest, "/")
+            if (i == 0) return "invalid"
+            PKT_NAME = substr(body, 1, p + i - 1)
+            PKT_DIR = substr(rest, i + 1)
+            if (!pkt_name_ok(PKT_NAME) || !pkt_dir_ok(PKT_DIR)) {
+                PKT_NAME = ""; PKT_DIR = ""
+                return "invalid"
+            }
+            for (i = 1; i <= n; i++) if (PKT_NAMES[i] == PKT_NAME) return "ok"
+            return "undeclared"
+        }
+        p = index(body, "/")
+        if (p == 0) return "invalid"
+        short = substr(body, 1, p - 1)
+        PKT_DIR = substr(body, p + 1)
+        if (!pkt_seg_ok(short) || !pkt_dir_ok(PKT_DIR)) { PKT_DIR = ""; return "invalid" }
+        hits = 0
+        for (i = 1; i <= n; i++) {
+            if (pkt_short(PKT_NAMES[i]) != short) continue
+            hits++
+            PKT_NAME = PKT_NAMES[i]
+            PKT_HITS = PKT_HITS (hits > 1 ? ", " : "") PKT_NAMES[i]
+        }
+        if (hits == 1) return "ok"
+        PKT_NAME = ""
+        return hits ? "ambiguous" : "unknown"
+    }
+    function pkt_expand(entry,   st) {
+        st = pkt_parse(entry)
+        if (st == "ok" || st == "undeclared") return ".intelligence/packages/" PKT_NAME "/" PKT_DIR
+        return entry
+    }
+    function pkt_store(entry,   pre, rest, p, i) {
+        PKT_NAME = ""; PKT_DIR = ""
+        pre = ".intelligence/packages/"
+        if (substr(entry, 1, length(pre)) != pre) return 0
+        rest = substr(entry, length(pre) + 1)
+        p = index(rest, "/")
+        if (p == 0) return 0
+        i = index(substr(rest, p + 1), "/")
+        if (i == 0) return 0
+        PKT_NAME = substr(rest, 1, p + i - 1)
+        PKT_DIR = substr(rest, p + i + 1)
+        if (pkt_name_ok(PKT_NAME) && pkt_dir_ok(PKT_DIR)) return 1
+        PKT_NAME = ""; PKT_DIR = ""
+        return 0
+    }
+    # Short when no other declared package carries the same name after its
+    # slash, full otherwise. A package that is not declared is spelled in full:
+    # a short token resolves against the declared names only.
+    function pkt_spell(name, dir, set, n,   short, i, hits, mine) {
+        short = pkt_short(name)
+        hits = 0; mine = 0
+        for (i = 1; i <= n; i++) {
+            if (set[i] == name) mine = 1
+            if (pkt_short(set[i]) == short) hits++
+        }
+        if (mine && hits == 1 && substr(short, 1, 1) != "@") return "package:" short "/" dir
+        return "package:" name "/" dir
+    }
+'
+
+# The manifest list reader. `mode` selects what it prints for each entry:
+#   expand    the entry as the engine renders it: package tokens expanded
+#   raw       the entry as written — what an editor compares and rewrites
+#   classify  raw, pkt_parse state, expansion and ambiguity candidates,
+#             separated by \037 — what `status --check` judges
+# Only rules, agents and skills hold sources; every other list reads raw.
+# Entries are held until the end of the file because `packages:` may follow
+# `sources:`.
+IS_YAML_LIST_AWK='
+    { sub(/\r$/, ""); pkt_collect($0) }
+    /^[a-z]/ { current_section = ""; depth = 0 }
+    /^  [a-z]/ { current_section = ""; depth = 0 }
+    $0 ~ "^" section ":" { current_section = section; depth = 0; next }
+    $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
+    current_section == section && depth == 0 && /^  - / {
+        val = $0
+        sub(/^  - /, "", val)
+        gsub(/["\047]/, "", val)
+        vals[++nv] = val
+    }
+    current_section == section && depth == 2 && /^    - / {
+        val = $0
+        sub(/^    - /, "", val)
+        gsub(/["\047]/, "", val)
+        vals[++nv] = val
+    }
+    END {
+        sources = section == "rules" || section == "agents" || section == "skills"
+        n = nv + 0
+        for (i = 1; i <= n; i++) {
+            val = vals[i]
+            if (!sources || mode == "raw") {
+                print val
+            } else if (mode == "classify") {
+                st = pkt_parse(val)
+                hits = PKT_HITS
+                print val "\037" st "\037" pkt_expand(val) "\037" hits
+            } else {
+                print pkt_expand(val)
+            }
+        }
+    }
+'
+
 # Read a simple list from config.yaml
 # Format: key:\n  - "value1"\n  - "value2"
-# Usage: readarray -t arr < <(read_yaml_list "config.yaml" "rules")
+# Usage: while IFS= read -r src; do ...; done < <(read_yaml_list "intelligence.yaml" "rules")
+#
+# A source list arrives with its package tokens expanded — the spelling every
+# renderer resolves as $REPO_ROOT/<entry>. Editors that rewrite the manifest
+# read it with read_yaml_list_raw instead.
 #
 # Consults the load_yaml_list cache first: sync reads the same sections from
 # the same manifest dozens of times, and each awk spawn costs tens of
@@ -1681,27 +1862,23 @@ read_yaml_list() {
             fi
             ;;
     esac
-    awk -v section="$section" '
-        {
-            sub(/\r$/, "")
-        }
-        /^[a-z]/ { current_section = ""; depth = 0 }
-        /^  [a-z]/ { current_section = ""; depth = 0 }
-        $0 ~ "^" section ":" { current_section = section; depth = 0; next }
-        $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
-        current_section == section && depth == 0 && /^  - / {
-            val = $0
-            sub(/^  - /, "", val)
-            gsub(/["\047]/, "", val)
-            print val
-        }
-        current_section == section && depth == 2 && /^    - / {
-            val = $0
-            sub(/^    - /, "", val)
-            gsub(/["\047]/, "", val)
-            print val
-        }
-    ' "$file"
+    awk -v section="$section" -v mode=expand "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$file"
+}
+
+# read_yaml_list_raw <file> <section> — the entries exactly as written, package
+# tokens included and never cached. The CLI's sources editors compare and
+# rewrite these, so a token is matched as the user spelled it.
+read_yaml_list_raw() {
+    awk -v section="$2" -v mode=raw "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$1"
+}
+
+# read_source_entries <file> <section> — one \037-separated line per entry:
+# raw, state, expansion and, for an ambiguous token, the declared packages it
+# could name. The state is the one pkt_parse returns: path, ok, undeclared,
+# unknown, ambiguous or invalid. One pass of the parser the engine renders
+# through, so a verdict can never disagree with the render.
+read_source_entries() {
+    awk -v section="$2" -v mode=classify "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$1"
 }
 
 # load_yaml_list <file> <section> — fill the global IS_YAML_LIST with the
@@ -1733,7 +1910,8 @@ load_yaml_list() {
 
 # load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
 # sections in one manifest pass. Each section runs read_yaml_list's own state
-# machine, so every cached value is what load_yaml_list would have stored.
+# machine and its package-token expansion, so every cached value is what
+# load_yaml_list would have stored.
 load_yaml_lists() {
     local file="$1" out line s v j
     shift
@@ -1743,9 +1921,9 @@ load_yaml_lists() {
             *) return 1 ;;
         esac
     done
-    out="$(awk -v sections="$*" '
+    out="$(awk -v sections="$*" "$IS_PKG_TOKEN_AWK"'
         BEGIN { n = split(sections, want, " ") }
-        { sub(/\r$/, "") }
+        { sub(/\r$/, ""); pkt_collect($0) }
         {
             for (k = 1; k <= n; k++) {
                 s = want[k]
@@ -1757,14 +1935,25 @@ load_yaml_lists() {
                     val = $0
                     sub(/^  - /, "", val)
                     gsub(/["\047]/, "", val)
-                    print s "\037" val
+                    got_s[++ng] = s
+                    got_v[ng] = val
                 }
                 if (cur[k] == s && dep[k] == 2 && /^    - /) {
                     val = $0
                     sub(/^    - /, "", val)
                     gsub(/["\047]/, "", val)
-                    print s "\037" val
+                    got_s[++ng] = s
+                    got_v[ng] = val
                 }
+            }
+        }
+        END {
+            m = ng + 0
+            for (i = 1; i <= m; i++) {
+                s = got_s[i]
+                val = got_v[i]
+                if (s == "rules" || s == "agents" || s == "skills") val = pkt_expand(val)
+                print s "\037" val
             }
         }
     ' "$file")"

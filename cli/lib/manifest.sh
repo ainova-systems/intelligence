@@ -2,9 +2,10 @@
 # The CLI-owned YAML shapes: quoted-key maps (`packages:`, `registries:` in
 # the manifest, `packages:` in the lock and in registry indexes).
 #
-# The engine deliberately never reads these blocks, and its readers cannot
-# hold `@scope/name` keys — so this is the CLI's single, deliberate parser,
-# scoped to exactly one shape:
+# The engine reads none of these blocks beyond the names in `packages:`, which
+# resolve `package:<name>/<dir>` sources (engine/lib/common.sh), and its list
+# readers cannot hold `@scope/name` keys — so this is the CLI's single,
+# deliberate parser, scoped to exactly one shape:
 #
 #   block:
 #     "@scope/name":            # 2-space indent, key always quoted
@@ -407,12 +408,14 @@ registries_remove() {
 # meaning: a later entry overrides a same-named artifact from an earlier one.
 # Reading goes through the engine's own list parser, so the CLI sees exactly
 # what the engine will render instead of a second reading of the same file.
+# The editors read it raw — a `package:` token as written, which is what they
+# compare and rewrite — and read_source_entries says what each one renders.
 
-# sources_list_entries <file> <section> — entries of sources.<section>, one per
-# line, in manifest order.
+# sources_list_entries <file> <section> — entries of sources.<section> as
+# written, one per line, in manifest order.
 sources_list_entries() {
     [ -f "$1" ] || return 0
-    read_yaml_list "$1" "$2"
+    read_yaml_list_raw "$1" "$2"
 }
 
 # sources_has_entry <file> <section> <entry> — true (0) when that section lists
@@ -529,4 +532,121 @@ sources_remove_entry() {
         }
         { print }
     '
+}
+
+# --- package sources: one canonical spelling --------------------------------
+# A package's directories enter `sources:` as `package:<name>/<dir>` tokens
+# (engine/lib/common.sh defines them). The CLI writes the canonical spelling:
+# the short name after the package's `/` while no other declared package shares
+# it, the full `@scope/name` for every package that does. Which spelling is
+# canonical depends on the whole declared set, so adding a package whose short
+# name collides respells the existing tokens of that name in full, and removing
+# it returns the survivor to the short form. Every path that wires or unwires
+# package content goes through package_sources_respell, which is the one place
+# that decision is made.
+
+# The declared set once an edit lands: the names `packages:` holds now, plus
+# <name> for `+` or without it for `-`. Fills AFTER[1..NA] in manifest order.
+_SOURCES_AFTER_AWK='
+    function after_set(change, name,   i, n) {
+        split("", AFTER)
+        NA = 0
+        n = PKT_N + 0
+        for (i = 1; i <= n; i++) {
+            if (change == "-" && PKT_NAMES[i] == name) continue
+            AFTER[++NA] = PKT_NAMES[i]
+        }
+        if (change == "+" && name != "" && !(name in pkt_seen)) AFTER[++NA] = name
+    }
+'
+
+# package_sources_respell <file> <change> [name] [drop-section...]
+# Rewrite every rules/agents/skills entry that names an installed package into
+# the canonical token for the declared set the edit leaves behind:
+#   +   <name> is about to be declared — package add, before it writes the
+#       packages: entry
+#   -   <name> is about to be undeclared — package remove, before it deletes
+#       the packages: entry
+#   =   the declared set stays as it is
+# An entry resolves against the names declared now, so a short token keeps
+# meaning the package it meant before the edit, and is rewritten in place:
+# order is the override rule, so nothing moves. The store path of a declared
+# package — or of <name> — becomes a token as well, which is how a manifest
+# written before tokens migrates. An entry naming <name>'s own <section>
+# directory under that section is dropped when <section> is a drop section.
+# Whatever resolves to no package is left exactly as written. Sets
+# IS_SOURCES_RESPELLED to 1 when the file changed; an unchanged file is not
+# rewritten at all.
+package_sources_respell() {
+    local file="$1" change="$2" name="${3:-}" tmp rc=0
+    shift 2
+    [ "$#" -eq 0 ] || shift
+    # Read by callers that report a migration; per-file shellcheck cannot see it.
+    # shellcheck disable=SC2034
+    IS_SOURCES_RESPELLED=0
+    [ -f "$file" ] || return 0
+    case "$change" in +|-|=) ;; *) die "internal: unknown sources change '$change'" ;; esac
+    tmp="$file.cli.tmp"
+    awk -v change="$change" -v name="$name" -v drop=" $* " \
+        "$IS_PKG_TOKEN_AWK$_SOURCES_AFTER_AWK"'
+        function resolve(v,   st) {
+            st = pkt_parse(v)
+            if (st == "ok" || st == "undeclared") return 1
+            return pkt_store(v) && ((PKT_NAME in pkt_seen) || PKT_NAME == name)
+        }
+        FNR == 1 { pass++ }
+        pass == 1 { sub(/\r$/, ""); pkt_collect($0); next }
+        FNR == 1 { after_set(change, name) }
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; print; next }
+        ins && /^[^ #]/ { ins = 0; sec = "" }
+        ins && /^  [A-Za-z_]/ {
+            sec = $0
+            sub(/^  /, "", sec)
+            sub(/:.*$/, "", sec)
+            if (sec != "rules" && sec != "agents" && sec != "skills") sec = ""
+            print
+            next
+        }
+        ins && sec != "" && /^[ \t]*-/ {
+            v = $0
+            sub(/^[ \t]*-[ \t]*/, "", v)
+            gsub(/["\047]/, "", v)
+            sub(/[ \t]+#.*$/, "", v)
+            sub(/[ \t]+$/, "", v)
+            if (v == "" || !resolve(v)) { print; next }
+            if (PKT_NAME == name && PKT_DIR == sec && index(drop, " " sec " ")) { changed = 1; next }
+            spelled = pkt_spell(PKT_NAME, PKT_DIR, AFTER, NA)
+            p = index($0, v)
+            if (spelled == v || p == 0) { print; next }
+            print substr($0, 1, p - 1) spelled substr($0, p + length(v))
+            changed = 1
+            next
+        }
+        { print }
+        END { exit (changed ? 0 : 10) }
+    ' "$file" "$file" > "$tmp" || rc=$?
+    case "$rc" in
+        0)
+            [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: sources respell produced an empty file for $file"; }
+            mv "$tmp" "$file"
+            # shellcheck disable=SC2034
+            IS_SOURCES_RESPELLED=1
+            ;;
+        10) rm -f "$tmp" ;;
+        *) rm -f "$tmp"; die "internal: sources respell refused (awk exit $rc) for $file" ;;
+    esac
+}
+
+# package_source_prefix <file> <name> [change] — `package:<spelling>/`, the
+# canonical prefix of <name>'s directories once <change> (as for
+# package_sources_respell) lands.
+package_source_prefix() {
+    awk -v name="$2" -v change="${3:-=}" "$IS_PKG_TOKEN_AWK$_SOURCES_AFTER_AWK"'
+        { sub(/\r$/, ""); pkt_collect($0) }
+        END {
+            after_set(change, name)
+            print pkt_spell(name, "", AFTER, NA)
+        }
+    ' "$1"
 }

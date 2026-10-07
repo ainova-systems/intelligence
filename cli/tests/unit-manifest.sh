@@ -723,5 +723,129 @@ cp "$POS" "$OUT/src-anchor.before"
 chk diff "$OUT/src-anchor.before" "$POS"
 chknot ls "$POS.cli.tmp"
 
+echo "== package_sources_respell: store paths become tokens, in place =="
+RS="$OUT/respell.yaml"
+cat > "$RS" <<'YAML'
+project:
+  name: unit
+
+sources:
+  rules:
+    - ".intelligence/packages/@ainova-systems/core/rules"
+    - "intelligence/rules"
+    - '.intelligence/packages/@ainova-systems/sync/rules'
+    - ".intelligence/packages/@orphan/pack/rules"
+    - "package:nope/rules"
+  agents:
+    - .intelligence/packages/@ainova-systems/sync/agents
+  skills:
+
+  # a comment between sections
+# outside sources: .intelligence/packages/@ainova-systems/sync/rules
+registries:
+  - ".intelligence/packages/@ainova-systems/sync/rules"
+
+packages:
+  "@ainova-systems/sync":
+    version: "0.19.0"
+  "@ainova-systems/core":
+    version: "^0.9.3"
+YAML
+package_sources_respell "$RS" =
+chk eq "$IS_SOURCES_RESPELLED" "1"
+chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
+chk eq "$(entries_of "$RS" agents)" "package:sync/agents"
+# Quoting, comments and every line outside sources: survive byte for byte.
+chk grep -qx "    - 'package:sync/rules'" "$RS"
+chk grep -qx '    - package:sync/agents' "$RS"
+chk grep -qx '  # a comment between sections' "$RS"
+chk grep -qx '# outside sources: .intelligence/packages/@ainova-systems/sync/rules' "$RS"
+chk grep -qx '  - ".intelligence/packages/@ainova-systems/sync/rules"' "$RS"
+# A trailing comment stays on its line; only the value changes.
+printf 'sources:\n  rules:\n    - ".intelligence/packages/@a/b/rules"  # keep me\npackages:\n  "@a/b":\n    version: "1"\n' \
+    > "$OUT/respell-comment.yaml"
+package_sources_respell "$OUT/respell-comment.yaml" =
+chk grep -qx '    - "package:b/rules"  # keep me' "$OUT/respell-comment.yaml"
+cp "$RS" "$OUT/respell.once"
+package_sources_respell "$RS" =
+chk eq "$IS_SOURCES_RESPELLED" "0"
+chk diff "$OUT/respell.once" "$RS"
+chknot ls "$RS.cli.tmp"
+
+echo "== package_sources_respell: a shared short name is spelled in full, then short again =="
+# + spells for the set the add leaves behind; each token still means the
+# package it meant before the add.
+chk eq "$(package_source_prefix "$RS" @acme/sync +)" "package:@acme/sync/"
+chk eq "$(package_source_prefix "$RS" @acme/sync)" "package:@acme/sync/"
+chk eq "$(package_source_prefix "$RS" @acme/other +)" "package:other/"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync)" "package:sync/"
+package_sources_respell "$RS" + @acme/sync
+chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:@ainova-systems/sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
+chk eq "$(entries_of "$RS" agents)" "package:@ainova-systems/sync/agents"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync +)" "package:sync/"
+qmap_set "$RS" packages "@acme/sync" ref "HEAD"
+sources_add_entry_first "$RS" rules "package:@acme/sync/rules"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync)" "package:@ainova-systems/sync/"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync -)" "package:@ainova-systems/sync/"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync =)" "package:@ainova-systems/sync/"
+chk eq "$(package_source_prefix "$RS" @ainova-systems/sync +)" "package:@ainova-systems/sync/"
+# An update keeps the set; it drops only the sections the new version lost.
+cp "$RS" "$OUT/respell.collided"
+package_sources_respell "$RS" = @acme/sync agents skills
+chk diff "$OUT/respell.collided" "$RS"
+package_sources_respell "$RS" - @acme/sync rules agents skills
+chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
+chk eq "$(entries_of "$RS" agents)" "package:sync/agents"
+# Spelling of one entry never depends on where it stands: a full token of the
+# only package with its short name is respelled short too.
+printf 'sources:\n  rules:\n    - "package:@ainova-systems/core/rules"\npackages:\n  "@ainova-systems/core":\n    version: "1"\n' > "$OUT/respell-full.yaml"
+package_sources_respell "$OUT/respell-full.yaml" =
+chk eq "$(entries_of "$OUT/respell-full.yaml" rules)" "package:core/rules"
+# A package that is not declared is spelled in full: a short token resolves
+# against the declared names only.
+printf 'sources:\n  rules:\n    - ".intelligence/packages/@orphan/pack/rules"\n' > "$OUT/respell-orphan.yaml"
+package_sources_respell "$OUT/respell-orphan.yaml" = @orphan/pack
+chk eq "$(entries_of "$OUT/respell-orphan.yaml" rules)" "package:@orphan/pack/rules"
+chk eq "$(package_source_prefix "$OUT/respell-orphan.yaml" @orphan/pack)" "package:@orphan/pack/"
+# A short name starting with @ would read as a scope: always spelled in full.
+printf 'sources:\n  rules:\npackages:\n  "@a/@b":\n    version: "1"\n' > "$OUT/respell-at.yaml"
+chk eq "$(package_source_prefix "$OUT/respell-at.yaml" @a/@b)" "package:@a/@b/"
+package_sources_respell "$OUT/does-not-exist.yaml" =
+chk eq "$IS_SOURCES_RESPELLED" "0"
+
+echo "== sources_list_entries reads what is written =="
+chk eq "$(sources_list_entries "$RS" agents)" "package:sync/agents"
+chk sources_has_entry "$RS" rules "package:sync/rules"
+chknot sources_has_entry "$RS" rules ".intelligence/packages/@ainova-systems/sync/rules"
+
+echo "== wire/unwire_package_sources: the canonical token, first, once =="
+WR="$OUT/wire"
+mkdir -p "$WR/.intelligence/packages/@ainova-systems/sync/rules" "$WR/.intelligence/packages/@ainova-systems/sync/skills" \
+    "$WR/.intelligence/packages/@acme/sync/rules"
+cat > "$WR/intelligence.yaml" <<'YAML'
+sources:
+  rules:
+    - "intelligence/rules"
+  skills:
+    - "intelligence/skills"
+packages:
+  "@ainova-systems/sync":
+    version: "0.19.0"
+YAML
+wire_package_sources "$WR/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$WR"
+chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:sync/rules,intelligence/rules"
+chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:sync/skills,intelligence/skills"
+chk eq "$(entries_of "$WR/intelligence.yaml" agents)" ""
+cp "$WR/intelligence.yaml" "$OUT/wire.once"
+wire_package_sources "$WR/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$WR"
+chk diff "$OUT/wire.once" "$WR/intelligence.yaml"
+wire_package_sources "$WR/intelligence.yaml" "@acme/sync" ".intelligence/packages/@acme/sync" "$WR" declaring
+chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:@acme/sync/rules,package:@ainova-systems/sync/rules,intelligence/rules"
+chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:@ainova-systems/sync/skills,intelligence/skills"
+qmap_set "$WR/intelligence.yaml" packages "@acme/sync" ref "HEAD"
+unwire_package_sources "$WR/intelligence.yaml" "@acme/sync"
+chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:sync/rules,intelligence/rules"
+chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:sync/skills,intelligence/skills"
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

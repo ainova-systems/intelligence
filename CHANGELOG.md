@@ -4,11 +4,27 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
-## [0.18.1]
+## [0.19.0]
+
+### Added
+
+- `sources:` names an installed package's directory as `package:<name>/<dir>` — `package:sync/rules` instead of `.intelligence/packages/@ainova-systems/sync/rules` — so a project's source list carries no vendor scope. `<name>` is the full `@scope/name`, or the part after its `/` while no other declared package shares it. The engine renders a token exactly as the store path it stands for; `sync` warns about, and `status --check` reports, a token that names no declared package, one two declared packages share, or a malformed one (decision 0015).
 
 ### Changed
 
 - On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+- Package add, remove, update and restore write package sources as `package:` tokens in one canonical spelling: short, or full for every package sharing a short name. Adding a package whose short name collides rewrites the existing tokens of that name in full, and removing it returns the survivor to the short form, each in place.
+- Lifecycle alignment rewrites every `.intelligence/packages/<declared name>/<dir>` entry in place to its `package:` token; the generated output is byte-identical. Legacy conversion writes tokens too.
+- `source add` and `source remove` refuse a `package:` token as package content, naming `package add` and `package remove`, and accept one as a `--before` / `--after` anchor.
+
+### Fixed
+
+- `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
+
+### Breaking
+
+- [ ] Every teammate and CI job that syncs the project runs CLI `0.19.0` or later before the aligned manifest is committed: a CLI `0.18` or earlier reads a `package:` source as a path, so it renders a migrated project without package content and still reports `IS_STATUS=ok`.
+- [ ] After alignment, `sources:` names each declared package as `package:<name>/<dir>`, no `.intelligence/packages/` path of a declared package remains, and `intelligence status --check` succeeds.
 
 ## [0.18.0]
 

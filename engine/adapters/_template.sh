@@ -29,7 +29,8 @@
 #   get_model_default(ide, tier)        — hardcoded default for ide:tier
 #   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly->restricted
 #   map_access_to_claude_disallowed(access) — readonly->"Write, Edit", full->""
-#   read_yaml_list(manifest, section)   — read a source list from intelligence.yaml
+#   read_yaml_list(manifest, section)   — read a source list from intelligence.yaml,
+#                                         package:<name>/<dir> tokens already expanded
 #   get_target_field(config, target, field) — read a target's config field
 
 # Project adapters are sourced by engine/sync.sh after the shared library is

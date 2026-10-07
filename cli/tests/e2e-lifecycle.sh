@@ -505,7 +505,8 @@ echo "== init --preview (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --preview > "$OUT/dry.txt")
 chknot test -f "$LEG/intelligence.yaml"
 chk test -f "$LEG/intelligence/config.yaml"
-chk grep -q 'packages/@' "$OUT/dry.txt"
+# The staged manifest names each package, never its store path.
+chk grep -q 'package:shared-intel/rules' "$OUT/dry.txt"
 
 echo "== init --apply (legacy conversion) =="
 (cd "$LEG" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --apply > "$OUT/migrate.txt")
@@ -527,6 +528,11 @@ chk grep -q "url: \"file://$PACK\"" "$LEG/intelligence.lock"
 chknot grep -q '^packs:' "$LEG/intelligence.yaml"
 chknot grep -q '^sync_version:' "$LEG/intelligence.yaml"
 chk grep -q "^schema_version: \"$ENGINE_VER\"" "$LEG/intelligence.yaml"
+# Converted sources take the spelling the CLI writes everywhere: the package's
+# name, in the position the legacy entry held.
+chk grep -qx '    - "package:sync/rules"' "$LEG/intelligence.yaml"
+chk grep -qx '    - "package:shared-intel/rules"' "$LEG/intelligence.yaml"
+chknot grep -q '\.intelligence/packages/' "$LEG/intelligence.yaml"
 chk grep -Fqx '.intelligence/**' "$LEG/.dockerignore"
 chk grep -Fqx 'intelligence.yaml' "$LEG/.dockerignore"
 git -C "$LEG" status --porcelain | grep -q . || { echo "FAIL: migrate produced no diff"; fail=1; }
@@ -821,6 +827,52 @@ git -C "$CFG" init --quiet
 run_in "$CFG" init --apply --force
 chk test "$RC" -eq 0
 chknot grep -q 'intelligence_dir' "$CFG/intelligence.yaml"
+
+echo "== a 0.18 manifest migrates to package tokens and renders the same bytes =="
+M18="$OUT/migrate-018"
+mkdir -p "$M18"
+git -C "$M18" init --quiet
+run_in "$M18" init --targets claude
+chk test "$RC" -eq 0
+# m18_entries <section> — sources.<section> as written, comma-joined.
+m18_entries() {
+    awk -v sec="$1" '
+        { sub(/\r$/, "") }
+        /^sources:[ \t]*$/ { ins = 1; next }
+        ins && /^[^ #]/ { ins = 0; f = 0 }
+        ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
+        ins && /^  [A-Za-z_]/ { f = 0 }
+        f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
+    ' "$M18/intelligence.yaml" | paste -sd, -
+}
+# Hashes of everything sync rendered, recorded outside the project.
+m18_hashes() {
+    (cd "$M18" && find .claude -type f | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s %s\n' "$(git hash-object --no-filters "$f")" "$f"
+    done)
+}
+m18_hashes > "$OUT/m18-before.hashes"
+chk test -s "$OUT/m18-before.hashes"
+cp "$M18/intelligence.yaml" "$OUT/m18-current.yaml"
+# The shape a 0.18 CLI wrote: the store path, under its own stamp.
+sed -e 's|"package:sync/|".intelligence/packages/@ainova-systems/sync/|' \
+    -e 's|^schema_version: ".*"$|schema_version: "0.18.0"|' "$OUT/m18-current.yaml" > "$M18/intelligence.yaml"
+chk grep -qx '    - ".intelligence/packages/@ainova-systems/sync/rules"' "$M18/intelligence.yaml"
+run_in "$M18" sync
+chk test "$RC" -eq 0
+printf '%s\n' "$OUTPUT" | grep -qF 'migrating: package store paths in sources -> package:<name>/<dir>' \
+    || { echo "FAIL: alignment printed no migration line"; printf '%s\n' "$OUTPUT" | head -12; fail=1; }
+for s in rules agents skills; do
+    [ "$(m18_entries "$s")" = "package:sync/$s,intelligence/$s" ] \
+        || { echo "FAIL: sources.$s after migration: $(m18_entries "$s")"; fail=1; }
+done
+chk grep -q "^schema_version: \"$ENGINE_VER\"" "$M18/intelligence.yaml"
+# Nothing but the spelling moved: the manifest is the one init wrote.
+chk cmp -s "$OUT/m18-current.yaml" "$M18/intelligence.yaml"
+m18_hashes > "$OUT/m18-after.hashes"
+chk cmp -s "$OUT/m18-before.hashes" "$OUT/m18-after.hashes"
+run_in "$M18" status --check
+chk test "$RC" -eq 0
 
 [ "$fail" -eq 0 ] && echo "MIGRATE-E2E: ALL OK"
 exit "$fail"
