@@ -14,6 +14,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
 
+### Fixed
+
+- `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
+
 ## [0.18.1]
 
 ### Changed
