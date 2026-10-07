@@ -18,6 +18,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
+- `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
 - `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
 
 ### Breaking

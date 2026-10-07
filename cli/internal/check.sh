@@ -150,14 +150,17 @@ while IFS= read -r target; do
             && [ "$(is_target_enabled "$manifest" "$value")" != "1" ]; then
             warn "enabled adapter '$target' requires enabled adapter '$value'"
         fi
+        # Presence is the writer's own test: a line `init` treats as present
+        # and leaves alone must not be reported missing here, or the warning
+        # can never clear — a CRLF .gitignore on Linux and macOS did exactly that.
         if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
             case "$kind" in
                 ignore)
-                    grep -Fqx -- "$value" "$IP_ROOT/.gitignore" 2>/dev/null \
+                    ignore_file_has_line "$IP_ROOT/.gitignore" "$value" \
                         || warn "adapter '$target' Git policy is missing '$value'"
                     ;;
                 include)
-                    if ! grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null; then
+                    if ! ignore_file_has_line "$IP_ROOT/.gitignore" "!$value"; then
                         warn "adapter '$target' Git policy is missing '!$value'"
                     elif git -C "$IP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
                         if git -C "$IP_ROOT" check-ignore -q --no-index -- "$value"; then
