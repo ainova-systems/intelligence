@@ -239,8 +239,10 @@ It answers in one of two ways:
 Project adapters receive the private project's absolute root during a check.
 They should render from project-relative inputs; adapters that embed the absolute
 root in their output may report a difference because the check's root differs.
-Absolute source links into the project are relocated within the copy; escaping
-links retain their targets and are judged by the normal source-link policy.
+Absolute links into the project are relocated within the copy. Relative links
+used as read inputs retain their original resolution, including external adapter
+scripts; generated relative links retain their spelling. The normal source-link
+policy still applies.
 
 `--check --force` always renders: the strict answer. An adapter name scopes the
 check to that adapter, and full and filtered records never stand in for each

@@ -287,8 +287,8 @@ compare_sync_entries() {
         # Source links inside the private copy refer to its root. Compare the
         # generated target in the original project's coordinate system.
         if [ -n "${IS_SYNC_CHECK_ROOT:-}" ] && [ -n "${IS_SYNC_CHECK:-}" ]; then
-            case "$before" in "$REPO_ROOT"/*) before="$IS_SYNC_CHECK_ROOT/${before#"$REPO_ROOT/"}" ;; esac
-            case "$target" in "$REPO_ROOT"/*) target="$IS_SYNC_CHECK_ROOT/${target#"$REPO_ROOT/"}" ;; esac
+            case "$before" in "$REPO_ROOT") before="$IS_SYNC_CHECK_ROOT" ;; "$REPO_ROOT"/*) before="$IS_SYNC_CHECK_ROOT/${before#"$REPO_ROOT/"}" ;; esac
+            case "$target" in "$REPO_ROOT") target="$IS_SYNC_CHECK_ROOT" ;; "$REPO_ROOT"/*) target="$IS_SYNC_CHECK_ROOT/${target#"$REPO_ROOT/"}" ;; esac
         fi
         [ "$before" = "$target" ] || return 1
     elif [ -L "$live" ]; then

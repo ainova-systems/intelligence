@@ -16,7 +16,8 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Fixed
 
-- `sync --check` preserves hand-edited source lists while restoring the package store and forwards renderer warnings to stderr.
+- `sync --check` preserves hand-edited source lists while restoring the package store and forwards complete renderer warnings to stderr.
+- Private check copies preserve relative external adapter inputs and exact-root links while keeping generated link spelling significant.
 - Source paths ending in a slash no longer prevent sync cache hits.
 - The sync-cache failure-injection fixture supplies a valid partial file list under mawk.
 - `sync --check` compares generated asset links without dereferencing them and detects link-to-file changes even when the bytes match.

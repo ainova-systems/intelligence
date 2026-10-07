@@ -2,7 +2,7 @@
 # `sync --check` says whether sync would change generated files and changes
 # none itself: 0 up to date, 2 sync needed, any other status an error. A valid
 # record from the same tooling answers without rendering; otherwise the engine
-# renders inside its snapshot transaction and restores every path.
+# renders in a private project copy without touching live output.
 # Fixtures stay outside the checkout so project discovery cannot select it.
 set -euo pipefail
 unset CI
@@ -28,6 +28,7 @@ case "${1:-}" in
     */engine/sync.sh)
         echo engine >> "$LOG"
         if [ -e "$LOG.exit2" ]; then echo 'Simulated renderer status 2' >&2; exit 2; fi
+        if [ -e "$LOG.warnings" ]; then printf '  WARN: Probe warning\n    Probe continuation\n' >&2; fi
         ;;
 esac
 exec "$REAL" "$@"
@@ -186,6 +187,70 @@ run --check --force
 check test "$RC" -eq 0
 check err_has 'WARNING: Codex'
 cp "$TMP/manifest" "$PROJECT/intelligence.yaml"
+
+echo '== External relative adapter inputs retain their resolution =='
+LINK_PROJECT="$TMP/link-project"
+mkdir -p "$LINK_PROJECT/intelligence/adapters" "$LINK_PROJECT/intelligence/rules"
+cp "$PROJECT/intelligence/rules/base.md" "$LINK_PROJECT/intelligence/rules/base.md"
+cat > "$LINK_PROJECT/intelligence.yaml" <<EOF
+schema_version: "$VERSION"
+sources:
+  rules:
+    - intelligence/rules
+targets:
+  probe: { enabled: true, output: ".probe" }
+EOF
+cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned .probe; }
+sync_to_probe() {
+    mkdir -p "$1/.probe"
+    ln -sf ../../../outside "$1/.probe/link"
+    printf 'probe\n' > "$1/.probe/value"
+}
+EOF
+if MSYS=winsymlinks:nativestrict ln -s ../../../probe.sh "$LINK_PROJECT/intelligence/adapters/probe.sh" 2>/dev/null; then
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+    check test "$(readlink "$LINK_PROJECT/.probe/link")" = ../../../outside
+    # Resolved target equality is insufficient: link spelling is part of output.
+    ln -sf "$TMP/../outside" "$LINK_PROJECT/.probe/link"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 2
+    check test "$(readlink "$LINK_PROJECT/.probe/link")" = "$TMP/../outside"
+    # A root link used as an output ancestor remains inside the private project.
+    ln -s "$LINK_PROJECT" "$LINK_PROJECT/root-link"
+    sed 's/output: ".probe"/output: "root-link\/.probe"/' "$LINK_PROJECT/intelligence.yaml" > "$TMP/link-manifest"
+    cp "$TMP/link-manifest" "$LINK_PROJECT/intelligence.yaml"
+    cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
+sync_to_probe() { mkdir -p "$1/$3"; printf 'probe\n' > "$1/$3/value"; }
+EOF
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+else
+    echo '  (native symlinks unavailable ? external-input cases skipped)'
+fi
+
+echo '== Cached and rendered checks keep indented warning continuations =='
+touch "$TMP/operations.warnings"
+run --force
+check test "$RC" -eq 0
+run --check
+check test "$RC" -eq 0
+check not_rendered
+check err_has '  WARN: Probe warning'
+check err_has '    Probe continuation'
+run --check --force
+check test "$RC" -eq 0
+check err_has '  WARN: Probe warning'
+check err_has '    Probe continuation'
+rm "$TMP/operations.warnings"
+run --force
+check test "$RC" -eq 0
 
 echo '== Preserved managed siblings do not make a check report generated changes =='
 printf '# Hand-written skills notes\n' > "$PROJECT/.agents/skills/README.md"
