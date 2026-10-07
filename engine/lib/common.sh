@@ -1013,7 +1013,8 @@ load_model_tiers() {
 # resolved. An empty tier resolves to heavy, like get_model's default. A tier
 # the tool has no default for and the manifest overrides nowhere — a typo, as a
 # rule — still renders an empty model, but never silently: the run warns once
-# per tool and tier.
+# per tool and tier, unindented on purpose because `sync --compact` keeps only
+# `WARNING:` lines.
 # shellcheck disable=SC2034  # IS_MODEL is the return channel read by adapters
 resolve_model_var() {
     case "$1" in
@@ -1028,7 +1029,7 @@ resolve_model_var() {
                 *"|$IS_MODEL_IDE:$1|"*) ;;
                 *)
                     IS_MODEL_WARNED="${IS_MODEL_WARNED:-|}$IS_MODEL_IDE:$1|"
-                    echo "  WARN: no $IS_MODEL_IDE model for tier '$1' — agents with it get an empty model; use frontier, heavy, standard or light, or set models.$IS_MODEL_IDE.$1" >&2
+                    echo "WARNING: no $IS_MODEL_IDE model for tier '$1' — agents with it get an empty model; use frontier, heavy, standard or light, or set models.$IS_MODEL_IDE.$1" >&2
                     ;;
             esac
             ;;

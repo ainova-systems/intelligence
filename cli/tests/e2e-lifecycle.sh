@@ -737,6 +737,14 @@ chk grep -Fq "no codex model for tier 'haevy'" "$OUT/tiers-unknown.txt"
 chknot grep -Fq "no claude model for tier 'review-deep'" "$OUT/tiers-unknown.txt"
 chk grep -Fqx 'model: claude-opus-5-5' "$TIERS/.claude/agents/custom-agent.md"
 chknot grep -Fq "tier 'heavy'" "$OUT/tiers-unknown.txt"
+# `sync --compact` keeps only unindented WARNING: lines, so the warning must be
+# one: on a full render, and on the unchanged run that replays it.
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact --force > "$OUT/tiers-compact.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier compact sync"; cat "$OUT/tiers-compact.txt"; fail=1; }
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/tiers-replay.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier compact replay"; cat "$OUT/tiers-replay.txt"; fail=1; }
+chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-compact.txt"
+chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-replay.txt"
 
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,
