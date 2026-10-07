@@ -51,7 +51,8 @@ same change.
 
 Tool-specific limits and diagnostics stay inside their adapter. Shared reporting
 may expose measurements, but it does not interpret adapter policy. Compact sync
-preserves generic context measurements and actionable adapter warnings.
+preserves generic context measurements and every warning, adapter or engine, in
+the one form the shell conventions define for it: a `WARNING:` line.
 
 ## Adapters
 

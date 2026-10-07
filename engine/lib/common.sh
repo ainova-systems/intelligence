@@ -516,7 +516,7 @@ _skill_bundle_note() {
     # prevent, so skip the rewrite and say so (the same reason
     # `find -type f` in the flush never matches a symlink).
     if [ -L "$dest/SKILL.md" ]; then
-        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
+        echo "WARNING: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
     elif [ -f "$dest/SKILL.md" ]; then
         _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
@@ -690,7 +690,7 @@ open_skill_invocation_policies() {
         # A link is emitted as-is (see _skill_bundle_note): reading through it
         # or writing beside it would reach outside the output tree.
         if [ -L "$dir" ] || [ -L "$path" ]; then
-            echo "  WARN: ${dir##*/}/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it" >&2
+            echo "WARNING: ${dir##*/}/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it" >&2
         elif [ -f "$path" ]; then
             skill_mds+=("$path")
         fi
@@ -707,7 +707,7 @@ open_skill_invocation_policies() {
         dir="${path%/SKILL.md}"
         path="$dir/agents"
         if [ -L "$path" ] || [ -L "$path/openai.yaml" ]; then
-            echo "  WARN: ${dir##*/}/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced" >&2
+            echo "WARNING: ${dir##*/}/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced" >&2
             continue
         fi
         if [ -s "$path/openai.yaml" ]; then
@@ -830,6 +830,8 @@ enforce_authored_invocation_policies() {
 # Lint YAML frontmatter for common pitfalls (unquoted colons, leading tabs).
 # Print warnings to stderr; do not fail. Strict consumers (Codex CLI) reject
 # these files with cryptic messages — catching them in sync gives better DX.
+# Each finding is a `WARNING:` line: the author has to edit the source, so
+# `sync --compact` (the first sync `init` runs) must keep it.
 # Batched: one awk process lints every file passed.
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
@@ -842,7 +844,7 @@ lint_frontmatter_files() {
         FNR == 1 { in_fm = 1; next }
         in_fm && $0 == "---" { done = 1; next }
         in_fm && /^\t/ {
-            printf "  WARN: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
+            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
         }
         in_fm && /^[a-zA-Z0-9_-]+:[[:space:]]+[^"\047|>[{]/ {
             value_start = index($0, ":") + 1
@@ -850,10 +852,10 @@ lint_frontmatter_files() {
             sub(/^[[:space:]]+/, "", value)
             if (value ~ /:[[:space:]]/ || value ~ /:$/) {
                 col = index(value, ":") + value_start
-                printf "  WARN: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
+                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
             }
             if (value ~ /"/) {
-                printf "  WARN: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
+                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
             }
         }
         # Field-length limits. Both Claude Code and the Agent Skills standard
@@ -872,7 +874,7 @@ lint_frontmatter_files() {
             }
             limit = (key == "name") ? 64 : 1024
             if (length(val) > limit) {
-                printf "  WARN: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
+                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
     ' "$@"

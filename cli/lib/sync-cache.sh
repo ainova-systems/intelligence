@@ -153,9 +153,10 @@ sync_cache_read() {
 
 # Keep actionable diagnostics, including the multi-line unsynced-directory
 # report that compact mode intentionally omits. Never replay renderer progress.
+# A warning is a `WARNING:` line, the same form compact mode keeps.
 sync_cache_report() {
     awk '
-        /^(WARNING:|  WARN:)/ { warning=1; print; next }
+        /^WARNING:/ { warning=1; print; next }
         warning && /^    / { print; next }
         { warning=0 }
         /^(CONTEXT:|IS_STATUS=ok|=== Done:|=== WARNING:|  NOT SYNCED:|  Wire one in:)/ { print }

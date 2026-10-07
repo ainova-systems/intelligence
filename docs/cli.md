@@ -185,10 +185,13 @@ and skill entry points), followed by a numeric rendered `AGENTS.md` byte count
 and its `generated`, `not-generated`, or `disabled` status. Supporting skill
 assets are excluded because they load only when a skill reads them.
 
-`--compact` prints that context summary and actionable one-line warnings,
-followed by the final machine-readable status and completion line when sync
-succeeds. If lifecycle preflight, restore or rendering fails, it prints the
-complete captured diagnostics and preserves the original exit code.
+`--compact` prints that context summary and every warning, followed by the final
+machine-readable status and completion line when sync succeeds. A warning is one
+line starting `WARNING:` — among them the frontmatter checks, such as a `name`
+over 64 or a `description` over 1024 characters that the tool will reject at
+load time. An unchanged run replays the same warnings. If lifecycle preflight,
+restore or rendering fails, it prints the complete captured diagnostics and
+preserves the original exit code.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before alignment or restoration. Restore the
