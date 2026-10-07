@@ -6,6 +6,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ## [0.18.1]
 
+### Changed
+
+- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+
 ### Fixed
 
 - A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, or not as a plain boolean directly under `policy:`, naming the skill. Codex could still select such a skill on its own.
