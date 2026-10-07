@@ -108,12 +108,13 @@ environment made, renders inside the engine's transaction otherwise, and never
 applies tracked alignment. Under `--check`, 2 means only "sync needed": every
 other failure that ends in 2 becomes 1.
 
-On Git Bash every process start costs tens of milliseconds, so the paths a
-cache hit takes count them: the dispatcher sources `sync` instead of starting
+On Git Bash every process start costs tens of milliseconds, so a cache hit is
+budgeted in processes: the dispatcher sources `sync` instead of starting
 another bash, the preflight reads the package descriptor, manifest and lock in
 one qmap pass and one engine-reader pass (`project_reads_preload`, refreshed
 after any child that may rewrite them), and the fingerprint is one
-`find | awk | git` pipeline.
+`find | awk | git` pipeline. A new reader on that path answers from the preload
+or through a `_var` form, never through another `$(...)`.
 
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —

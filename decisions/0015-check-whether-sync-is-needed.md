@@ -100,8 +100,9 @@ by fourteen `awk` runs; every enabled adapter contract cost two forks.
   `intelligence.lock`. Every source edit would churn a tracked file and conflict
   on merge, and line-ending and checkout settings make the same content hash
   differently on different machines.
-- **Rendering on every check.** About eleven seconds per changed check on
-  Windows — too slow for a hook.
+- **Rendering on every check.** Seven to eight seconds per check on this
+  Windows host, more under load — too slow for a hook. It stays available as
+  `--check --force`.
 - **Trusting Git's index or file timestamps** to skip hashing: decision 0010
   already rejected timestamps as proof of unchanged content.
 - **Leaving installed packages out of the input fingerprint.** Deferred: it
@@ -112,4 +113,20 @@ by fourteen `awk` runs; every enabled adapter contract cost two forks.
 
 ## Measured result
 
-MEASURED-RESULT-PLACEHOLDER
+Medians of seven runs on a Windows/Git Bash scratch export of this repository's
+own project, alternating with `main` where both apply (the cache-hit figures
+are decision 0010's):
+
+| Run | Median |
+|---|---:|
+| `sync`, cache hit, `main` | 3.90 s |
+| `sync`, cache hit, this change | 0.74 s |
+| `sync --check`, answered from the record | 0.73 s |
+| `sync --check`, sources changed, answered from the record | 0.58 s |
+| `sync --check` without a record: render, compare, restore | 8.2 s (3 runs) |
+| `sync --check --force` with a changed source | 7.2 s (3 runs) |
+
+Under load from other processes the record answers stayed near one second
+while `main`'s cache hit took six. These are observations on one host, not a
+latency guarantee; the tests prove skipped renders, untouched files and exit
+codes instead of timings.
