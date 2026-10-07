@@ -104,9 +104,11 @@ important next steps visible: add the recommended starter package with
 `intelligence package add @ainova-systems/core`, run
 `/intelligence-learn-from-repository`, review adapters, and choose a
 generated-output version-control policy.
-Commit the manifest, lock, project-owned content, `AGENTS.md`, and shared
-`.github/` output. The CLI adds adapter-owned generated paths to `.gitignore`
-while keeping shared tool settings trackable. Existing `.vscodeignore`,
+Commit the manifest, lock, project-owned content and `AGENTS.md`. The CLI adds
+adapter-owned generated paths to `.gitignore` — GitHub Copilot's included,
+unless `targets.copilot.commit_output: true` keeps them tracked for Copilot on
+github.com — while keeping shared tool settings and hand-written `.github/`
+files trackable. Existing `.vscodeignore`,
 `.npmignore`, and `.dockerignore` files receive exclusions for Intelligence
 development context and adapter output. If Git already tracks a newly ignored
 path that remains in the worktree, init prints the exact `git rm --cached`

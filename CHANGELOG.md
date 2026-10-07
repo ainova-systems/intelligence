@@ -10,20 +10,26 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - Agents and skills accept a tool-neutral `effort:` — `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. Claude Code agents and skills receive it as `effort:` (`ultra` becomes `max`), Codex agents as `model_reasoning_effort`, and the shared `.agents/skills/` tree keeps it as written; Copilot, Cursor, OpenCode, Antigravity and Pi receive no effort key (decision 0015).
 - An `effort:` off that scale prints a `WARNING:` line naming the source file and the value, also under `sync --compact` and `init`, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
+- `targets.copilot.commit_output: true` keeps generated Copilot output tracked for Copilot on github.com (decision 0020).
 - `intelligence sync --check` reports whether sync would change any generated file and changes none: one `IS_STATUS` line, exit 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or the project needs alignment, which it never applies. A record from an earlier sync or check by the same CLI answers without rendering and names what changed; otherwise the check renders inside the rollback transaction, compares and restores every path. `--check --force` always renders (decision 0018).
 
 ### Changed
 
 - A tier no longer sets a reasoning effort in any tool. Codex agents without `effort:` no longer get a tier-derived `model_reasoning_effort` (`xhigh` for `frontier`, `high` for `heavy` or no tier, `medium` for `standard`, `low` for `light`), so Codex's own setting applies and `frontier` and `heavy` render identical Codex agents.
 - An unchanged `sync` starts far fewer processes: one walk and one hash batch fingerprint the CLI, sources and generated files; the package descriptor, manifest and lock are read once; and `sync` runs in the dispatcher's own bash. On Windows/Git Bash a cache hit on this repository's project dropped from a median 3.9 to 0.74 seconds with the same output. Cache records from earlier versions are ignored, so the first sync after upgrading renders once.
-
-### Breaking
-
-- [ ] Every Codex agent that should keep a reasoning effort states it as `effort:` in its source; after sync, `.codex/agents/*.toml` carries `model_reasoning_effort` only for agents whose source sets a valid `effort:`.
+- Generated Copilot output is gitignored by default, as Cursor's and Claude Code's is: `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and the legacy `.github/copilot-instructions.md`. `.github/` itself, workflows and templates stay tracked.
+- `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding that `intelligence init` repairs names it as the fix.
 
 ### Fixed
 
 - `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
+
+### Breaking
+
+- [ ] Every Codex agent that should keep a reasoning effort states it as `effort:` in its source; after sync, `.codex/agents/*.toml` carries `model_reasoning_effort` only for agents whose source sets a valid `effort:`.
+- [ ] Unless `targets.copilot.commit_output: true`, the CLI-managed block of `.gitignore` lists `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and `.github/copilot-instructions.md` — run `intelligence init` to apply it.
+- [ ] Unless `targets.copilot.commit_output: true`, `git ls-files .github/instructions .github/prompts .github/agents .github/skills .github/copilot-instructions.md` prints nothing — run the `git rm --cached` commands `intelligence init` prints, and commit.
+- [ ] `intelligence status --check` exits 0.
 
 ## [0.18.1]
 

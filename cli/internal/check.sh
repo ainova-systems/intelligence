@@ -135,7 +135,7 @@ while IFS= read -r target; do
         warn "adapter '$target' is declared but its implementation is missing"
         continue
     fi
-    records="$(adapter_contract_records "$target" "$adapter_file" "$output" 2>/dev/null || true)"
+    records="$(adapter_contract_records "$target" "$adapter_file" "$output" "$manifest" 2>/dev/null || true)"
     if ! printf '%s\n' "$records" | grep -Fqx $'version\t1'; then
         warn "adapter '$target' has an invalid ownership contract"
         continue
@@ -157,14 +157,22 @@ while IFS= read -r target; do
             case "$kind" in
                 ignore)
                     ignore_file_has_line "$IP_ROOT/.gitignore" "$value" \
-                        || warn "adapter '$target' Git policy is missing '$value'"
+                        || warn "adapter '$target' Git policy is missing '$value' — run 'intelligence init'"
+                    ;;
+                unignore)
+                    if gitignore_managed_has_line "$IP_ROOT" "$value"; then
+                        warn "adapter '$target' Git policy keeps '$value' tracked, but .gitignore still ignores it — run 'intelligence init'"
+                    fi
                     ;;
                 include)
                     if ! ignore_file_has_line "$IP_ROOT/.gitignore" "!$value"; then
-                        warn "adapter '$target' Git policy is missing '!$value'"
+                        warn "adapter '$target' Git policy is missing '!$value' — run 'intelligence init'"
                     elif git -C "$IP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                        # init moves the negation chain last, which beats any
+                        # later rule in .gitignore; a deeper .gitignore still
+                        # wins, so the finding also says how to find it.
                         if git -C "$IP_ROOT" check-ignore -q --no-index -- "$value"; then
-                            warn "adapter '$target' Git policy cannot re-include '$value' because another ignore rule still wins"
+                            warn "adapter '$target' Git policy cannot re-include '$value' because another ignore rule still wins — run 'intelligence init'; if it still wins, 'git check-ignore -v --no-index -- $value' names the rule"
                         else
                             ignore_rc=$?
                             [ "$ignore_rc" -eq 1 ] \
