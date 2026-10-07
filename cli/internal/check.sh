@@ -163,10 +163,13 @@ while IFS= read -r target; do
                     ;;
                 include)
                     if ! grep -Fqx -- "!$value" "$IP_ROOT/.gitignore" 2>/dev/null; then
-                        warn "adapter '$target' Git policy is missing '!$value'"
+                        warn "adapter '$target' Git policy is missing '!$value' — run 'intelligence init'"
                     elif git -C "$IP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                        # init moves the negation chain last, which beats any
+                        # later rule in .gitignore; a deeper .gitignore still
+                        # wins, so the finding also says how to find it.
                         if git -C "$IP_ROOT" check-ignore -q --no-index -- "$value"; then
-                            warn "adapter '$target' Git policy cannot re-include '$value' because another ignore rule still wins"
+                            warn "adapter '$target' Git policy cannot re-include '$value' because another ignore rule still wins — run 'intelligence init'; if it still wins, 'git check-ignore -v --no-index -- $value' names the rule"
                         else
                             ignore_rc=$?
                             [ "$ignore_rc" -eq 1 ] \

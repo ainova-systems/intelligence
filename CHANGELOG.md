@@ -13,7 +13,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Changed
 
 - Generated Copilot output is gitignored by default, as Cursor's and Claude Code's is: `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and the legacy `.github/copilot-instructions.md`. `.github/` itself, workflows and templates stay tracked.
-- `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding names `intelligence init` as the fix.
+- `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding that `intelligence init` repairs names it as the fix.
 
 ### Breaking
 

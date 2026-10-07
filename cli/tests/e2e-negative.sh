@@ -862,10 +862,18 @@ xok "enabled: claude" "$PROJ" adapter enable claude
 chk grep -q 'claude: { enabled: true, output: ".claude" }' "$PROJ/intelligence.yaml"
 chk grep -Fqx '.claude/*' "$PROJ/.gitignore"
 chk grep -Fqx '!.claude/settings.json' "$PROJ/.gitignore"
+# A deleted negation is a missing policy line: status names the command that
+# restores it, and that command does.
+grep -Fvx '!.claude/settings.json' "$PROJ/.gitignore" > "$PROJ/.gitignore.tmp" \
+    && mv "$PROJ/.gitignore.tmp" "$PROJ/.gitignore"
+xfail "Git policy is missing '!.claude/settings.json' — run 'intelligence init'" "$PROJ" status --check
+xok "" "$PROJ" init --no-sync
+chk grep -Fqx '!.claude/settings.json' "$PROJ/.gitignore"
+chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json
 # A later broad rule can make an exact negation look present while remaining
 # ineffective. Deep status must catch it and init must restore effective order.
 printf '%s\n' '.claude/' >> "$PROJ/.gitignore"
-xfail "cannot re-include '.claude/settings.json'" "$PROJ" status --check
+xfail "cannot re-include '.claude/settings.json' because another ignore rule still wins — run 'intelligence init'" "$PROJ" status --check
 xok "" "$PROJ" init --no-sync
 chk grep -Fqx '!.claude/' "$PROJ/.gitignore"
 chknot git -C "$PROJ" check-ignore -q --no-index .claude/settings.json

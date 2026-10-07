@@ -940,6 +940,12 @@ chk test -n "$(git -C "$COP" ls-files .github/agents/cop-agent.agent.md)"
 # it already tracks, so init names each generated file to untrack and never
 # untracks one itself.
 cop_commit_output ""
+# Until init runs, status --check names each missing line and the command
+# that adds it.
+run_in "$COP" status --check
+chk test "$RC" -ne 0
+printf '%s\n' "$OUTPUT" | grep -Fq "Git policy is missing '.github/agents/' — run 'intelligence init'" \
+    || { echo "FAIL: status --check did not name init for a missing Copilot ignore"; fail=1; }
 run_in "$COP" init
 chk test "$RC" -eq 0
 for sub in instructions prompts agents skills; do
