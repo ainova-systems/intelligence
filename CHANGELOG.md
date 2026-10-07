@@ -12,21 +12,30 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Changed
 
-- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
 - Package add, remove, update and restore write package sources as `package:` tokens in one canonical spelling: short, or full for every package sharing a short name. Adding a package whose short name collides rewrites the existing tokens of that name in full, and removing it returns the survivor to the short form, each in place.
 - Lifecycle alignment rewrites every `.intelligence/packages/<declared name>/<dir>` entry in place to its `package:` token; the generated output is byte-identical. Legacy conversion writes tokens too.
 - `source add` and `source remove` refuse a `package:` token as package content, naming `package add` and `package remove`, and accept one as a `--before` / `--after` anchor.
 
 ### Fixed
 
-- A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, or not as a plain boolean directly under `policy:`, naming the skill. Codex could still select such a skill on its own.
-- Sync warns when a `SKILL.md` or an owner-only skill's `agents/openai.yaml` is a symlink, since no Codex invocation policy is derived or enforced through it.
 - `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
 
 ### Breaking
 
 - [ ] Every teammate and CI job that syncs the project runs CLI `0.19.0` or later before the aligned manifest is committed: a CLI `0.18` or earlier reads a `package:` source as a path, so it renders a migrated project without package content and still reports `IS_STATUS=ok`.
 - [ ] After alignment, `sources:` names each declared package as `package:<name>/<dir>`, no `.intelligence/packages/` path of a declared package remains, and `intelligence status --check` succeeds.
+
+## [0.18.1]
+
+### Changed
+
+- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+
+### Fixed
+
+- A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, or not as a plain boolean directly under `policy:`, naming the skill. Codex could still select such a skill on its own.
+- Sync warns when a `SKILL.md` or an owner-only skill's `agents/openai.yaml` is a symlink, since no Codex invocation policy is derived or enforced through it.
+- Sync warns once per tool and tier when an agent's `tier` resolves to no model — no built-in default and no `models.<tool>.<tier>` override, a typo as a rule — instead of rendering an empty `model` in silence (#39).
 
 ## [0.18.0]
 
