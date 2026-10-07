@@ -13,12 +13,13 @@ IS_CR=$'\r'
 IS_LF=$'\n'
 IS_CRLF=$'\r\n'
 
-# An ignore file checked out on Windows can hold CRLF, and a CR belongs to the
-# pattern Git matches — so these two helpers decide presence ignoring it, and
-# append in whatever ending the file already uses. Comparing with the CR
-# attached made every existing line look absent on Linux and macOS (where it is
-# part of the line, unlike under MSYS), so each alignment appended an LF copy of
-# a line that was already there and the file grew forever.
+# An ignore file checked out on Windows can hold CRLF. Git drops one trailing
+# CR from each line before matching, so `foo` and `foo<CR>` are the same rule:
+# these helpers decide presence ignoring that CR, and append in whatever ending
+# the file already uses. Comparing with the CR attached made every existing
+# line look absent on Linux and macOS (where it is part of the line, unlike
+# under MSYS), so each alignment appended an LF copy of a line that was already
+# there and the file grew forever.
 
 # ignore_file_eol_var <file> — set IS_IGNORE_EOL from the file's first line.
 ignore_file_eol_var() {
@@ -32,12 +33,19 @@ ignore_file_eol_var() {
 }
 
 # ignore_file_has_line <file> <line> — true when the file lists exactly this
-# line, with or without a trailing CR.
+# line, with or without a trailing CR. The one presence test for an ignore
+# file: the writer and `status --check` both ask it, so a line one appends is a
+# line the other reports present. Decided in bash, because an exact-line grep
+# answers per platform — MSYS grep never sees the CR, Linux and macOS grep keep
+# it as part of the line.
 ignore_file_has_line() {
-    local file="$1" line="$2"
+    local file="$1" line="$2" entry=""
     [ -f "$file" ] || return 1
-    grep -Fqx -- "$line" "$file" 2>/dev/null && return 0
-    grep -Fqx -- "$line$IS_CR" "$file" 2>/dev/null
+    while IFS= read -r entry || [ -n "$entry" ]; do
+        [ "${entry%"$IS_CR"}" = "$line" ] && return 0
+        entry=""
+    done < "$file"
+    return 1
 }
 
 # ignore_file_append_line <file> <line> — append in the file's own ending.
@@ -155,9 +163,8 @@ gitignore_collapse_duplicates() {
 # one. Every writer that rewrites .gitignore line by line reads it here.
 #
 # `read`, never awk: on Windows awk reads in text mode and would hand back every
-# line stripped of its CR, rewriting a CRLF file as LF. A line's CR is
-# significant to Git, and the lines a writer does not remove must survive
-# byte-for-byte.
+# line stripped of its CR, rewriting a CRLF file as LF. The lines a writer does
+# not remove must survive byte-for-byte, whatever their ending.
 gitignore_read_var() {
     local file="$1" line i
     IS_GI_LINES=()

@@ -131,9 +131,9 @@ ignore_file_eol_var "$D/.gitignore"
 # Compared through a variable: `$'\r\n'` written inside a command substitution
 # is not expanded by bash, so the check would silently always fail.
 [ "$IS_IGNORE_EOL" = "$CRLF" ] || { echo "FAIL: CRLF ending not detected"; fail=1; }
-# A CR belongs to the pattern Git matches, so presence must ignore it while the
-# append keeps it: comparing with the CR attached made every existing line look
-# absent on Linux and macOS, and alignment appended an LF copy every run.
+# Git drops a line's trailing CR, so presence must ignore it while the append
+# keeps it: comparing with the CR attached made every existing line look absent
+# on Linux and macOS, and alignment appended an LF copy every run.
 chk ignore_file_has_line "$D/.gitignore" '!.claude/'
 chk ignore_file_has_line "$D/.gitignore" "$HEADER"
 gitignore_add_line "$D" '!.claude/'
@@ -141,6 +141,24 @@ is "existing line not duplicated" "1" "$(count_of "$D" '!.claude/')"
 gitignore_add_line "$D" '.codex/*'
 is "new line appended as CRLF" "5" "$(crlf_lines "$D/.gitignore")"
 is "no LF-only line introduced" "5" "$(total_lines "$D/.gitignore")"
+
+echo "== presence is one exact line, ignoring only its trailing CR =="
+D="$(fixture presence)"
+printf '.claude/*\r\n!.claude/settings.json\r\nnested/dir/\r\r\nlast-line\r' > "$D/.gitignore"
+chk ignore_file_has_line "$D/.gitignore" '.claude/*'
+chk ignore_file_has_line "$D/.gitignore" '!.claude/settings.json'
+# A final line without a newline is still a line, with or without its CR.
+chk ignore_file_has_line "$D/.gitignore" 'last-line'
+# Exact and literal: no prefix, substring or glob reading of either side.
+chknot ignore_file_has_line "$D/.gitignore" '.claude/'
+chknot ignore_file_has_line "$D/.gitignore" '!.claude/settings'
+chknot ignore_file_has_line "$D/.gitignore" '.c*'
+chknot ignore_file_has_line "$D/.gitignore" '.claude/x'
+# Git drops exactly one CR, so a second one is part of that rule.
+chknot ignore_file_has_line "$D/.gitignore" 'nested/dir/'
+chknot ignore_file_has_line "$OUT/absent/.gitignore" '.claude/*'
+printf 'last-line' > "$D/.gitignore"
+chk ignore_file_has_line "$D/.gitignore" 'last-line'
 
 echo "== repeated alignment leaves a CRLF file alone =="
 D="$(fixture crlf-stable)"

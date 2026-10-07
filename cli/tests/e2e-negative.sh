@@ -917,6 +917,49 @@ xok "" "$PROJ" init --no-sync
 chk cmp -s "$OUT/gitignore-collapsed" "$PROJ/.gitignore"
 xok "all good" "$PROJ" status --check
 
+# A Windows checkout can hold the .gitignore as CRLF. Git drops each line's
+# trailing CR and so does the writer's presence test, but `status --check`
+# compared whole lines with grep: on Linux and macOS it reported every present
+# pattern missing while `init` found nothing to add, so the warning never
+# cleared. The fixture is written and inspected in bash — under MSYS grep never
+# sees a CR, and a grep-based assertion here would pass measuring nothing.
+CR=$'\r'
+# gi_crlf_shape — "crlf <n>" when every line of the project .gitignore ends in
+# CR, "mixed <n>" otherwise; <n> counts the lines that are CLAUDE.md.
+gi_crlf_shape() {
+    local l="" shape=crlf n=0
+    while IFS= read -r l || [ -n "$l" ]; do
+        case "$l" in *"$CR") ;; *) shape=mixed ;; esac
+        if [ "${l%"$CR"}" = 'CLAUDE.md' ]; then n=$((n + 1)); fi
+        l=""
+    done < "$PROJ/.gitignore"
+    printf '%s %s' "$shape" "$n"
+}
+cp "$PROJ/.gitignore" "$OUT/gitignore-lf"
+gi_line=""
+while IFS= read -r gi_line || [ -n "$gi_line" ]; do
+    # One managed pattern left out, so the check has a real absence to report.
+    [ "$gi_line" = 'CLAUDE.md' ] || printf '%s\r\n' "$gi_line"
+    gi_line=""
+done < "$OUT/gitignore-lf" > "$PROJ/.gitignore"
+[ "$(gi_crlf_shape)" = "crlf 0" ] \
+    || { echo "FAIL: the CRLF .gitignore fixture is '$(gi_crlf_shape)', want 'crlf 0'"; fail=1; }
+xfail "Git policy is missing 'CLAUDE.md'" "$PROJ" status --check
+gi_missing="$(printf '%s\n' "$OUTPUT" | grep -cF 'Git policy is missing' || true)"
+if [ "$gi_missing" != 1 ]; then
+    echo "FAIL: status --check reports $gi_missing patterns missing from a CRLF .gitignore, want only 'CLAUDE.md'"
+    printf '%s\n' "$OUTPUT" | grep -F 'Git policy is missing' | head -6 || true
+    fail=1
+fi
+xok "" "$PROJ" init --no-sync
+[ "$(gi_crlf_shape)" = "crlf 1" ] \
+    || { echo "FAIL: init left the CRLF .gitignore '$(gi_crlf_shape)', want 'crlf 1'"; fail=1; }
+xok "all good" "$PROJ" status --check
+cp "$PROJ/.gitignore" "$OUT/gitignore-crlf"
+xok "" "$PROJ" init --no-sync
+chk cmp -s "$OUT/gitignore-crlf" "$PROJ/.gitignore"
+cp "$OUT/gitignore-lf" "$PROJ/.gitignore"
+
 # AGENTS.md-dependent targets cannot be enabled into a manifest the engine
 # would reject, and agents cannot be disabled while one remains enabled.
 xok "disabled: claude" "$PROJ" adapter disable claude
