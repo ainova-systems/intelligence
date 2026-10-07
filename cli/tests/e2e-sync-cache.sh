@@ -376,6 +376,17 @@ miss --force
 check has 'NOT SYNCED: apps/one/intelligence/rules'
 hit
 check has 'NOT SYNCED: apps/one/intelligence/rules'
+run --compact
+check test "$RC" -eq 0
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
+check grep -Fxq 'WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>' <<< "$OUTPUT"
+miss --compact --force
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
+check grep -Fxq 'WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>' <<< "$OUTPUT"
+hit
+run --compact
+check test "$RC" -eq 0
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
 mkdir -p "$PROJECT/apps/two/intelligence/rules"
 printf '# Unconfigured\n' > "$PROJECT/apps/two/intelligence/rules/test.md"
 hit

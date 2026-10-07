@@ -1720,11 +1720,7 @@ warn_unsynced() {
         done
 
         if [ "$matched" = false ]; then
-            if [ $warnings -eq 0 ]; then
-                echo ""
-                echo "=== WARNING: Unsynced directories ==="
-            fi
-            echo "  NOT SYNCED: $rel_dir"
+            echo "WARNING: NOT SYNCED: $rel_dir" >&2
             warnings=$((warnings + 1))
         fi
     done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
@@ -1735,9 +1731,9 @@ warn_unsynced() {
         # and hand-placing an entry in an ordered list decides which artifact
         # wins. The engine may also run without the CLI around it.
         if [ "${IS_CLI:-0}" = "1" ]; then
-            echo "  Wire one in: intelligence source add <rules|agents|skills> <path>"
+            echo "WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>" >&2
         else
-            echo "  Add these paths to sources: in ${config_file##*/}"
+            echo "WARNING: Add these paths to sources: in ${config_file##*/}" >&2
         fi
     fi
 }
