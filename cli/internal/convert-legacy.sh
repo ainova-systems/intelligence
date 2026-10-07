@@ -320,10 +320,6 @@ qmap_set "$manifest_stage" "packages" "$SYNC_PKG_NAME" "version" "$eng"
 printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
     "$SYNC_PKG_NAME" "$eng" "$SYNC_PKG_URL" "$SYNC_PKG_PATH" "v$eng" "$sync_pkg_sha" >> "$lock_rows"
 
-# With every package declared, the store paths written above take the spelling
-# the CLI writes everywhere else: `package:<name>/<dir>`, in place.
-package_sources_respell "$manifest_stage" =
-
 # ---- Verify ---------------------------------------------------------------
 echo "== verifying staged state =="
 fail=0

@@ -2,10 +2,10 @@
 # The CLI-owned YAML shapes: quoted-key maps (`packages:`, `registries:` in
 # the manifest, `packages:` in the lock and in registry indexes).
 #
-# The engine reads none of these blocks beyond the names in `packages:`, which
-# resolve `package:<name>/<dir>` sources (engine/lib/common.sh), and its list
-# readers cannot hold `@scope/name` keys — so this is the CLI's single,
-# deliberate parser, scoped to exactly one shape:
+# The engine reads none of these blocks beyond the names and aliases in
+# `packages:`, which resolve package references in `sources:`
+# (engine/lib/common.sh), and its list readers cannot hold `@scope/name` keys —
+# so this is the CLI's single, deliberate parser, scoped to exactly one shape:
 #
 #   block:
 #     "@scope/name":            # 2-space indent, key always quoted
@@ -408,7 +408,7 @@ registries_remove() {
 # meaning: a later entry overrides a same-named artifact from an earlier one.
 # Reading goes through the engine's own list parser, so the CLI sees exactly
 # what the engine will render instead of a second reading of the same file.
-# The editors read it raw — a `package:` token as written, which is what they
+# The editors read it raw — a package reference as written, which is what they
 # compare and rewrite — and read_source_entries says what each one renders.
 
 # sources_list_entries <file> <section> — entries of sources.<section> as
@@ -534,69 +534,124 @@ sources_remove_entry() {
     '
 }
 
-# --- package sources: one canonical spelling --------------------------------
-# A package's directories enter `sources:` as `package:<name>/<dir>` tokens
-# (engine/lib/common.sh defines them). The CLI writes the canonical spelling:
-# the short name after the package's `/` while no other declared package shares
-# it, the full `@scope/name` for every package that does. Which spelling is
-# canonical depends on the whole declared set, so adding a package whose short
-# name collides respells the existing tokens of that name in full, and removing
-# it returns the survivor to the short form. Every path that wires or unwires
-# package content goes through package_sources_respell, which is the one place
-# that decision is made.
+# --- package references and aliases ------------------------------------------
+# `sources:` may name a package's directory by its store path, by the package's
+# full name or by the alias its `packages:` entry declares (decision 0019). The
+# engine's list parser (IS_PKG_REF_AWK in engine/lib/common.sh) is the only
+# definition of those spellings; everything below reads through it, so the CLI
+# never judges an entry differently from the way the engine renders it. The CLI
+# itself only ever writes store paths, and writes an alias only through
+# `package add --alias` and `package alias`.
 
-# The declared set once an edit lands: the names `packages:` holds now, plus
-# <name> for `+` or without it for `-`. Fills AFTER[1..NA] in manifest order.
-_SOURCES_AFTER_AWK='
-    function after_set(change, name,   i, n) {
-        split("", AFTER)
-        NA = 0
-        n = PKT_N + 0
-        for (i = 1; i <= n; i++) {
-            if (change == "-" && PKT_NAMES[i] == name) continue
-            AFTER[++NA] = PKT_NAMES[i]
-        }
-        if (change == "+" && name != "" && !(name in pkt_seen)) AFTER[++NA] = name
-    }
-'
+# assert_valid_alias <alias> — refuse an alias the engine would never resolve.
+assert_valid_alias() {
+    pkg_alias_valid "$1" \
+        || die "invalid alias '$1' — expected $IS_PKG_ALIAS_RULE"
+}
 
-# package_sources_respell <file> <change> [name] [drop-section...]
-# Rewrite every rules/agents/skills entry that names an installed package into
-# the canonical token for the declared set the edit leaves behind:
-#   +   <name> is about to be declared — package add, before it writes the
-#       packages: entry
-#   -   <name> is about to be undeclared — package remove, before it deletes
-#       the packages: entry
-#   =   the declared set stays as it is
-# An entry resolves against the names declared now, so a short token keeps
-# meaning the package it meant before the edit, and is rewritten in place:
-# order is the override rule, so nothing moves. The store path of a declared
-# package — or of <name> — becomes a token as well, which is how a manifest
-# written before tokens migrates. An entry naming <name>'s own <section>
-# directory under that section is dropped when <section> is a drop section.
-# Whatever resolves to no package is left exactly as written. Sets
-# IS_SOURCES_RESPELLED to 1 when the file changed; an unchanged file is not
-# rewritten at all.
-package_sources_respell() {
-    local file="$1" change="$2" name="${3:-}" tmp rc=0
+# package_alias_of <file> <@scope/name> — the alias that package declares, when it
+# is well formed; nothing otherwise (an invalid one resolves nothing).
+package_alias_of() {
+    local name alias verdict
+    while IFS=$'\037' read -r name alias verdict; do
+        [ "$name" = "$2" ] || continue
+        [ "$verdict" = invalid ] || printf '%s' "$alias"
+        return 0
+    done < <(read_package_aliases "$1")
+}
+
+# assert_alias_free <file> <@scope/name> <alias> — refuse an alias another package
+# already declares: one alias names exactly one package.
+assert_alias_free() {
+    local file="$1" self="$2" want="$3" name alias verdict
+    while IFS=$'\037' read -r name alias verdict; do
+        [ "$name" != "$self" ] && [ "$alias" = "$want" ] || continue
+        die "alias '$want' already names $name — one alias names one package; choose another"
+    done < <(read_package_aliases "$file")
+}
+
+# sources_alias_users <file> <alias> — every sources entry spelled <alias>:<dir>,
+# one `sources.<section> '<entry>'` line each.
+sources_alias_users() {
+    local file="$1" alias="$2" section entry
+    for section in rules agents skills; do
+        while IFS= read -r entry; do
+            case "$entry" in
+                "$alias":*) printf "sources.%s '%s'\n" "$section" "$entry" ;;
+            esac
+        done < <(sources_list_entries "$file" "$section")
+    done
+}
+
+# assert_alias_unused <file> <@scope/name> <alias> <remove|replace> — refuse to
+# take away an alias `sources:` still spells entries with: they would stop
+# resolving, and the package's content would leave the outputs in silence.
+assert_alias_unused() {
+    local file="$1" name="$2" alias="$3" verb="$4" users
+    users="$(sources_alias_users "$file" "$alias")"
+    [ -n "$users" ] || return 0
+    echo "ERROR: cannot $verb alias '$alias' of $name — sources: still uses it:" >&2
+    printf '%s\n' "$users" | sed 's/^/  /' >&2
+    echo "  Spell those entries $name/<dir> instead, then $verb the alias." >&2
+    exit 1
+}
+
+# sources_classify_entry <file> <entry> — `<state>\037<directory>` for an entry
+# that is not in the manifest (yet): what the engine would render it as against
+# the packages the manifest declares. States are pkr_parse's.
+sources_classify_entry() {
+    local file="$1"
+    [ -f "$file" ] || file=/dev/null
+    IS_PKR_CANDIDATE="$2" awk "$IS_PKG_REF_AWK"'
+        { sub(/\r$/, ""); pkr_collect($0) }
+        END { dir = pkr_expand(ENVIRON["IS_PKR_CANDIDATE"]); print PKR_STATE "\037" dir }
+    ' "$file"
+}
+
+# sources_find_entry <file> <section> <entry> — print the entry of
+# sources.<section>, as written, that names the same directory as <entry> in any
+# spelling; fail when the section names it nowhere. An entry that renders
+# nothing matches only itself.
+sources_find_entry() {
+    local file="$1" section="$2" entry="$3" want _state raw _st dir _rest
+    [ -f "$file" ] || return 1
+    IFS=$'\037' read -r _state want <<< "$(sources_classify_entry "$file" "$entry")"
+    while IFS=$'\037' read -r raw _st dir _rest; do
+        if [ "$raw" = "$entry" ] || { [ -n "$want" ] && [ "$dir" = "$want" ]; }; then
+            printf '%s' "$raw"
+            return 0
+        fi
+    done < <(read_source_entries "$file" "$section")
+    return 1
+}
+
+# package_source_listed <file> <section> <store-dir> — true when sources.<section>
+# already names <store-dir>, in whichever spelling.
+package_source_listed() {
+    local _raw _st dir _rest
+    [ -f "$1" ] || return 1
+    while IFS=$'\037' read -r _raw _st dir _rest; do
+        [ "$dir" = "$3" ] && return 0
+    done < <(read_source_entries "$1" "$2")
+    return 1
+}
+
+# sources_remove_package <file> <@scope/name> [section...] — drop the package's
+# entries from sources:, in every spelling. With sections, only the entry of
+# sources.<section> that names the package's own <section> directory goes;
+# without, every rules/agents/skills entry naming a directory inside the
+# package. The references resolve through `packages:`, so call it while the
+# package and its alias are still declared. Every other line survives byte for
+# byte, and an unchanged file is not rewritten.
+sources_remove_package() {
+    local file="$1" name="$2" tmp rc=0
     shift 2
-    [ "$#" -eq 0 ] || shift
-    # Read by callers that report a migration; per-file shellcheck cannot see it.
-    # shellcheck disable=SC2034
-    IS_SOURCES_RESPELLED=0
     [ -f "$file" ] || return 0
-    case "$change" in +|-|=) ;; *) die "internal: unknown sources change '$change'" ;; esac
     tmp="$file.cli.tmp"
-    awk -v change="$change" -v name="$name" -v drop=" $* " \
-        "$IS_PKG_TOKEN_AWK$_SOURCES_AFTER_AWK"'
-        function resolve(v,   st) {
-            st = pkt_parse(v)
-            if (st == "ok" || st == "undeclared") return 1
-            return pkt_store(v) && ((PKT_NAME in pkt_seen) || PKT_NAME == name)
-        }
+    awk -v name="$name" -v only=" $* " "$IS_PKG_REF_AWK"'
+        BEGIN { store = ".intelligence/packages/" name }
         FNR == 1 { pass++ }
-        pass == 1 { sub(/\r$/, ""); pkt_collect($0); next }
-        FNR == 1 { after_set(change, name) }
+        pass == 1 { sub(/\r$/, ""); pkr_collect($0); next }
         { sub(/\r$/, "") }
         /^sources:[ \t]*$/ { ins = 1; print; next }
         ins && /^[^ #]/ { ins = 0; sec = "" }
@@ -614,39 +669,20 @@ package_sources_respell() {
             gsub(/["\047]/, "", v)
             sub(/[ \t]+#.*$/, "", v)
             sub(/[ \t]+$/, "", v)
-            if (v == "" || !resolve(v)) { print; next }
-            if (PKT_NAME == name && PKT_DIR == sec && index(drop, " " sec " ")) { changed = 1; next }
-            spelled = pkt_spell(PKT_NAME, PKT_DIR, AFTER, NA)
-            p = index($0, v)
-            if (spelled == v || p == 0) { print; next }
-            print substr($0, 1, p - 1) spelled substr($0, p + length(v))
-            changed = 1
-            next
+            dir = pkr_expand(v)
+            if (only == "  ") drop = dir == store || index(dir, store "/") == 1
+            else drop = index(only, " " sec " ") && dir == store "/" sec
+            if (drop) { changed = 1; next }
         }
         { print }
         END { exit (changed ? 0 : 10) }
     ' "$file" "$file" > "$tmp" || rc=$?
     case "$rc" in
         0)
-            [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: sources respell produced an empty file for $file"; }
+            [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: sources edit produced an empty file for $file"; }
             mv "$tmp" "$file"
-            # shellcheck disable=SC2034
-            IS_SOURCES_RESPELLED=1
             ;;
         10) rm -f "$tmp" ;;
-        *) rm -f "$tmp"; die "internal: sources respell refused (awk exit $rc) for $file" ;;
+        *) rm -f "$tmp"; die "internal: sources edit refused (awk exit $rc) for $file" ;;
     esac
-}
-
-# package_source_prefix <file> <name> [change] — `package:<spelling>/`, the
-# canonical prefix of <name>'s directories once <change> (as for
-# package_sources_respell) lands.
-package_source_prefix() {
-    awk -v name="$2" -v change="${3:-=}" "$IS_PKG_TOKEN_AWK$_SOURCES_AFTER_AWK"'
-        { sub(/\r$/, ""); pkt_collect($0) }
-        END {
-            after_set(change, name)
-            print pkt_spell(name, "", AFTER, NA)
-        }
-    ' "$1"
 }

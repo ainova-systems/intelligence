@@ -39,7 +39,8 @@ while IFS= read -r k; do
 done < <(qmap_keys "$manifest" "packages")
 [ "$known" -eq 1 ] || die "package '$name' is not in the manifest"
 
-# Before the packages: entry goes: the entries still resolve against it.
+# Every entry naming the package, in every spelling, goes while `packages:`
+# still declares it and its alias: that is what resolves the references.
 unwire_package_sources "$manifest" "$name"
 qmap_delete_key "$manifest" "packages" "$name"
 lock_remove "$lock" "$name"

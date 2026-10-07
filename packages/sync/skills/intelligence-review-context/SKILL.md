@@ -16,9 +16,10 @@ go through `intelligence-update-context`; this skill owns their review criteria.
 1. Read `<manifest>` and enumerate its configured rule, agent, and skill sources.
    Read the `intelligence-authoring` rule and
    `<module>/references/conventions.md`. Review project-owned sources; an installed
-   package finding — a `package:<name>/<dir>` entry — belongs upstream. In a
-   package's own repository, review its authoritative source tree. Do not audit
-   generated output prose. Its byte count is the metadata-only exception.
+   package finding — an entry naming a package's directory, however spelled —
+   belongs upstream. In a package's own repository, review its
+   authoritative source tree. Do not audit generated output prose. Its byte count
+   is the metadata-only exception.
 2. Record source line and byte counts, and git history when available: first
    addition, last edit, and edit count. Find incoming references before proposing
    an archive. Resolve the shared agents output from the manifest and measure its

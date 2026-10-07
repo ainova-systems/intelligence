@@ -4,10 +4,10 @@
 # state is committed in intelligence.lock next to this file.
 #
 # Nothing here is written by hand in practice: `intelligence init` generates
-# it and `intelligence package add` maintains packages: and their
-# `package:<name>/<dir>` sources entries. The engine's own content
-# (@ainova-systems/sync) is an ordinary package too — auto-added by init and
-# aligned with the bundled engine by the universal project preflight.
+# it and `intelligence package add` maintains packages: and the store's sources
+# entries. The engine's own content (@ainova-systems/sync) is an ordinary
+# package too — auto-added by init and aligned with the bundled engine by the
+# universal project preflight.
 project:
   name: cli-project
 
@@ -18,16 +18,16 @@ schema_version: "0.19.0"
 # artifact.
 sources:
   rules:
-    - "package:core/rules"
-    - "package:sync/rules"
+    - ".intelligence/packages/@ainova-systems/core/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
   agents:
-    - "package:core/agents"
-    - "package:sync/agents"
+    - ".intelligence/packages/@ainova-systems/core/agents"
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
   skills:
-    - "package:core/skills"
-    - "package:sync/skills"
+    - ".intelligence/packages/@ainova-systems/core/skills"
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
 
 targets:
@@ -35,8 +35,8 @@ targets:
   claude: { enabled: true, output: ".claude" }
   cursor: { enabled: true, output: ".cursor" }
 
-# CLI-owned blocks — below this line the engine reads only the package names,
-# which `package:` sources resolve against.
+# CLI-owned blocks — below this line the engine reads only package names and
+# aliases.
 packages:
   "@ainova-systems/sync":
     version: "0.19.0"

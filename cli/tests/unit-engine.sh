@@ -83,20 +83,15 @@ sources:
   rules:
     - "intelligence/rules"
     - '.intelligence/packages/@a/b/rules'
-    - "package:b/rules"
-    - "package:nope/rules"
   agents:
     - intelligence/agents
-    - package:@a/b/agents
   skills:
     - "intelligence/skills"
     - ""
     - "second/skills"
-    - "package:dup/skills"
 ignore:
   - "node_modules"
   - "bin"
-  - "package:b/rules"
 rules:
   - "top-level/rules"
 targets:
@@ -106,13 +101,6 @@ targets:
       text
     - not a list item at this depth
 submodules:
-packages:
-  "@a/b":
-    version: "1.0.0"
-  "@x/dup":
-    ref: "main"
-  "@y/dup":
-    ref: "main"
 EOF
 printf 'sources:\r\n  rules:\r\n    - "crlf/rules"\r\n  skills:\r\n    - crlf/skills\r\n' > "$OUT/lists-crlf.yaml"
 for file in "$Y" "$OUT/lists-crlf.yaml" "$OUT/absent-lists.yaml"; do
@@ -136,95 +124,175 @@ for file in "$Y" "$OUT/lists-crlf.yaml" "$OUT/absent-lists.yaml"; do
 done
 chk eq "$(load_yaml_lists "$Y" rules not-a-section; echo "$?")" "1"
 
-echo "== package tokens: the parser renders a token as its store path =="
-# list_is <label> <want, comma-joined> <reader> <file> <section>
+echo "== read_yaml_list: a manifest without package references reads as before =="
+# The list reader before package references (decision 0019): every entry as
+# written. A manifest that names packages by store path must read identically.
+oracle_yaml_list() {
+    awk -v section="$2" '
+        { sub(/\r$/, "") }
+        /^[a-z]/ { current_section = ""; depth = 0 }
+        /^  [a-z]/ { current_section = ""; depth = 0 }
+        $0 ~ "^" section ":" { current_section = section; depth = 0; next }
+        $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
+        current_section == section && depth == 0 && /^  - / {
+            val = $0; sub(/^  - /, "", val); gsub(/["\047]/, "", val); print val
+        }
+        current_section == section && depth == 2 && /^    - / {
+            val = $0; sub(/^    - /, "", val); gsub(/["\047]/, "", val); print val
+        }
+    ' "$1"
+}
+printf 'sources:\n  rules:\n    - ".intelligence/packages/@a/b/rules"\n    - "@a/b/rules"\n    - "a:rules"\n    - "intelligence/rules"\npackages:\n  "@a/b":\n    version: "1"\n' \
+    > "$OUT/lists-store.yaml"
+for file in "$Y" "$OUT/lists-crlf.yaml"; do
+    for section in rules agents skills ignore submodules; do
+        unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"
+        chk eq "$(read_yaml_list "$file" "$section")" "$(oracle_yaml_list "$file" "$section")"
+        chk eq "$(read_yaml_list_raw "$file" "$section")" "$(oracle_yaml_list "$file" "$section")"
+    done
+done
+# Raw is the old reader whatever the entries say; only the expanding reader
+# resolves a reference.
+chk eq "$(read_yaml_list_raw "$OUT/lists-store.yaml" rules)" "$(oracle_yaml_list "$OUT/lists-store.yaml" rules)"
+chk eq "$(read_yaml_list "$OUT/lists-store.yaml" rules | paste -sd, -)" \
+    ".intelligence/packages/@a/b/rules,.intelligence/packages/@a/b/rules,a:rules,intelligence/rules"
+
+echo "== package references: each spelling renders as its store path =="
+# list_is <label> <want, comma-joined> <reader...>
 list_is() {
     local label="$1" want="$2" got
     shift 2
     got="$("$@" | paste -sd, -)"
     [ "$got" = "$want" ] || { echo "FAIL: $label — want [$want], got [$got]"; fail=1; }
 }
-for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
-list_is "short name of the one declared package" \
-    "intelligence/rules,.intelligence/packages/@a/b/rules,.intelligence/packages/@a/b/rules,package:nope/rules,top-level/rules" \
-    read_yaml_list "$Y" rules
-# The last item is the list under targets.agents: the parser reads any `  agents:`
-# block, a reading this fixture pins rather than endorses.
-list_is "full form" "intelligence/agents,.intelligence/packages/@a/b/agents,not a list item at this depth" read_yaml_list "$Y" agents
-# Two declared packages end in /dup: the short form names neither, so it stays
-# a token, which no directory answers to.
-list_is "an ambiguous short name stays verbatim" "intelligence/skills,,second/skills,package:dup/skills" read_yaml_list "$Y" skills
-list_is "a list that holds no sources is never expanded" "node_modules,bin,package:b/rules" read_yaml_list "$Y" ignore
-list_is "raw keeps the spelling" \
-    "intelligence/rules,.intelligence/packages/@a/b/rules,package:b/rules,package:nope/rules,top-level/rules" \
-    read_yaml_list_raw "$Y" rules
-# The raw reader never answers from the expanded cache the engine warms.
-load_yaml_lists "$Y" rules agents skills ignore submodules
-list_is "raw ignores the warmed cache" "intelligence/agents,package:@a/b/agents,not a list item at this depth" read_yaml_list_raw "$Y" agents
-for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
-
-T="$OUT/tokens.yaml"
-cat > "$T" <<'EOF'
+R="$OUT/references.yaml"
+cat > "$R" <<'EOF'
 sources:
   rules:
-    - "package:sync/rules"
-    - "package:@ainova-systems/sync/rules"
-    - "package:@acme/undeclared/rules"
-    - "package:nope/rules"
-    - "package:twin/rules"
-    - "package:sync"
-    - "package:sync/"
-    - "package:@acme/rules"
-    - "package:@acme/x/../../escape"
-    - "package:@/x/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
+    - "@ainova-systems/sync/rules"
+    - "sync:rules"
+    - 'core:deep/rules'
+    - "@acme/undeclared/rules"
+    - "nope:rules"
+    - "twin:rules"
+    - "sync:../escape"
+    - "sync:"
+    - "sync:a//b"
+    - "sync:/abs"
+    - "sync:./rules"
+    - "@ainova-systems/sync"
+    - "@ainova-systems/sync/"
+    - "C:/windows/path"
+    - "x:rules"
     - "intelligence/rules"
+  agents:
+    - "sync:agents"
+ignore:
+  - "sync:rules"
 packages:
   "@ainova-systems/sync":
     version: "0.19.0"
+    alias: "sync"
   # a comment inside the block
+  "@ainova-systems/core":
+    version: "^1.0.0"
+    alias: core    # unquoted, with a comment
   "@ainova-systems/sync":
-    version: "duplicated key — one package"
+    alias: "second — a duplicated key is one package, its first alias wins"
 
-  "@a/twin":
+  "@a/one":
+    alias: "twin"
+  "@b/two":
     ref: "main"
-  "@b/twin": { ref: "main" }
+    alias: "twin"
+  "@c/bad":
+    alias: "a/b"
   "not-a-package-name":
-    ref: "x"
+    alias: "nope"
   "@a/../escape":
-    ref: "x"
+    alias: "nope"
 registries:
-  - "@not/a-package/rules"
+  - "@ainova-systems/sync/rules"
 EOF
-want_rows="package:sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules
-package:@ainova-systems/sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules
-package:@acme/undeclared/rules|undeclared|package:@acme/undeclared/rules
-package:nope/rules|unknown|package:nope/rules
-package:twin/rules|ambiguous|package:twin/rules
-package:sync|invalid|package:sync
-package:sync/|invalid|package:sync/
-package:@acme/rules|invalid|package:@acme/rules
-package:@acme/x/../../escape|invalid|package:@acme/x/../../escape
-package:@/x/rules|invalid|package:@/x/rules
-intelligence/rules|path|intelligence/rules"
-got_rows="$(read_source_entries "$T" rules | awk -F'\037' '{ print $1 "|" $2 "|" $3 }')"
+want_rows="\
+.intelligence/packages/@ainova-systems/sync/rules|path|.intelligence/packages/@ainova-systems/sync/rules||
+@ainova-systems/sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules||
+sync:rules|ok|.intelligence/packages/@ainova-systems/sync/rules|sync|
+core:deep/rules|ok|.intelligence/packages/@ainova-systems/core/deep/rules|core|
+@acme/undeclared/rules|path|@acme/undeclared/rules||
+nope:rules|unknown||nope|
+twin:rules|ambiguous||twin|@a/one, @b/two
+sync:../escape|invalid||sync|
+sync:|invalid||sync|
+sync:a//b|invalid||sync|
+sync:/abs|invalid||sync|
+sync:./rules|invalid||sync|
+@ainova-systems/sync|invalid|||
+@ainova-systems/sync/|invalid|||
+C:/windows/path|path|C:/windows/path||
+x:rules|path|x:rules||
+intelligence/rules|path|intelligence/rules||"
+got_rows="$(read_source_entries "$R" rules | tr '\037' '|')"
 [ "$got_rows" = "$want_rows" ] || { echo "FAIL: read_source_entries states:"; diff <(printf '%s\n' "$want_rows") <(printf '%s\n' "$got_rows"); fail=1; }
-chk eq "$(read_source_entries "$T" rules | awk -F'\037' '$1 == "package:twin/rules" { print $4 }')" "@a/twin, @b/twin"
-# Every reader of the list agrees with the classifier's expansion.
-chk eq "$(read_yaml_list "$T" rules)" "$(read_source_entries "$T" rules | awk -F'\037' '{ print $3 }')"
-load_yaml_lists "$T" rules
-load_yaml_list "$T" rules
-chk eq "$IS_YAML_LIST" "$(read_source_entries "$T" rules | awk -F'\037' '{ print $3 }')"
-unset IS_YL_rules_FILE IS_YL_rules_VAL
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+# What renders is the store path; what renders nothing is left out entirely,
+# so no reader can take it for a path.
+list_is "rules as the engine renders them" "\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/sync/rules,\
+.intelligence/packages/@ainova-systems/core/deep/rules,\
+@acme/undeclared/rules,C:/windows/path,x:rules,intelligence/rules" read_yaml_list "$R" rules
+want_rules="$(read_yaml_list "$R" rules)"
+chk eq "$want_rules" "$(read_source_entries "$R" rules | awk -F'\037' '$2 == "path" || $2 == "ok" { print $3 }')"
+list_is "a list that holds no sources is never expanded" "sync:rules" read_yaml_list "$R" ignore
+list_is "raw keeps every spelling" "sync:agents" read_yaml_list_raw "$R" agents
+# The cache the engine warms holds the same expansion, and the same pass names
+# every reference that renders nothing, for sync's WARNING: lines.
+load_yaml_lists "$R" rules agents skills ignore submodules
+load_yaml_list "$R" rules
+chk eq "$IS_YAML_LIST" "$want_rules"
+load_yaml_list "$R" agents
+chk eq "$IS_YAML_LIST" ".intelligence/packages/@ainova-systems/sync/agents"
+want_unresolved="$(read_source_entries "$R" rules | awk -F'\037' '$2 != "path" && $2 != "ok" { print "rules\037" $0 }')"
+chk eq "$(printf '%s' "$IS_YL_UNRESOLVED")" "$want_unresolved"
+chk eq "$(printf '%s' "$IS_YL_UNRESOLVED" | wc -l | tr -d ' ')" "9"
+# The raw reader never answers from the expanded cache the engine warms.
+list_is "raw ignores the warmed cache" "sync:agents" read_yaml_list_raw "$R" agents
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+load_yaml_lists "$Y" rules agents skills ignore submodules
+chk eq "$IS_YL_UNRESOLVED" ""
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
 
-# `packages:` may come first, last, or not at all; CRLF changes nothing.
-printf 'packages:\r\n  "@ainova-systems/sync":\r\n    version: "1"\r\nsources:\r\n  rules:\r\n    - "package:sync/rules"\r\n' > "$OUT/tokens-crlf.yaml"
-list_is "packages: before sources:, CRLF" ".intelligence/packages/@ainova-systems/sync/rules" read_yaml_list "$OUT/tokens-crlf.yaml" rules
-printf 'sources:\n  rules:\n    - "package:sync/rules"\n    - "package:@ainova-systems/sync/rules"\n' > "$OUT/tokens-bare.yaml"
-list_is "no packages: block — neither form names anything" \
-    "package:sync/rules,package:@ainova-systems/sync/rules" read_yaml_list "$OUT/tokens-bare.yaml" rules
-# A commented-out block declares nothing.
-printf 'sources:\n  rules:\n    - "package:core/rules"\n# packages:\n#   "@ainova-systems/core":\n#     version: "1"\n' > "$OUT/tokens-commented.yaml"
-list_is "a commented packages: block declares nothing" "package:core/rules" read_yaml_list "$OUT/tokens-commented.yaml" rules
+echo "== read_package_aliases: what packages: declares, judged once =="
+want_aliases="\
+@ainova-systems/sync|sync|ok
+@ainova-systems/core|core|ok
+@a/one|twin|ambiguous
+@b/two|twin|ambiguous
+@c/bad||invalid"
+chk eq "$(read_package_aliases "$R" | tr '\037' '|')" "$want_aliases"
+chk eq "$(read_package_aliases "$OUT/absent.yaml")" ""
+for a in sync ab A1 a.b a_b a-b 0day; do chk pkg_alias_valid "$a"; done
+for a in "" s a/b a:b @a "a b" "a\"b" -ab .ab "a\\b"; do
+    if pkg_alias_valid "$a"; then echo "FAIL: pkg_alias_valid accepted [$a]"; fail=1; fi
+done
+# `packages:` may come first, last, or not at all; CRLF changes nothing; a
+# commented-out block declares nothing.
+printf 'packages:\r\n  "@ainova-systems/sync":\r\n    alias: "sync"\r\nsources:\r\n  rules:\r\n    - "sync:rules"\r\n    - "@ainova-systems/sync/agents"\r\n' > "$OUT/refs-crlf.yaml"
+list_is "packages: before sources:, CRLF" \
+    ".intelligence/packages/@ainova-systems/sync/rules,.intelligence/packages/@ainova-systems/sync/agents" \
+    read_yaml_list "$OUT/refs-crlf.yaml" rules
+printf 'sources:\n  rules:\n    - "sync:rules"\n    - "@ainova-systems/sync/rules"\n' > "$OUT/refs-bare.yaml"
+list_is "no packages: block — a full name is a path, an alias names nothing" \
+    "@ainova-systems/sync/rules" read_yaml_list "$OUT/refs-bare.yaml" rules
+printf 'sources:\n  rules:\n    - "sync:rules"\n# packages:\n#   "@ainova-systems/sync":\n#     alias: "sync"\n' > "$OUT/refs-commented.yaml"
+chk eq "$(read_source_entries "$OUT/refs-commented.yaml" rules | tr '\037' '|')" "sync:rules|unknown||sync|"
+source_reference_problem_var unknown nope ""
+chk eq "$IS_SOURCE_PROBLEM" "names alias 'nope', which no package in packages: declares"
+source_reference_problem_var path "" ""
+chk eq "$IS_SOURCE_PROBLEM" ""
 
 echo "== _nested_yaml_values: every key as get_nested_yaml_value reads it =="
 M="$OUT/models.yaml"

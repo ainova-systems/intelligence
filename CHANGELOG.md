@@ -8,22 +8,19 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- `sources:` names an installed package's directory as `package:<name>/<dir>` — `package:sync/rules` instead of `.intelligence/packages/@ainova-systems/sync/rules` — so a project's source list carries no vendor scope. `<name>` is the full `@scope/name`, or the part after its `/` while no other declared package shares it. The engine renders a token exactly as the store path it stands for; `sync` warns about, and `status --check` reports, a token that names no declared package, one two declared packages share, or a malformed one (decision 0019).
 - Agents and skills accept a tool-neutral `effort:` — `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. Claude Code agents and skills receive it as `effort:` (`ultra` becomes `max`), Codex agents as `model_reasoning_effort`, and the shared `.agents/skills/` tree keeps it as written; Copilot, Cursor, OpenCode, Antigravity and Pi receive no effort key (decision 0015).
 - An `effort:` off that scale prints a `WARNING:` line naming the source file and the value, also under `sync --compact` and `init`, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
+- `sources:` names a package's directory by the package as well as by its store path: `@scope/name/<dir>` for a package `packages:` declares, and `<alias>:<dir>` through the alias that package declares. Both render exactly as the store path. The CLI still writes store paths and rewrites no entry: wiring leaves a directory a section already names in any spelling where it stands, and `package remove` removes the package's entries in every spelling. An `@scope/name/…` entry for an undeclared package stays an ordinary path, which `status --check` now judges like any project directory. A CLI `0.18` or earlier reads a reference as a path that does not exist and skips it (decision 0019).
+- `intelligence package alias <@scope/name> <alias>` and `package add --alias <alias>` set the alias a package declares, `package alias <@scope/name> --remove` drops it, and `package list` shows it. Both refuse a malformed alias or one another package declares, and refuse to remove or replace an alias `sources:` still uses, naming the entries.
+- `sync` skips a reference that names nothing — an alias no package declares or two packages declare, or a `<dir>` that is empty or leaves its package — with a `WARNING:` line naming it, and `status --check` reports it, a malformed or shared alias, and a section that lists one package directory under two spellings. `source add` and `source remove` refuse a reference, naming `intelligence package`, and take any spelling of a package's directory as a `--before` / `--after` anchor.
 
 ### Changed
 
-- Package add, remove, update and restore write package sources as `package:` tokens in one canonical spelling: short, or full for every package sharing a short name. Adding a package whose short name collides rewrites the existing tokens of that name in full, and removing it returns the survivor to the short form, each in place.
-- Lifecycle alignment rewrites every `.intelligence/packages/<declared name>/<dir>` entry in place to its `package:` token; the generated output is byte-identical. Legacy conversion writes tokens too.
-- `source add` and `source remove` refuse a `package:` token as package content, naming `package add` and `package remove`, and accept one as a `--before` / `--after` anchor.
 - A tier no longer sets a reasoning effort in any tool. Codex agents without `effort:` no longer get a tier-derived `model_reasoning_effort` (`xhigh` for `frontier`, `high` for `heavy` or no tier, `medium` for `standard`, `low` for `light`), so Codex's own setting applies and `frontier` and `heavy` render identical Codex agents.
 
 ### Breaking
 
 - [ ] Every Codex agent that should keep a reasoning effort states it as `effort:` in its source; after sync, `.codex/agents/*.toml` carries `model_reasoning_effort` only for agents whose source sets a valid `effort:`.
-- [ ] Every teammate and CI job that syncs the project runs CLI `0.19.0` or later before the aligned manifest is committed: a CLI `0.18` or earlier reads a `package:` source as a path, so it renders a migrated project without package content and still reports `IS_STATUS=ok`.
-- [ ] After alignment, `sources:` names each declared package as `package:<name>/<dir>`, no `.intelligence/packages/` path of a declared package remains, and `intelligence status --check` succeeds.
 
 ### Fixed
 

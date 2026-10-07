@@ -109,8 +109,7 @@ and the command proceeds behind one warning; only a newer major refuses
 (`ahead-of-engine`, exit 4). Alignment moves a project up, never down: a teammate on
 an older CLI must not rewrite tracked files the current CLI would move straight back.
 The manifest is therefore additive within a major — a shape an older engine of the
-same major cannot read is a major change. `package:` sources in `0.19.0` are the one
-exception, granted by the owner and recorded in decision 0019; it extends to no other change.
+same major cannot read is a major change.
 
 `intelligence sync` is the fresh-clone path: it restores a missing `.intelligence/`
 store strictly from `intelligence.lock`, never re-resolving a version during restore.

@@ -200,31 +200,30 @@ fetch_package() {
     printf '%s' "$sha"
 }
 
-# wire_package_sources <manifest> <@scope/name> <store-rel-dir> <root> [declaring]
+# wire_package_sources <manifest> <@scope/name> <store-rel-dir> <root>
 # The provides convention: whichever of rules/agents/skills the installed
-# package has becomes a `package:<name>/<section>` entry — inserted FIRST in
-# its section, so project-owned entries come later and win on same-named
-# artifacts. An entry the section already holds stays where it is.
-#
-# `declaring` says the caller is about to write <name> into `packages:` (package
-# add): the spelling is chosen for the set that includes it, so a short name it
-# collides with is respelled in full now. Without it the declared set is taken
-# as it stands, and a package missing from it is spelled in full — a short token
-# resolves against declared packages only.
+# package has becomes a sources entry — its store path, inserted FIRST in its
+# section, so project-owned entries come later and win on same-named artifacts.
+# A section that already names that directory, in any spelling, keeps the entry
+# where it stands: the person who wrote `@scope/name/<dir>` or `<alias>:<dir>`
+# chose both the spelling and the position. Call it once `packages:` declares
+# the package and its alias, which is what resolves those spellings.
 wire_package_sources() {
-    local manifest="$1" name="$2" rel="$3" root="$4" change="=" prefix="" section
-    [ "${5:-}" != declaring ] || change="+"
-    package_sources_respell "$manifest" "$change" "$name"
+    local manifest="$1" rel="$3" root="$4"
+    local section
     for section in rules agents skills; do
         [ -d "$root/$rel/$section" ] || continue
-        [ -n "$prefix" ] || prefix="$(package_source_prefix "$manifest" "$name" "$change")"
-        sources_add_entry_first "$manifest" "$section" "$prefix$section"
+        package_source_listed "$manifest" "$section" "$rel/$section" && continue
+        sources_add_entry_first "$manifest" "$section" "$rel/$section"
     done
 }
 
-# unwire_package_sources <manifest> <@scope/name> — drop every entry naming the
-# package's rules/agents/skills, whatever its spelling, and respell the rest for
-# the set without it. Call before the `packages:` entry is deleted.
+# unwire_package_sources <manifest> <@scope/name> [section...]
+# Drop the package's sources entries in every spelling (sources_remove_package):
+# every one without sections, as `package remove` does; only the named
+# sections' own directories with them, as `update` does for the directories a
+# new version no longer has. Call it while `packages:` still declares the
+# package and its alias.
 unwire_package_sources() {
-    package_sources_respell "$1" - "$2" rules agents skills
+    sources_remove_package "$@"
 }

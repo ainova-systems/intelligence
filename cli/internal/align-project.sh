@@ -92,23 +92,13 @@ for section in rules agents skills; do
                 migrated=1
                 ;;
         esac
-    done < <(read_yaml_list_raw "$manifest" "$section")
+    done < <(read_yaml_list "$manifest" "$section")
 done
 if [ "$migrated" -eq 1 ]; then
     echo "  migrating: staged engine content -> $SYNC_PKG_NAME package"
     rm -rf "$IP_ROOT/.intelligence/engine"
     sync_pkg_entry "$manifest"
     sync_pkg_install "$IP_ROOT"
-fi
-
-# migration 3: a package's sources name the package, not its store path.
-# `.intelligence/packages/<declared name>/<dir>` becomes the canonical
-# `package:<name>/<dir>` in place — position is the override order, so no entry
-# moves — and renders the same directory. A store path of a package the
-# manifest does not declare is left as written.
-package_sources_respell "$manifest" =
-if [ "$IS_SOURCES_RESPELLED" -eq 1 ]; then
-    echo "  migrating: package store paths in sources -> package:<name>/<dir>"
 fi
 
 # --- steady state ---------------------------------------------------------

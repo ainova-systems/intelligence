@@ -120,7 +120,7 @@ The engine has already loaded `engine/lib/common.sh` before it sources the adapt
 
 ## Source model
 
-`sources.rules`, `sources.agents` and `sources.skills` contain repo-relative directory paths. Packages have already been resolved, fetched and pinned by the CLI, so package content appears as an ordinary path under `.intelligence/packages/`. The manifest names a package's directory as a `package:<name>/<dir>` token; `read_yaml_list` and `load_yaml_list` hand it to an adapter already expanded to that store path, so an adapter reads every source the same way. A token that resolves to no declared package arrives unexpanded, names no directory, and is skipped by the `[ -d "$dir" ]` guard below. Adapters never perform network access or parse `packages:`.
+`sources.rules`, `sources.agents` and `sources.skills` contain repo-relative directory paths. Packages have already been resolved, fetched and pinned by the CLI, so package content appears as an ordinary path under `.intelligence/packages/`. The manifest may name a package's directory by the package's full name or alias instead; `read_yaml_list` and `load_yaml_list` hand an adapter the store path either way, and leave out a reference that names nothing, so an adapter reads every source the same way. Adapters never perform network access or parse `packages:`.
 
 Iterate a source section in manifest order:
 
@@ -146,7 +146,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | Function | Purpose |
 |---|---|
 | `resolve_source_dir(repo_root, source)` | Resolve a manifest source to its local directory. |
-| `read_yaml_list(config, section)` | Stream entries from `sources.<section>`, `package:` tokens expanded to their store paths. |
+| `read_yaml_list(config, section)` | Stream entries from `sources.<section>`, package references as their store paths. |
 | `load_yaml_list(config, section)` | Same list into `IS_YAML_LIST`, cached — no subprocess on repeat reads. |
 | `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block. |
 | `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; special key `paths#` counts `paths:` lines). |

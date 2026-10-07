@@ -296,7 +296,7 @@ repo_rel_dir() {
 # Resolve a single source entry to an absolute local directory. Every entry is
 # a repo-relative path by the time it gets here: the CLI resolves, fetches and
 # pins packages, so a package is just a directory under the store, and the list
-# parser has already expanded a `package:<name>/<dir>` token to that directory.
+# parser has already expanded a package reference to that directory.
 # ALWAYS returns 0 (echoes nothing on failure) so `set -e` callers using
 # `dir="$(resolve_source_dir ...)"` never abort; the caller's existing
 # `[ -d "$dir" ] || continue` guard then skips an unresolved source.
@@ -1895,148 +1895,151 @@ report_context_source_sizes() {
 
 # --- Config Parsing ---
 
-# --- Package source tokens ---------------------------------------------------
-# A `sources:` entry may name a directory inside an installed package as
-# `package:<name>/<dir>` instead of by its store path
-# `.intelligence/packages/@scope/name/<dir>`, so the list a project reads carries
-# no vendor scope. <name> is the package's full `@scope/name`, or the part after
-# its `/` when exactly one package declared in `packages:` carries that part. The
-# full form never depends on the other declared names, but either form expands
-# only to a package `packages:` declares.
+# --- Package references in sources -------------------------------------------
+# A `sources:` entry names a directory inside an installed package in one of
+# three spellings (decision 0019):
 #
-# The list parser below expands a token in the awk pass that already reads the
-# manifest. That pass is the one point every reader goes through — adapters, the
-# engine's own loops and the CLI — so expansion costs no process, and the CLI sees
-# exactly what the engine renders (decision 0009). A token that does not resolve
-# passes through verbatim: it names no directory, so it is skipped like any
-# missing source, and `status --check` reports why (decision 0019).
+#   .intelligence/packages/@scope/name/<dir>  the store path: an ordinary
+#                                             repository path, as the CLI writes it
+#   @scope/name/<dir>                         by full name: a reference only while
+#                                             `packages:` declares @scope/name,
+#                                             otherwise an ordinary path as before
+#   <alias>:<dir>                             by the alias that package's
+#                                             `packages:` entry declares
 #
-# These functions are the token's only definition. The CLI's editors
-# (lib/manifest.sh) and `status --check` load this same string:
+# A reference renders exactly as the store path it stands for. The list parser
+# below expands it inside the awk pass that already reads the manifest; that
+# pass is the one point every reader goes through — adapters, the engine's own
+# loops and the CLI — so expansion costs no process, and the CLI sees exactly
+# what the engine renders (decision 0009). A reference that resolves to nothing
+# is left out of the list, so no reader can render it as a path: `sync` names it
+# in a WARNING: line and `status --check` reports it.
 #
-#   pkt_collect(line)             feed every manifest line; fills PKT_NAMES[1..PKT_N]
-#                                 with the declared package names, in order
-#   pkt_parse(entry)              classify one entry against PKT_NAMES; sets
-#                                 PKT_NAME, PKT_DIR and, when ambiguous, PKT_HITS
-#   pkt_expand(entry)             the entry as the engine renders it
-#   pkt_store(entry)              split a store path into PKT_NAME and PKT_DIR
-#   pkt_spell(name, dir, set, n)  the canonical token for <name>/<dir> when
-#                                 set[1..n] are the declared names
-IS_PKG_TOKEN_AWK='
-    function pkt_short(name) { return substr(name, index(name, "/") + 1) }
-    function pkt_seg_ok(s) { return s != "" && s != "." && s != ".." }
+# An alias is two or more of A-Z a-z 0-9 . _ - and starts with a letter or digit:
+# no `/`, `:` or `@`, no whitespace or quotes, and never one letter that reads
+# like a drive. It is a lookup key, never part of a path. <dir> is one or more
+# `/`-separated segments, none of them empty, `.` or `..`, without a backslash,
+# so a reference never leaves its package.
+#
+# These functions are the only definition. The CLI's editors (lib/manifest.sh),
+# `source`, `package alias` and `status --check` load this same string:
+#
+#   pkr_collect(line)   feed every manifest line; records the names `packages:`
+#                       declares and the alias each one states
+#   pkr_parse(entry)    classify one entry: path, ok, unknown (an alias no
+#                       package declares), ambiguous (an alias several declare)
+#                       or invalid (a reference whose <dir> is malformed); sets
+#                       PKR_NAME, PKR_DIR, PKR_ALIAS and, when ambiguous,
+#                       PKR_HOLDERS
+#   pkr_expand(entry)   the directory the entry renders as, "" when it renders
+#                       nothing; leaves the state in PKR_STATE
+#   pkr_alias_ok(a)     whether <a> is a well-formed alias
+IS_PKG_REF_AWK='
+    function pkr_seg_ok(s) { return s != "" && s != "." && s != ".." }
     # The CLI refuses any other package name (assert_valid_pkg_name): a name
-    # becomes a store path, so one that is not a plain @scope/name never counts
-    # as declared.
-    function pkt_name_ok(name,   p) {
+    # becomes a store path, so one that is not a plain @scope/name is never
+    # declared.
+    function pkr_name_ok(name,   p) {
         if (name !~ /^@[@A-Za-z0-9._-]*\/[@A-Za-z0-9._-]*$/) return 0
         p = index(name, "/")
-        return pkt_seg_ok(substr(name, 2, p - 2)) && pkt_seg_ok(substr(name, p + 1))
+        return pkr_seg_ok(substr(name, 2, p - 2)) && pkr_seg_ok(substr(name, p + 1))
     }
-    function pkt_dir_ok(dir) {
-        if (dir == "" || substr(dir, 1, 1) == "/" || index(dir, "\\")) return 0
-        return index("/" dir "/", "/../") == 0
+    # Enumerated, not a range: a range follows the locale in some awks.
+    function pkr_alias_ok(a,   i, c) {
+        if (length(a) < 2) return 0
+        for (i = 1; i <= length(a); i++) {
+            c = substr(a, i, 1)
+            if (index("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", c)) continue
+            if (i > 1 && index("._-", c)) continue
+            return 0
+        }
+        return 1
     }
-    # The quoted keys of the top-level packages: block, read the way the CLI
-    # writes them. Only the names are read; nothing else in the block is.
-    function pkt_collect(line,   s, q, name) {
-        if (line ~ /^packages:[ \t]*$/) { pkt_in = 1; return }
-        if (!pkt_in) return
-        if (line ~ /^[^ #]/) { pkt_in = 0; return }
-        if (substr(line, 1, 3) != "  \"") return
-        s = substr(line, 4)
-        q = index(s, "\"")
-        if (q < 2) return
-        name = substr(s, 1, q - 1)
-        if (!pkt_name_ok(name) || (name in pkt_seen)) return
-        pkt_seen[name] = 1
-        PKT_NAMES[++PKT_N] = name
+    function pkr_dir_ok(dir,   n, i, seg) {
+        if (dir == "" || index(dir, "\\")) return 0
+        n = split(dir, seg, "/")
+        for (i = 1; i <= n; i++) if (!pkr_seg_ok(seg[i])) return 0
+        return 1
     }
-    # Returns path (not a token), ok (a declared package), undeclared (the full
-    # form of a package packages: does not declare), unknown (a short name no
-    # declared package carries), ambiguous (a short name several carry) or
-    # invalid (no well-formed <name>/<dir> after the prefix).
-    function pkt_parse(entry,   body, p, rest, short, i, n, hits) {
-        PKT_NAME = ""; PKT_DIR = ""; PKT_HITS = ""
-        if (substr(entry, 1, 8) != "package:") return "path"
-        body = substr(entry, 9)
-        n = PKT_N + 0
-        if (substr(body, 1, 1) == "@") {
-            p = index(body, "/")
-            if (p == 0) return "invalid"
-            rest = substr(body, p + 1)
+    # The quoted keys of the top-level packages: block and their alias fields,
+    # read the way lib/qmap.awk reads what the CLI writes: a duplicated key is
+    # one package, and the first alias a package states is the one it has.
+    function pkr_collect(line,   s, q, v) {
+        if (line ~ /^packages:[ \t]*$/) { pkr_in = 1; pkr_cur = ""; return }
+        if (!pkr_in || line ~ /^[ \t]*(#.*)?$/) return
+        if (line ~ /^[^ \t]/) { pkr_in = 0; pkr_cur = ""; return }
+        if (substr(line, 1, 3) == "  \"") {
+            pkr_cur = ""
+            s = substr(line, 4)
+            q = index(s, "\"")
+            if (q < 2) return
+            v = substr(s, 1, q - 1)
+            if (!pkr_name_ok(v)) return
+            if (!(v in pkr_seen)) { pkr_seen[v] = 1; PKR_NAMES[++PKR_N] = v }
+            pkr_cur = v
+            return
+        }
+        if (substr(line, 1, 4) != "    ") { pkr_cur = ""; return }
+        if (pkr_cur == "" || (pkr_cur in PKR_ALIAS_RAW) || substr(line, 5, 6) != "alias:") return
+        v = substr(line, 11)
+        sub(/^[ \t]+/, "", v)
+        if (substr(v, 1, 1) == "\"") {
+            v = substr(v, 2)
+            q = index(v, "\"")
+            if (q == 0) return
+            v = substr(v, 1, q - 1)
+        } else {
+            sub(/[ \t]+#.*$/, "", v)
+            sub(/[ \t]+$/, "", v)
+        }
+        PKR_ALIAS_RAW[pkr_cur] = v
+        if (!pkr_alias_ok(v)) return
+        pkr_holders[v] = (v in pkr_holders) ? pkr_holders[v] ", " pkr_cur : pkr_cur
+        pkr_count[v]++
+        pkr_alias[v] = pkr_cur
+    }
+    function pkr_parse(entry,   c, p, i, rest, name) {
+        PKR_NAME = ""; PKR_DIR = ""; PKR_ALIAS = ""; PKR_HOLDERS = ""
+        if (substr(entry, 1, 1) == "@") {
+            p = index(entry, "/")
+            if (p == 0) return "path"
+            rest = substr(entry, p + 1)
             i = index(rest, "/")
-            if (i == 0) return "invalid"
-            PKT_NAME = substr(body, 1, p + i - 1)
-            PKT_DIR = substr(rest, i + 1)
-            if (!pkt_name_ok(PKT_NAME) || !pkt_dir_ok(PKT_DIR)) {
-                PKT_NAME = ""; PKT_DIR = ""
-                return "invalid"
-            }
-            for (i = 1; i <= n; i++) if (PKT_NAMES[i] == PKT_NAME) return "ok"
-            return "undeclared"
+            name = i ? substr(entry, 1, p + i - 1) : entry
+            if (!(name in pkr_seen)) return "path"
+            PKR_NAME = name
+            PKR_DIR = i ? substr(rest, i + 1) : ""
+            return pkr_dir_ok(PKR_DIR) ? "ok" : "invalid"
         }
-        p = index(body, "/")
-        if (p == 0) return "invalid"
-        short = substr(body, 1, p - 1)
-        PKT_DIR = substr(body, p + 1)
-        if (!pkt_seg_ok(short) || !pkt_dir_ok(PKT_DIR)) { PKT_DIR = ""; return "invalid" }
-        hits = 0
-        for (i = 1; i <= n; i++) {
-            if (pkt_short(PKT_NAMES[i]) != short) continue
-            hits++
-            PKT_NAME = PKT_NAMES[i]
-            PKT_HITS = PKT_HITS (hits > 1 ? ", " : "") PKT_NAMES[i]
-        }
-        if (hits == 1) return "ok"
-        PKT_NAME = ""
-        return hits ? "ambiguous" : "unknown"
+        c = index(entry, ":")
+        if (c == 0 || !pkr_alias_ok(substr(entry, 1, c - 1))) return "path"
+        PKR_ALIAS = substr(entry, 1, c - 1)
+        PKR_DIR = substr(entry, c + 1)
+        if (!pkr_dir_ok(PKR_DIR)) return "invalid"
+        if (!(PKR_ALIAS in pkr_count)) return "unknown"
+        if (pkr_count[PKR_ALIAS] > 1) { PKR_HOLDERS = pkr_holders[PKR_ALIAS]; return "ambiguous" }
+        PKR_NAME = pkr_alias[PKR_ALIAS]
+        return "ok"
     }
-    function pkt_expand(entry,   st) {
-        st = pkt_parse(entry)
-        if (st == "ok") return ".intelligence/packages/" PKT_NAME "/" PKT_DIR
-        return entry
-    }
-    function pkt_store(entry,   pre, rest, p, i) {
-        PKT_NAME = ""; PKT_DIR = ""
-        pre = ".intelligence/packages/"
-        if (substr(entry, 1, length(pre)) != pre) return 0
-        rest = substr(entry, length(pre) + 1)
-        p = index(rest, "/")
-        if (p == 0) return 0
-        i = index(substr(rest, p + 1), "/")
-        if (i == 0) return 0
-        PKT_NAME = substr(rest, 1, p + i - 1)
-        PKT_DIR = substr(rest, p + i + 1)
-        if (pkt_name_ok(PKT_NAME) && pkt_dir_ok(PKT_DIR)) return 1
-        PKT_NAME = ""; PKT_DIR = ""
-        return 0
-    }
-    # Short when no other declared package carries the same name after its
-    # slash, full otherwise. A package that is not declared is spelled in full:
-    # a short token resolves against the declared names only.
-    function pkt_spell(name, dir, set, n,   short, i, hits, mine) {
-        short = pkt_short(name)
-        hits = 0; mine = 0
-        for (i = 1; i <= n; i++) {
-            if (set[i] == name) mine = 1
-            if (pkt_short(set[i]) == short) hits++
-        }
-        if (mine && hits == 1 && substr(short, 1, 1) != "@") return "package:" short "/" dir
-        return "package:" name "/" dir
+    function pkr_expand(entry) {
+        PKR_STATE = pkr_parse(entry)
+        if (PKR_STATE == "path") return entry
+        if (PKR_STATE == "ok") return ".intelligence/packages/" PKR_NAME "/" PKR_DIR
+        return ""
     }
 '
 
 # The manifest list reader. `mode` selects what it prints for each entry:
-#   expand    the entry as the engine renders it: package tokens expanded
+#   expand    the entry as the engine renders it: a reference becomes its store
+#             path, one that resolves to nothing is left out
 #   raw       the entry as written — what an editor compares and rewrites
-#   classify  raw, pkt_parse state, expansion and ambiguity candidates,
-#             separated by \037 — what `status --check` judges
+#   classify  raw, pkr_parse state, expansion, alias and the packages sharing
+#             it, separated by \037 — what `status --check` and `source` judge
 # Only rules, agents and skills hold sources; every other list reads raw.
 # Entries are held until the end of the file because `packages:` may follow
 # `sources:`.
 IS_YAML_LIST_AWK='
-    { sub(/\r$/, ""); pkt_collect($0) }
+    { sub(/\r$/, ""); pkr_collect($0) }
     /^[a-z]/ { current_section = ""; depth = 0 }
     /^  [a-z]/ { current_section = ""; depth = 0 }
     $0 ~ "^" section ":" { current_section = section; depth = 0; next }
@@ -2058,15 +2061,10 @@ IS_YAML_LIST_AWK='
         n = nv + 0
         for (i = 1; i <= n; i++) {
             val = vals[i]
-            if (!sources || mode == "raw") {
-                print val
-            } else if (mode == "classify") {
-                st = pkt_parse(val)
-                hits = PKT_HITS
-                print val "\037" st "\037" pkt_expand(val) "\037" hits
-            } else {
-                print pkt_expand(val)
-            }
+            if (!sources || mode == "raw") { print val; continue }
+            dir = pkr_expand(val)
+            if (mode == "classify") print val "\037" PKR_STATE "\037" dir "\037" PKR_ALIAS "\037" PKR_HOLDERS
+            else if (PKR_STATE == "path" || PKR_STATE == "ok") print dir
         }
     }
 '
@@ -2075,9 +2073,10 @@ IS_YAML_LIST_AWK='
 # Format: key:\n  - "value1"\n  - "value2"
 # Usage: while IFS= read -r src; do ...; done < <(read_yaml_list "intelligence.yaml" "rules")
 #
-# A source list arrives with its package tokens expanded — the spelling every
-# renderer resolves as $REPO_ROOT/<entry>. Editors that rewrite the manifest
-# read it with read_yaml_list_raw instead.
+# A source list arrives with its package references expanded to store paths —
+# the spelling every renderer resolves as $REPO_ROOT/<entry> — and without the
+# ones that resolve to nothing. Editors that rewrite the manifest read it with
+# read_yaml_list_raw instead.
 #
 # Consults the load_yaml_list cache first: sync reads the same sections from
 # the same manifest dozens of times, and each awk spawn costs tens of
@@ -2101,23 +2100,67 @@ read_yaml_list() {
             fi
             ;;
     esac
-    awk -v section="$section" -v mode=expand "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$file"
+    awk -v section="$section" -v mode=expand "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$file"
 }
 
-# read_yaml_list_raw <file> <section> — the entries exactly as written, package
-# tokens included and never cached. The CLI's sources editors compare and
-# rewrite these, so a token is matched as the user spelled it.
+# read_yaml_list_raw <file> <section> — the entries exactly as written,
+# references included and never cached. The CLI's sources editors compare and
+# rewrite these, so an entry is matched as the user spelled it.
 read_yaml_list_raw() {
-    awk -v section="$2" -v mode=raw "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$1"
+    awk -v section="$2" -v mode=raw "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$1"
 }
 
-# read_source_entries <file> <section> — one \037-separated line per entry:
-# raw, state, expansion and, for an ambiguous token, the declared packages it
-# could name. The state is the one pkt_parse returns: path, ok, undeclared,
-# unknown, ambiguous or invalid. One pass of the parser the engine renders
-# through, so a verdict can never disagree with the render.
+# read_source_entries <file> <section> — one \037-separated line per entry: as
+# written, its pkr_parse state (path, ok, unknown, ambiguous or invalid), the
+# directory it renders as ("" for none), the alias it names and, when several
+# packages declare that alias, their names. One pass of the parser the engine
+# renders through, so a verdict can never disagree with the render.
 read_source_entries() {
-    awk -v section="$2" -v mode=classify "$IS_PKG_TOKEN_AWK$IS_YAML_LIST_AWK" "$1"
+    awk -v section="$2" -v mode=classify "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$1"
+}
+
+# read_package_aliases <file> — one \037-separated line per declared package that
+# states an alias: its name, the alias, and ok, ambiguous (another package states
+# it too) or invalid (not a well-formed alias, so it resolves nothing). An
+# invalid alias is manifest input that may hold anything, so its field is empty.
+read_package_aliases() {
+    [ -f "$1" ] || return 0
+    awk "$IS_PKG_REF_AWK"'
+        { sub(/\r$/, ""); pkr_collect($0) }
+        END {
+            for (i = 1; i <= PKR_N; i++) {
+                name = PKR_NAMES[i]
+                if (!(name in PKR_ALIAS_RAW)) continue
+                a = PKR_ALIAS_RAW[name]
+                if (!pkr_alias_ok(a)) { print name "\037\037invalid"; continue }
+                print name "\037" a "\037" (pkr_count[a] > 1 ? "ambiguous" : "ok")
+            }
+        }
+    ' "$1"
+}
+
+# What pkr_alias_ok accepts, in the words every message that refuses an alias
+# uses.
+# shellcheck disable=SC2034
+IS_PKG_ALIAS_RULE="two or more of A-Z a-z 0-9 . _ -, starting with a letter or digit"
+
+# pkg_alias_valid <alias> — true when <alias> is well formed (pkr_alias_ok). The
+# value travels through the environment: `awk -v` would interpret backslashes.
+pkg_alias_valid() {
+    IS_PKR_CANDIDATE="$1" awk "$IS_PKG_REF_AWK"'BEGIN { exit !pkr_alias_ok(ENVIRON["IS_PKR_CANDIDATE"]) }'
+}
+
+# source_reference_problem_var <state> <alias> <holders> — set IS_SOURCE_PROBLEM
+# to why a reference in that state renders nothing, "" for path and ok. The one
+# wording of `sync`'s WARNING: line and of `status --check`.
+# shellcheck disable=SC2034
+source_reference_problem_var() {
+    case "$1" in
+        unknown) IS_SOURCE_PROBLEM="names alias '$2', which no package in packages: declares" ;;
+        ambiguous) IS_SOURCE_PROBLEM="names alias '$2', which several packages declare ($3) — an alias names one package" ;;
+        invalid) IS_SOURCE_PROBLEM="names no directory inside its package — the part after the package must be one or more '/'-separated segments, none empty, '.' or '..'" ;;
+        *) IS_SOURCE_PROBLEM="" ;;
+    esac
 }
 
 # load_yaml_list <file> <section> — fill the global IS_YAML_LIST with the
@@ -2149,8 +2192,10 @@ load_yaml_list() {
 
 # load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
 # sections in one manifest pass. Each section runs read_yaml_list's own state
-# machine and its package-token expansion, so every cached value is what
-# load_yaml_list would have stored.
+# machine and its reference expansion, so every cached value is what
+# load_yaml_list would have stored. The same pass leaves the references that
+# resolve to nothing in IS_YL_UNRESOLVED, one read_source_entries-shaped line
+# each with the section in front, for the WARNING: lines `sync` prints.
 load_yaml_lists() {
     local file="$1" out line s v j
     shift
@@ -2160,9 +2205,9 @@ load_yaml_lists() {
             *) return 1 ;;
         esac
     done
-    out="$(awk -v sections="$*" "$IS_PKG_TOKEN_AWK"'
+    out="$(awk -v sections="$*" "$IS_PKG_REF_AWK"'
         BEGIN { n = split(sections, want, " ") }
-        { sub(/\r$/, ""); pkt_collect($0) }
+        { sub(/\r$/, ""); pkr_collect($0) }
         {
             for (k = 1; k <= n; k++) {
                 s = want[k]
@@ -2191,8 +2236,10 @@ load_yaml_lists() {
             for (i = 1; i <= m; i++) {
                 s = got_s[i]
                 val = got_v[i]
-                if (s == "rules" || s == "agents" || s == "skills") val = pkt_expand(val)
-                print s "\037" val
+                if (s != "rules" && s != "agents" && s != "skills") { print s "\037" val; continue }
+                dir = pkr_expand(val)
+                if (PKR_STATE == "path" || PKR_STATE == "ok") print s "\037" dir
+                else print "!\037" s "\037" val "\037" PKR_STATE "\037" dir "\037" PKR_ALIAS "\037" PKR_HOLDERS
             }
         }
     ' "$file")"
@@ -2207,6 +2254,12 @@ load_yaml_lists() {
         printf -v "IS_YL_${s}_FILE" '%s' "$file"
         printf -v "IS_YL_${s}_VAL" '%s' "$j"
     done
+    IS_YL_UNRESOLVED=""
+    while IFS= read -r line; do
+        case "$line" in
+            "!"$'\037'*) IS_YL_UNRESOLVED="$IS_YL_UNRESOLVED${line#"!"$'\037'}"$'\n' ;;
+        esac
+    done <<< "$out"
 }
 
 # load_targets_cache <file> — parse the whole targets: section once into the

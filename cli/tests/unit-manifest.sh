@@ -723,129 +723,135 @@ cp "$POS" "$OUT/src-anchor.before"
 chk diff "$OUT/src-anchor.before" "$POS"
 chknot ls "$POS.cli.tmp"
 
-echo "== package_sources_respell: store paths become tokens, in place =="
-RS="$OUT/respell.yaml"
-cat > "$RS" <<'YAML'
+# --- package references and aliases (decision 0019) -------------------------
+REFS="$OUT/refs"
+mkdir -p "$REFS/.intelligence/packages/@ainova-systems/sync/rules" \
+    "$REFS/.intelligence/packages/@ainova-systems/sync/skills" \
+    "$REFS/.intelligence/packages/@acme/tools/rules"
+seed_refs() {
+    cat > "$REFS/intelligence.yaml" <<'YAML'
 project:
   name: unit
 
 sources:
   rules:
-    - ".intelligence/packages/@ainova-systems/core/rules"
+    # by alias, then by full name
+    - "sync:rules"
+    - '@acme/tools/rules'
+    - ".intelligence/packages/@acme/tools/extra"
+    - "acme:deep/rules"
+    - "nope:rules"
     - "intelligence/rules"
-    - '.intelligence/packages/@ainova-systems/sync/rules'
-    - ".intelligence/packages/@orphan/pack/rules"
-    - "package:nope/rules"
   agents:
-    - .intelligence/packages/@ainova-systems/sync/agents
+    - "@ainova-systems/sync/agents"
+    - "intelligence/agents"
   skills:
+    - ".intelligence/packages/@ainova-systems/sync/skills"
+    - "acme:skills"
 
-  # a comment between sections
-# outside sources: .intelligence/packages/@ainova-systems/sync/rules
+# outside sources: "sync:rules" and "@acme/tools/rules" stay as written
 registries:
-  - ".intelligence/packages/@ainova-systems/sync/rules"
+  - "https://example.invalid/registry.git"
 
 packages:
   "@ainova-systems/sync":
     version: "0.19.0"
-  "@ainova-systems/core":
-    version: "^0.9.3"
+    alias: "sync"
+  "@acme/tools":
+    ref: "HEAD"
+    alias: "acme"
 YAML
-package_sources_respell "$RS" =
-chk eq "$IS_SOURCES_RESPELLED" "1"
-chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
-chk eq "$(entries_of "$RS" agents)" "package:sync/agents"
-# Quoting, comments and every line outside sources: survive byte for byte.
-chk grep -qx "    - 'package:sync/rules'" "$RS"
-chk grep -qx '    - package:sync/agents' "$RS"
-chk grep -qx '  # a comment between sections' "$RS"
-chk grep -qx '# outside sources: .intelligence/packages/@ainova-systems/sync/rules' "$RS"
-chk grep -qx '  - ".intelligence/packages/@ainova-systems/sync/rules"' "$RS"
-# A trailing comment stays on its line; only the value changes.
-printf 'sources:\n  rules:\n    - ".intelligence/packages/@a/b/rules"  # keep me\npackages:\n  "@a/b":\n    version: "1"\n' \
-    > "$OUT/respell-comment.yaml"
-package_sources_respell "$OUT/respell-comment.yaml" =
-chk grep -qx '    - "package:b/rules"  # keep me' "$OUT/respell-comment.yaml"
-cp "$RS" "$OUT/respell.once"
-package_sources_respell "$RS" =
-chk eq "$IS_SOURCES_RESPELLED" "0"
-chk diff "$OUT/respell.once" "$RS"
-chknot ls "$RS.cli.tmp"
+}
 
-echo "== package_sources_respell: a shared short name is spelled in full, then short again =="
-# + spells for the set the add leaves behind; each token still means the
-# package it meant before the add.
-chk eq "$(package_source_prefix "$RS" @acme/sync +)" "package:@acme/sync/"
-chk eq "$(package_source_prefix "$RS" @acme/sync)" "package:@acme/sync/"
-chk eq "$(package_source_prefix "$RS" @acme/other +)" "package:other/"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync)" "package:sync/"
-package_sources_respell "$RS" + @acme/sync
-chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:@ainova-systems/sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
-chk eq "$(entries_of "$RS" agents)" "package:@ainova-systems/sync/agents"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync +)" "package:sync/"
-qmap_set "$RS" packages "@acme/sync" ref "HEAD"
-sources_add_entry_first "$RS" rules "package:@acme/sync/rules"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync)" "package:@ainova-systems/sync/"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync -)" "package:@ainova-systems/sync/"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync =)" "package:@ainova-systems/sync/"
-chk eq "$(package_source_prefix "$RS" @ainova-systems/sync +)" "package:@ainova-systems/sync/"
-# An update keeps the set; it drops only the sections the new version lost.
-cp "$RS" "$OUT/respell.collided"
-package_sources_respell "$RS" = @acme/sync agents skills
-chk diff "$OUT/respell.collided" "$RS"
-package_sources_respell "$RS" - @acme/sync rules agents skills
-chk eq "$(entries_of "$RS" rules)" "package:core/rules,intelligence/rules,package:sync/rules,.intelligence/packages/@orphan/pack/rules,package:nope/rules"
-chk eq "$(entries_of "$RS" agents)" "package:sync/agents"
-# Spelling of one entry never depends on where it stands: a full token of the
-# only package with its short name is respelled short too.
-printf 'sources:\n  rules:\n    - "package:@ainova-systems/core/rules"\npackages:\n  "@ainova-systems/core":\n    version: "1"\n' > "$OUT/respell-full.yaml"
-package_sources_respell "$OUT/respell-full.yaml" =
-chk eq "$(entries_of "$OUT/respell-full.yaml" rules)" "package:core/rules"
-# A package that is not declared is spelled in full: a short token resolves
-# against the declared names only.
-printf 'sources:\n  rules:\n    - ".intelligence/packages/@orphan/pack/rules"\n' > "$OUT/respell-orphan.yaml"
-package_sources_respell "$OUT/respell-orphan.yaml" = @orphan/pack
-chk eq "$(entries_of "$OUT/respell-orphan.yaml" rules)" "package:@orphan/pack/rules"
-chk eq "$(package_source_prefix "$OUT/respell-orphan.yaml" @orphan/pack)" "package:@orphan/pack/"
-# A short name starting with @ would read as a scope: always spelled in full.
-printf 'sources:\n  rules:\npackages:\n  "@a/@b":\n    version: "1"\n' > "$OUT/respell-at.yaml"
-chk eq "$(package_source_prefix "$OUT/respell-at.yaml" @a/@b)" "package:@a/@b/"
-package_sources_respell "$OUT/does-not-exist.yaml" =
-chk eq "$IS_SOURCES_RESPELLED" "0"
+echo "== sources_classify_entry: an entry judged against the declared packages =="
+seed_refs
+chk eq "$(sources_classify_entry "$REFS/intelligence.yaml" "sync:rules")" "ok${SEP}.intelligence/packages/@ainova-systems/sync/rules"
+chk eq "$(sources_classify_entry "$REFS/intelligence.yaml" "@acme/tools/a/b")" "ok${SEP}.intelligence/packages/@acme/tools/a/b"
+chk eq "$(sources_classify_entry "$REFS/intelligence.yaml" "@acme/other/rules")" "path${SEP}@acme/other/rules"
+chk eq "$(sources_classify_entry "$REFS/intelligence.yaml" "nope:rules")" "unknown${SEP}"
+chk eq "$(sources_classify_entry "$REFS/intelligence.yaml" "sync:../escape")" "invalid${SEP}"
+chk eq "$(sources_classify_entry "$OUT/does-not-exist.yaml" "sync:rules")" "unknown${SEP}"
 
-echo "== sources_list_entries reads what is written =="
-chk eq "$(sources_list_entries "$RS" agents)" "package:sync/agents"
-chk sources_has_entry "$RS" rules "package:sync/rules"
-chknot sources_has_entry "$RS" rules ".intelligence/packages/@ainova-systems/sync/rules"
+echo "== sources_find_entry: any spelling finds the entry as written =="
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" rules ".intelligence/packages/@ainova-systems/sync/rules")" "sync:rules"
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" rules "@ainova-systems/sync/rules")" "sync:rules"
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" rules "acme:rules")" "@acme/tools/rules"
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" skills "sync:skills")" ".intelligence/packages/@ainova-systems/sync/skills"
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" rules "intelligence/rules")" "intelligence/rules"
+# An entry that renders nothing matches only itself.
+chk eq "$(sources_find_entry "$REFS/intelligence.yaml" rules "nope:rules")" "nope:rules"
+chknot sources_find_entry "$REFS/intelligence.yaml" rules "other:rules"
+chknot sources_find_entry "$REFS/intelligence.yaml" agents "sync:rules"
 
-echo "== wire/unwire_package_sources: the canonical token, first, once =="
-WR="$OUT/wire"
-mkdir -p "$WR/.intelligence/packages/@ainova-systems/sync/rules" "$WR/.intelligence/packages/@ainova-systems/sync/skills" \
-    "$WR/.intelligence/packages/@acme/sync/rules"
-cat > "$WR/intelligence.yaml" <<'YAML'
-sources:
-  rules:
-    - "intelligence/rules"
-  skills:
-    - "intelligence/skills"
-packages:
-  "@ainova-systems/sync":
-    version: "0.19.0"
-YAML
-wire_package_sources "$WR/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$WR"
-chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:sync/rules,intelligence/rules"
-chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:sync/skills,intelligence/skills"
-chk eq "$(entries_of "$WR/intelligence.yaml" agents)" ""
-cp "$WR/intelligence.yaml" "$OUT/wire.once"
-wire_package_sources "$WR/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$WR"
-chk diff "$OUT/wire.once" "$WR/intelligence.yaml"
-wire_package_sources "$WR/intelligence.yaml" "@acme/sync" ".intelligence/packages/@acme/sync" "$WR" declaring
-chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:@acme/sync/rules,package:@ainova-systems/sync/rules,intelligence/rules"
-chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:@ainova-systems/sync/skills,intelligence/skills"
-qmap_set "$WR/intelligence.yaml" packages "@acme/sync" ref "HEAD"
-unwire_package_sources "$WR/intelligence.yaml" "@acme/sync"
-chk eq "$(entries_of "$WR/intelligence.yaml" rules)" "package:sync/rules,intelligence/rules"
-chk eq "$(entries_of "$WR/intelligence.yaml" skills)" "package:sync/skills,intelligence/skills"
+echo "== package_source_listed: every spelling counts as listed =="
+chk package_source_listed "$REFS/intelligence.yaml" rules ".intelligence/packages/@ainova-systems/sync/rules"
+chk package_source_listed "$REFS/intelligence.yaml" agents ".intelligence/packages/@ainova-systems/sync/agents"
+chk package_source_listed "$REFS/intelligence.yaml" skills ".intelligence/packages/@acme/tools/skills"
+chknot package_source_listed "$REFS/intelligence.yaml" agents ".intelligence/packages/@acme/tools/agents"
+chknot package_source_listed "$OUT/does-not-exist.yaml" rules ".intelligence/packages/@ainova-systems/sync/rules"
+
+echo "== wire_package_sources: a package named by full name or alias is not wired again =="
+cp "$REFS/intelligence.yaml" "$OUT/refs.before"
+wire_package_sources "$REFS/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$REFS"
+wire_package_sources "$REFS/intelligence.yaml" "@acme/tools" ".intelligence/packages/@acme/tools" "$REFS"
+chk diff "$OUT/refs.before" "$REFS/intelligence.yaml"
+# Without its alias declared, sync:rules names nothing, and the store path is
+# wired first as it always was.
+awk '!/^    alias: "sync"$/' "$OUT/refs.before" > "$REFS/intelligence.yaml"
+wire_package_sources "$REFS/intelligence.yaml" "@ainova-systems/sync" ".intelligence/packages/@ainova-systems/sync" "$REFS"
+chk eq "$(entries_of "$REFS/intelligence.yaml" rules)" ".intelligence/packages/@ainova-systems/sync/rules,sync:rules,@acme/tools/rules,.intelligence/packages/@acme/tools/extra,acme:deep/rules,nope:rules,intelligence/rules"
+
+echo "== sources_remove_package: one package's entries go, in every spelling =="
+seed_refs
+unwire_package_sources "$REFS/intelligence.yaml" "@acme/tools"
+chk eq "$(entries_of "$REFS/intelligence.yaml" rules)" "sync:rules,nope:rules,intelligence/rules"
+chk eq "$(entries_of "$REFS/intelligence.yaml" agents)" "@ainova-systems/sync/agents,intelligence/agents"
+chk eq "$(entries_of "$REFS/intelligence.yaml" skills)" ".intelligence/packages/@ainova-systems/sync/skills"
+# Comments, quoting and every line outside sources: survive byte for byte.
+chk grep -qx '    # by alias, then by full name' "$REFS/intelligence.yaml"
+chk grep -qx '    - "sync:rules"' "$REFS/intelligence.yaml"
+chk grep -qx '# outside sources: "sync:rules" and "@acme/tools/rules" stay as written' "$REFS/intelligence.yaml"
+chk grep -qx '    alias: "acme"' "$REFS/intelligence.yaml"
+chknot ls "$REFS/intelligence.yaml.cli.tmp"
+# Nothing of the package is left: a second pass changes nothing and does not
+# rewrite the file.
+cp "$REFS/intelligence.yaml" "$OUT/refs.once"
+unwire_package_sources "$REFS/intelligence.yaml" "@acme/tools"
+chk diff "$OUT/refs.once" "$REFS/intelligence.yaml"
+# With sections, only each section's own directory goes (an update that lost it).
+seed_refs
+unwire_package_sources "$REFS/intelligence.yaml" "@acme/tools" skills
+chk eq "$(entries_of "$REFS/intelligence.yaml" skills)" ".intelligence/packages/@ainova-systems/sync/skills"
+chk eq "$(entries_of "$REFS/intelligence.yaml" rules)" "sync:rules,@acme/tools/rules,.intelligence/packages/@acme/tools/extra,acme:deep/rules,nope:rules,intelligence/rules"
+unwire_package_sources "$REFS/intelligence.yaml" "@ainova-systems/sync" rules agents
+chk eq "$(entries_of "$REFS/intelligence.yaml" rules)" "@acme/tools/rules,.intelligence/packages/@acme/tools/extra,acme:deep/rules,nope:rules,intelligence/rules"
+chk eq "$(entries_of "$REFS/intelligence.yaml" agents)" "intelligence/agents"
+unwire_package_sources "$OUT/does-not-exist.yaml" "@acme/tools"
+chknot ls "$OUT/does-not-exist.yaml"
+
+echo "== aliases: read through the engine's parser, validated, unique =="
+seed_refs
+chk eq "$(package_alias_of "$REFS/intelligence.yaml" "@acme/tools")" "acme"
+chk eq "$(package_alias_of "$REFS/intelligence.yaml" "@not/declared")" ""
+for a in sync ab A1 a.b a_b a-b 0day; do
+    chk pkg_alias_valid "$a"
+done
+for a in "" s 1 a/b a:b @a "a b" "a\"b" "a'b" -ab .ab _ab "a\\b" 'a$b' sÿnc; do
+    chknot pkg_alias_valid "$a"
+done
+chk eq "$( ( assert_valid_alias "a/b" ) 2>&1 >/dev/null | head -1)" "ERROR: invalid alias 'a/b' — expected two or more of A-Z a-z 0-9 . _ -, starting with a letter or digit"
+( assert_alias_free "$REFS/intelligence.yaml" "@acme/new" "sync" ) >/dev/null 2>&1 \
+    && { echo "FAIL: an alias another package holds was accepted"; fail=1; }
+chk eq "$( ( assert_alias_free "$REFS/intelligence.yaml" "@acme/new" "sync" ) 2>&1 | head -1)" \
+    "ERROR: alias 'sync' already names @ainova-systems/sync — one alias names one package; choose another"
+chk assert_alias_free "$REFS/intelligence.yaml" "@ainova-systems/sync" "sync"
+chk assert_alias_free "$REFS/intelligence.yaml" "@acme/new" "free"
+chk eq "$(sources_alias_users "$REFS/intelligence.yaml" acme | paste -sd'|' -)" "sources.rules 'acme:deep/rules'|sources.skills 'acme:skills'"
+chk eq "$(sources_alias_users "$REFS/intelligence.yaml" ac)" ""
+( assert_alias_unused "$REFS/intelligence.yaml" "@acme/tools" acme remove ) >/dev/null 2>&1 \
+    && { echo "FAIL: removing an alias sources: uses was accepted"; fail=1; }
+chk grep -q "sources.skills 'acme:skills'" <( ( assert_alias_unused "$REFS/intelligence.yaml" "@acme/tools" acme remove ) 2>&1 )
+chk assert_alias_unused "$REFS/intelligence.yaml" "@acme/tools" unused replace
 
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

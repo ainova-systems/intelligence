@@ -165,13 +165,15 @@ grep -q '^IS_STATUS=ok' <<< "$out" || { echo "FAIL: sync after remove not ok"; f
 chknot grep -q BACKEND_MARKER "$PROJ/AGENTS.md"
 chk test -f "$PROJ/backend/intelligence/rules/backend.md"
 
-echo "== package tokens: a new project names its package, not the store =="
-TOK="$OUT/tokens"
-mkdir -p "$TOK"
-git -C "$TOK" init --quiet
-trun() { (cd "$TOK" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" "$@"); }
-# entries_in <section> — the token project's section as written, comma-joined.
-entries_in() {
+# --- package references (decision 0019) -------------------------------------
+# One project walked through the owner's acceptance criteria for #48, in their
+# order; each heading names the criterion it proves.
+REF="$OUT/references"
+mkdir -p "$REF"
+git -C "$REF" init --quiet
+rrun() { (cd "$REF" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" "$@"); }
+# ref_joined <section> — that section of the project's sources:, comma-joined.
+ref_joined() {
     awk -v sec="$1" '
         { sub(/\r$/, "") }
         /^sources:[ \t]*$/ { ins = 1; next }
@@ -179,75 +181,209 @@ entries_in() {
         ins && $0 ~ "^  " sec ":[ \t]*$" { f = 1; next }
         ins && /^  [A-Za-z_]/ { f = 0 }
         f && /^[ \t]*-/ { v = $0; sub(/^[ \t]*-[ \t]*/, "", v); gsub(/["\047]/, "", v); print v }
-    ' "$TOK/intelligence.yaml" | paste -sd, -
+    ' "$REF/intelligence.yaml" | paste -sd, -
 }
-chk trun init --targets claude
+# sources_block — the sources: block exactly as written.
+sources_block() { sed -n '/^sources:/,/^[a-z]/p' "$REF/intelligence.yaml"; }
+# package_entry <@scope/name> — that package's packages: entry, lines joined by |.
+package_entry() {
+    awk -v key="  \"$1\":" '
+        { sub(/\r$/, "") }
+        /^packages:[ \t]*$/ { p = 1; next }
+        p && /^[^ #]/ { p = 0 }
+        p && /^  "/ { k = ($0 == key) }
+        p && k { print }
+    ' "$REF/intelligence.yaml" | paste -sd'|' -
+}
+# rendered_hashes — every file sync wrote under .claude, hashed.
+rendered_hashes() {
+    (cd "$REF" && find .claude -type f | LC_ALL=C sort | while IFS= read -r f; do
+        printf '%s %s\n' "$(git hash-object --no-filters "$f")" "$f"
+    done)
+}
+# respell <from> <to> — the AC's sed: the first quoted "<from>… on each line
+# becomes "<to>…; nothing else moves.
+respell() {
+    awk -v from="\"$1" -v to="\"$2" '
+        { i = index($0, from); if (i) $0 = substr($0, 1, i - 1) to substr($0, i + length(from)); print }
+    ' "$REF/intelligence.yaml" > "$REF/intelligence.yaml.tmp"
+    mv "$REF/intelligence.yaml.tmp" "$REF/intelligence.yaml"
+}
+STORE_SYNC=".intelligence/packages/@ainova-systems/sync"
+
+echo "== package references: init writes store paths, exactly as before (AC1) =="
+chk rrun init --targets claude
 for s in rules agents skills; do
-    is "sources.$s after init" "package:sync/$s,intelligence/$s" "$(entries_in "$s")"
+    is "sources.$s after init" "$STORE_SYNC/$s,intelligence/$s" "$(ref_joined "$s")"
 done
-is "no vendor scope in sources:" "0" "$(sed -n '/^sources:/,/^[a-z]/p' "$TOK/intelligence.yaml" | grep -c @ainova-systems || true)"
-chk test -f "$TOK/.claude/skills/intelligence-sync/SKILL.md"
-chk trun status --check
-out="$(trun source list)"
-grep -q '1\. package:sync/rules  package$' <<< "$out" || { echo "FAIL: source list does not show the token as package content: $out"; fail=1; }
+chk test -f "$REF/.claude/skills/intelligence-sync/SKILL.md"
+chk rrun status --check
+rendered_hashes > "$OUT/ref.hashes"
+chk test -s "$OUT/ref.hashes"
+cp "$REF/intelligence.yaml" "$OUT/ref-ac1.yaml"
 
-echo "== status --check names a token no declared package matches =="
-cp "$TOK/intelligence.yaml" "$OUT/tokens-before.yaml"
-awk '{ print } /^  rules:$/ { print "    - \"package:nope/rules\"" }' "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
+echo "== package references: the full name renders the same bytes (AC2) =="
+respell "$STORE_SYNC/" "@ainova-systems/sync/"
+is "rules spelled by full name" "@ainova-systems/sync/rules,intelligence/rules" "$(ref_joined rules)"
+sources_block > "$OUT/ref-ac2.sources"
+chk rrun sync
+rendered_hashes > "$OUT/ref-ac2.hashes"
+chk cmp -s "$OUT/ref.hashes" "$OUT/ref-ac2.hashes"
+sources_block > "$OUT/ref-ac2.after"
+chk cmp -s "$OUT/ref-ac2.sources" "$OUT/ref-ac2.after"
+chk rrun status --check
+
+echo "== package references: an alias renders the same bytes (AC3) =="
+cp "$OUT/ref-ac1.yaml" "$REF/intelligence.yaml"
+sources_block > "$OUT/ref-ac3.before"
+chk rrun package alias @ainova-systems/sync sync
+ENGINE_VERSION_LINE="    version: \"$ENGINE_VER\""
+is "the package's entry gains the alias" "  \"@ainova-systems/sync\":|$ENGINE_VERSION_LINE|    alias: \"sync\"" \
+    "$(package_entry @ainova-systems/sync)"
+sources_block > "$OUT/ref-ac3.after"
+chk cmp -s "$OUT/ref-ac3.before" "$OUT/ref-ac3.after"
+respell "$STORE_SYNC/" "sync:"
+is "rules spelled by alias" "sync:rules,intelligence/rules" "$(ref_joined rules)"
+chk rrun sync
+rendered_hashes > "$OUT/ref-ac3.hashes"
+chk cmp -s "$OUT/ref.hashes" "$OUT/ref-ac3.hashes"
+is "no vendor scope in sources:" "0" "$(sources_block | grep -c @ainova-systems || true)"
+chk rrun status --check
+out="$(rrun package list)"
+grep -q '^@ainova-systems/sync  .*  alias:sync$' <<< "$out" || { echo "FAIL: package list hides the alias: $out"; fail=1; }
+out="$(rrun source list)"
+grep -q '1\. sync:rules  package$' <<< "$out" || { echo "FAIL: source list does not show the alias as package content: $out"; fail=1; }
+cp "$REF/intelligence.yaml" "$OUT/ref-ac3.yaml"
+
+echo "== package references: an alias sources: uses cannot be taken away =="
+err="$(rrun package alias @ainova-systems/sync --remove 2>&1)" \
+    && { echo "FAIL: removing an alias in use was accepted"; fail=1; }
+grep -q "sources.rules 'sync:rules'" <<< "$err" || { echo "FAIL: the refusal does not name the entries: $err"; fail=1; }
+err="$(rrun package alias @ainova-systems/sync other 2>&1)" \
+    && { echo "FAIL: replacing an alias in use was accepted"; fail=1; }
+grep -q "sources.skills 'sync:skills'" <<< "$err" || { echo "FAIL: the refusal does not name the entries: $err"; fail=1; }
+err="$(rrun package alias @acme/absent other 2>&1)" \
+    && { echo "FAIL: an alias for an undeclared package was accepted"; fail=1; }
+chk cmp -s "$OUT/ref-ac3.yaml" "$REF/intelligence.yaml"
+out="$(rrun package alias @ainova-systems/sync sync)"
+grep -q 'unchanged' <<< "$out" || { echo "FAIL: setting the same alias again is not a no-op: $out"; fail=1; }
+chk cmp -s "$OUT/ref-ac3.yaml" "$REF/intelligence.yaml"
+
+echo "== package references: nothing writes the store path back (AC4) =="
+sources_block > "$OUT/ref-ac4.sources"
+rm -rf "$REF/.intelligence/packages"
+chk rrun sync
+chk test -f "$REF/.claude/skills/intelligence-sync/SKILL.md"
+sources_block > "$OUT/ref-ac4.restored"
+chk cmp -s "$OUT/ref-ac4.sources" "$OUT/ref-ac4.restored"
+awk '{ if ($0 ~ /^schema_version:/) print "schema_version: \"0.18.1\""; else print }' \
+    "$REF/intelligence.yaml" > "$REF/intelligence.yaml.tmp"
+mv "$REF/intelligence.yaml.tmp" "$REF/intelligence.yaml"
+out="$(rrun sync 2>&1)" || { echo "FAIL: sync of a 0.18.1 stamp: $out"; fail=1; }
+grep -q 'project alignment: stamp 0.18.1' <<< "$out" || { echo "FAIL: alignment did not run: $out"; fail=1; }
+is "schema_version after alignment" "schema_version: \"$ENGINE_VER\"" "$(grep '^schema_version:' "$REF/intelligence.yaml")"
+sources_block > "$OUT/ref-ac4.aligned"
+chk cmp -s "$OUT/ref-ac4.sources" "$OUT/ref-ac4.aligned"
+rendered_hashes > "$OUT/ref-ac4.hashes"
+chk cmp -s "$OUT/ref.hashes" "$OUT/ref-ac4.hashes"
+
+echo "== package references: an alias no package declares (AC6) =="
+cp "$OUT/ref-ac3.yaml" "$REF/intelligence.yaml"
+awk '{ print } /^  rules:$/ { print "    - \"nope:rules\"" }' "$OUT/ref-ac3.yaml" > "$REF/intelligence.yaml"
+out="$(rrun sync 2>&1)" || { echo "FAIL: sync with an unknown alias failed: $out"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$out" || { echo "FAIL: sync with an unknown alias not ok"; fail=1; }
+grep -q "^WARNING: sources.rules 'nope:rules' " <<< "$out" || { echo "FAIL: sync did not warn about nope:rules: $out"; fail=1; }
 rc=0
-out="$(trun status --check 2>&1)" || rc=$?
-[ "$rc" -ne 0 ] || { echo "FAIL: status --check accepted package:nope/rules"; fail=1; }
-grep -q "'package:nope/rules' matches no declared package" <<< "$out" \
-    || { echo "FAIL: status --check does not name package:nope/rules: $out"; fail=1; }
-# Sync skips it, like any source that names no directory, and says so.
-out="$(trun sync 2>&1)" || { echo "FAIL: sync with an unresolved token failed"; fail=1; }
-grep -q '^IS_STATUS=ok' <<< "$out" || { echo "FAIL: sync with an unresolved token not ok"; fail=1; }
-grep -q "WARNING: sources.rules 'package:nope/rules' resolves to no single declared package" <<< "$out" \
-    || { echo "FAIL: sync did not warn about package:nope/rules"; fail=1; }
-chk test -f "$TOK/.claude/skills/intelligence-sync/SKILL.md"
-out="$(trun source list)"
-grep -q 'package:nope/rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag the unresolved token: $out"; fail=1; }
-# The full form of a package `packages:` does not declare names nothing either,
-# even while the store still holds its directory: nothing renders from it, and a
-# store directory missing behind it never sends sync into a restore.
-awk '{ print } /^  rules:$/ { print "    - \"package:@acme/gone/rules\"" }' "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
-mkdir -p "$TOK/.intelligence/packages/@acme/gone/rules"
-printf '# Gone\n\nGONE_MARKER\n' > "$TOK/.intelligence/packages/@acme/gone/rules/gone.md"
-out="$(trun status --check 2>&1 || true)"
-grep -q "'package:@acme/gone/rules' matches no declared package" <<< "$out" \
-    || { echo "FAIL: status --check does not name an undeclared full-form token: $out"; fail=1; }
-out="$(trun sync 2>&1)" || { echo "FAIL: sync with an undeclared full-form token failed"; fail=1; }
-grep -q "WARNING: sources.rules 'package:@acme/gone/rules' resolves to no single declared package" <<< "$out" \
-    || { echo "FAIL: sync did not warn about an undeclared full-form token: $out"; fail=1; }
-chknot test -e "$TOK/.claude/rules/gone.md"
-out="$(trun source list)"
-grep -q 'package:@acme/gone/rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag an undeclared full-form token: $out"; fail=1; }
-rm -rf "$TOK/.intelligence/packages/@acme"
-out="$(trun sync 2>&1)" || { echo "FAIL: sync with an undeclared full-form token and no store failed"; fail=1; }
-if grep -q 'restoring package store' <<< "$out"; then echo "FAIL: an undeclared full-form token sent sync into a restore: $out"; fail=1; fi
-# A malformed token and a short name two declared packages share are judged too.
-awk '{ print } /^  rules:$/ { print "    - \"package:sync\"" } /^packages:$/ { print "  \"@acme/sync\":"; print "    ref: \"HEAD\"" }' \
-    "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
-out="$(trun status --check 2>&1 || true)"
-grep -q "'package:sync' is not a package source" <<< "$out" || { echo "FAIL: --check accepts a malformed token"; fail=1; }
-grep -qF "'package:sync/rules' is ambiguous: @acme/sync, @ainova-systems/sync are all named 'sync' — name one in full: package:<@scope/name>/rules" <<< "$out" \
-    || { echo "FAIL: --check does not report an ambiguous short token: $out"; fail=1; }
-cp "$OUT/tokens-before.yaml" "$TOK/intelligence.yaml"
+out="$(rrun status --check 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL: status --check accepted nope:rules"; fail=1; }
+grep -q "✗ sources.rules 'nope:rules' names alias 'nope'" <<< "$out" \
+    || { echo "FAIL: status --check does not name nope:rules: $out"; fail=1; }
+out="$(rrun source list)"
+grep -q 'nope:rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag nope:rules: $out"; fail=1; }
+awk '{ if ($0 == "    - \"nope:rules\"") print "    - \"@acme/missing/rules\""; else print }' \
+    "$REF/intelligence.yaml" > "$REF/intelligence.yaml.tmp"
+mv "$REF/intelligence.yaml.tmp" "$REF/intelligence.yaml"
+rc=0
+out="$(rrun status --check 2>&1)" || rc=$?
+is "status --check with an @ path no package matches" "0" "$rc"
+grep -q "✓ sources.rules '@acme/missing/rules' — not created yet (optional)" <<< "$out" \
+    || { echo "FAIL: @acme/missing/rules is not an ordinary project path: $out"; fail=1; }
 
-echo "== source add|remove leave package tokens to package, and anchor on them =="
-mkdir -p "$TOK/docs/rules"
-printf '# Docs\n\nDOCS_MARKER\n' > "$TOK/docs/rules/docs.md"
-err="$(trun source add rules package:sync/rules 2>&1 || true)"
-grep -q 'intelligence package add' <<< "$err" || { echo "FAIL: source add of a token does not name package add: $err"; fail=1; }
-err="$(trun source remove rules package:sync/rules 2>&1 || true)"
-grep -q 'intelligence package remove' <<< "$err" || { echo "FAIL: source remove of a token does not name package remove: $err"; fail=1; }
-chknot trun source add rules package:sync/rules
-chknot trun source remove rules package:sync/rules
-chk diff -q "$OUT/tokens-before.yaml" "$TOK/intelligence.yaml"
-chk trun source add rules docs/rules --after package:sync/rules
-is "--after a token" "package:sync/rules,docs/rules,intelligence/rules" "$(entries_in rules)"
-chk trun sync
-chk grep -q DOCS_MARKER "$TOK/.claude/rules/docs.md"
+echo "== package references: one directory under two spellings is reported =="
+awk '{ print } $0 == "    - \"sync:rules\"" { print "    - \"@ainova-systems/sync/rules\"" }' \
+    "$OUT/ref-ac3.yaml" > "$REF/intelligence.yaml"
+rc=0
+out="$(rrun status --check 2>&1)" || rc=$?
+[ "$rc" -ne 0 ] || { echo "FAIL: status --check accepted a package directory listed twice"; fail=1; }
+grep -qF "sources.rules names $STORE_SYNC/rules twice, as 'sync:rules' and as '@ainova-systems/sync/rules'" <<< "$out" \
+    || { echo "FAIL: status --check does not name both spellings: $out"; fail=1; }
+
+echo "== package references: the source command leaves them to package (AC8) =="
+cp "$OUT/ref-ac3.yaml" "$REF/intelligence.yaml"
+mkdir -p "$REF/docs/rules"
+printf '# Docs\n\nDOCS_MARKER\n' > "$REF/docs/rules/docs.md"
+chk rrun source add rules docs/rules --after sync:rules
+is "--after an alias" "sync:rules,docs/rules,intelligence/rules" "$(ref_joined rules)"
+cp "$REF/intelligence.yaml" "$OUT/ref-ac8.yaml"
+err="$(rrun source add rules @ainova-systems/sync/rules 2>&1)" \
+    && { echo "FAIL: source add accepted a full-name reference"; fail=1; }
+grep -q 'intelligence package' <<< "$err" || { echo "FAIL: source add does not name intelligence package: $err"; fail=1; }
+err="$(rrun source remove rules sync:rules 2>&1)" \
+    && { echo "FAIL: source remove accepted an alias reference"; fail=1; }
+grep -q 'intelligence package' <<< "$err" || { echo "FAIL: source remove does not name intelligence package: $err"; fail=1; }
+err="$(rrun source add rules nope:rules 2>&1)" \
+    && { echo "FAIL: source add accepted an alias no package declares"; fail=1; }
+grep -q 'intelligence package' <<< "$err" || { echo "FAIL: an unknown alias is not refused as a reference: $err"; fail=1; }
+chk cmp -s "$OUT/ref-ac8.yaml" "$REF/intelligence.yaml"
+# Every spelling of the anchor finds the entry as written.
+chk rrun source add rules docs/rules --before "$STORE_SYNC/rules"
+is "--before the store path of an alias entry" "docs/rules,sync:rules,intelligence/rules" "$(ref_joined rules)"
+chk rrun source add rules docs/rules --after @ainova-systems/sync/rules
+is "--after the full name of an alias entry" "sync:rules,docs/rules,intelligence/rules" "$(ref_joined rules)"
+chk rrun sync
+chk grep -q DOCS_MARKER "$REF/.claude/rules/docs.md"
+
+echo "== package references: --alias at add, held by one package only (AC5) =="
+cp "$OUT/ref-ac3.yaml" "$REF/intelligence.yaml"
+chk rrun sync
+ACME="$OUT/acme-tools"
+mkdir -p "$ACME/rules"
+printf '# Acme\n\nACME_MARKER\n' > "$ACME/rules/acme.md"
+git -C "$ACME" init --quiet
+git -C "$ACME" -c user.email=t@t -c user.name=t add -A
+git -C "$ACME" -c user.email=t@t -c user.name=t commit --quiet -m acme
+cp "$REF/intelligence.yaml" "$OUT/ref-ac5.yaml"
+cp "$REF/intelligence.lock" "$OUT/ref-ac5.lock"
+err="$(rrun package add "git+file://$ACME" --name @acme/tools --alias sync 2>&1)" \
+    && { echo "FAIL: an alias another package holds was accepted"; fail=1; }
+grep -q "alias 'sync' already names @ainova-systems/sync" <<< "$err" \
+    || { echo "FAIL: the refusal does not name the holder: $err"; fail=1; }
+chk cmp -s "$OUT/ref-ac5.yaml" "$REF/intelligence.yaml"
+chk cmp -s "$OUT/ref-ac5.lock" "$REF/intelligence.lock"
+chknot test -e "$REF/.intelligence/packages/@acme"
+err="$(rrun package add "git+file://$ACME" --name @acme/tools --alias 'a/b' 2>&1)" \
+    && { echo "FAIL: alias a/b was accepted"; fail=1; }
+grep -q "invalid alias 'a/b'" <<< "$err" || { echo "FAIL: the refusal does not name a/b: $err"; fail=1; }
+chk cmp -s "$OUT/ref-ac5.yaml" "$REF/intelligence.yaml"
+chk cmp -s "$OUT/ref-ac5.lock" "$REF/intelligence.lock"
+chk rrun package add "git+file://$ACME" --name @acme/tools --alias acme
+is "the new package's entry" '  "@acme/tools":|    ref: "HEAD"|    alias: "acme"' "$(package_entry @acme/tools)"
+chk test -f "$REF/.claude/rules/acme.md"
+is "store path wired first, as before" ".intelligence/packages/@acme/tools/rules,sync:rules,intelligence/rules" "$(ref_joined rules)"
+# Re-adding keeps the alias it declares.
+chk rrun package add "git+file://$ACME" --name @acme/tools --no-sync
+is "a re-added package keeps its alias" '  "@acme/tools":|    ref: "HEAD"|    alias: "acme"' "$(package_entry @acme/tools)"
+
+echo "== package references: removing a package removes them, in every spelling (AC7) =="
+respell ".intelligence/packages/@acme/tools/rules" "acme:rules"
+is "rules before the remove" "acme:rules,sync:rules,intelligence/rules" "$(ref_joined rules)"
+chk rrun package remove @acme/tools
+chknot grep -q 'acme:' "$REF/intelligence.yaml"
+chknot grep -q '@acme/tools' "$REF/intelligence.yaml"
+chknot grep -q 'alias: "acme"' "$REF/intelligence.yaml"
+chknot test -e "$REF/.claude/rules/acme.md"
+is "rules after the remove" "sync:rules,intelligence/rules" "$(ref_joined rules)"
+chk rrun status --check
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E-SOURCES: ALL OK"
 exit "$fail"

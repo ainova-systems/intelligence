@@ -9,10 +9,12 @@
 # content that should behave like a package (a pack developed in the repository
 # that ships it) belongs after the store entries and before the project's.
 #
-# Installed package content is NOT managed here: `package:<name>/<dir>` entries
-# — and the `.intelligence/` store paths they replaced — are written by
-# `package add` and removed by `package remove`. A token is still a valid
-# `--before` / `--after` anchor: that is how a directory lands next to a package.
+# Installed package content is NOT managed here: `.intelligence/` entries are
+# written by `package add` and removed by `package remove`, and so are the
+# entries that name a package's directory by its full name or alias
+# (`@scope/name/<dir>`, `<alias>:<dir>`, decision 0019). Any of those spellings
+# is still a valid `--before` / `--after` anchor: that is how a directory lands
+# next to a package.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
 
@@ -37,47 +39,66 @@ assert_source_section() {
 # repaired — a source entry decides which artifact wins, so a path the user did
 # not type is the wrong kind of help.
 
+# assert_not_package_reference <manifest> <dir> <add|remove> — refuse an entry
+# the engine reads as a package reference: a directory of a package `packages:`
+# declares, by full name or alias, or an alias no package declares. It is
+# package territory however it is spelled.
+assert_not_package_reference() {
+    local state rendered rest pkg
+    IFS=$'\037' read -r state rendered <<< "$(sources_classify_entry "$1" "$2")"
+    rest="${rendered#.intelligence/packages/}"
+    pkg="${rest%%/*}/"
+    rest="${rest#*/}"
+    pkg="$pkg${rest%%/*}"
+    case "$state/$3" in
+        path/*) return 0 ;;
+        ok/add) die "'$2' names a directory of the installed package $pkg — 'intelligence package add' wires a package's directories into sources" ;;
+        ok/remove) die "'$2' is installed package content — remove the package instead: intelligence package remove $pkg" ;;
+        */add) die "'$2' is a package reference, not a project directory — 'intelligence package add' wires a package's directories into sources" ;;
+        *) die "'$2' is a package reference, not a project directory — 'intelligence package remove <@scope/name>' removes a package's entries" ;;
+    esac
+}
+
 # assert_valid_source_dir <root> <dir> — refuse what the engine cannot report.
 # The shape checks are `source_entry_problem`, shared with `status --check` so
 # one definition covers both the entry about to be written and the one already
-# in the manifest; the package rule is this command's alone, because a
-# `package:` or `.intelligence/` entry is legitimate when `package add` wrote it.
+# in the manifest; the package rules are this command's alone, because a
+# package entry is legitimate when `package add` wrote it or a person spelled
+# it by the package's name.
 assert_valid_source_dir() {
     local root="$1" dir="$2" problem
     [ -n "$dir" ] || die "$USAGE"
     case "$dir" in
         *\\*) die "invalid source '$dir' — manifest paths use '/': ${dir//\\//}" ;;
-        package:*)
-            die "'$dir' names installed package content — install it with 'intelligence package add', which wires its sources automatically"
-            ;;
         .intelligence|.intelligence/*)
             die "'$dir' is inside the CLI-managed package store — install content with 'intelligence package add', and it is wired into sources automatically"
             ;;
     esac
+    assert_not_package_reference "$root/intelligence.yaml" "$dir" add
     problem="$(source_entry_problem "$root" "$dir")"
     [ -z "$problem" ] || die "invalid source '$dir': it $problem"
 }
 
 # Print one section with its override direction and the state of each entry.
 # Position is the whole point of the block, so every mutation ends by showing
-# the order it produced rather than only naming what it wrote.
+# the order it produced rather than only naming what it wrote. Entries are
+# listed as written and judged by the directory the engine renders them as.
 print_section() {
     local manifest="$1" root="$2" section="$3" entry state dir n=0 note
     echo "sources.$section (a later entry overrides an earlier one):"
     [ -f "$manifest" ] || { echo "  (none)"; return 0; }
-    # Listed as written; judged by the directory the engine renders it as.
     while IFS=$'\037' read -r entry state dir _; do
         [ -n "$entry" ] || continue
         n=$((n + 1))
         note=""
         case "$state" in
-            ok) note="  package" ;;
-            undeclared|unknown|ambiguous|invalid) note="  UNRESOLVED — intelligence status --check" ;;
-            *) case "$dir" in .intelligence/*) note="  package" ;; esac ;;
-        esac
-        case "$state" in
-            undeclared|unknown|ambiguous|invalid) ;;
-            *) [ -d "$root/$dir" ] || note="$note  MISSING" ;;
+            path|ok)
+                case "$dir" in
+                    .intelligence/*) note="  package" ;;
+                esac
+                [ -d "$root/$dir" ] || note="$note  MISSING"
+                ;;
+            *) note="  UNRESOLVED — intelligence status --check" ;;
         esac
         printf '  %d. %s%s\n' "$n" "$entry" "$note"
     done < <(read_source_entries "$manifest" "$section")
@@ -121,10 +142,16 @@ case "$action" in
         ensure_project_current "$IP_ROOT"
         manifest="$IP_ROOT/intelligence.yaml"
 
-        if [ -n "$anchor" ] && ! sources_has_entry "$manifest" "$section" "$anchor"; then
-            echo "ERROR: sources.$section does not list '$anchor'." >&2
-            print_section "$manifest" "$IP_ROOT" "$section" >&2
-            exit 1
+        # The anchor may be spelled differently from the entry it means — a
+        # package's store path, full name or alias — so it is matched by the
+        # directory it names and placed against the entry as written.
+        if [ -n "$anchor" ]; then
+            if ! listed="$(sources_find_entry "$manifest" "$section" "$anchor")"; then
+                echo "ERROR: sources.$section does not list '$anchor'." >&2
+                print_section "$manifest" "$IP_ROOT" "$section" >&2
+                exit 1
+            fi
+            anchor="$listed"
         fi
 
         if sources_has_entry "$manifest" "$section" "$dir"; then
@@ -154,14 +181,15 @@ case "$action" in
         [ $# -le 2 ] || die "$USAGE"
         dir="$(normalize_source_dir "$dir")"
         case "$dir" in
-            package:*|.intelligence|.intelligence/*)
+            .intelligence|.intelligence/*)
                 die "'$dir' is installed package content — remove the package instead: intelligence package remove <@scope/name>"
                 ;;
         esac
 
         require_cli_project
-        ensure_project_current "$IP_ROOT"
         manifest="$IP_ROOT/intelligence.yaml"
+        assert_not_package_reference "$manifest" "$dir" remove
+        ensure_project_current "$IP_ROOT"
 
         if ! sources_has_entry "$manifest" "$section" "$dir"; then
             echo "not listed: sources.$section does not hold $dir"

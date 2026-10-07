@@ -10,17 +10,17 @@ schema_version: "0.19.0"
 
 sources:
   rules:
-    - "package:sync/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
     - "backend/intelligence/rules"
     - "frontend/intelligence/rules"
   agents:
-    - "package:sync/agents"
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
     - "backend/intelligence/agents"
     - "frontend/intelligence/agents"
   skills:
-    - "package:sync/skills"
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
     - "backend/intelligence/skills"
     - "frontend/intelligence/skills"
@@ -45,10 +45,9 @@ ignore:
   - "bin"
   - "obj"
 
-# CLI-owned blocks — below this line the engine reads only the package names,
-# which `package:` sources resolve against. The engine's own content is an
-# ordinary package, pinned to the engine and restored offline from the CLI
-# bundle.
+# CLI-owned blocks — below this line the engine reads only package names and
+# aliases. The engine's own content is an ordinary package, pinned to the engine
+# and restored offline from the CLI bundle.
 packages:
   "@ainova-systems/sync":
     version: "0.19.0"

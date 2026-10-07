@@ -50,28 +50,28 @@ The `intelligence-` name prefix is reserved for artifacts shipped by `@ainova-sy
 
 ## Manifest, packages and sources
 
-The engine consumes local source directories. A package's directories are named by the package, not by their store path:
+The engine consumes ordinary local source paths:
 
 ```yaml
 project:
   name: payments
   intelligence_dir: "intelligence"  # optional; this is the default
 
-schema_version: "0.19.0"
+schema_version: "0.11.1"
 
 sources:
   rules:
-    - "package:sync/rules"
+    - ".intelligence/packages/@ainova-systems/sync/rules"
     - "intelligence/rules"
   agents:
-    - "package:sync/agents"
+    - ".intelligence/packages/@ainova-systems/sync/agents"
     - "intelligence/agents"
   skills:
-    - "package:sync/skills"
+    - ".intelligence/packages/@ainova-systems/sync/skills"
     - "intelligence/skills"
 ```
 
-`package:<name>/<dir>` is `<dir>` inside an installed package: `package:sync/rules` renders `.intelligence/packages/@ainova-systems/sync/rules`. `<name>` is the full `@scope/name`, or only the part after its `/` while no other declared package shares that part. `intelligence package add` and `intelligence package remove` write and remove these entries, and they keep the spelling canonical: when two declared packages share a short name, both are written in full (`package:@acme/sync/rules`). Never write a `.intelligence/` store path into `sources:`; a manifest from before `0.19.0` that holds one is rewritten to its token by lifecycle alignment.
+A package's directory may also be named by the package instead of its store path: `@ainova-systems/sync/rules` names folder `rules` of the package `packages:` declares as `@ainova-systems/sync`, and `sync:rules` names it through the alias that package declares (`intelligence package alias @ainova-systems/sync sync`). Both render exactly as the store path, and both are installed package content like it: edit that content in its source repository. The CLI writes store paths and never rewrites a reference a person wrote; an `@scope/name/...` entry for a package `packages:` does not declare is an ordinary project path.
 
 Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
 
