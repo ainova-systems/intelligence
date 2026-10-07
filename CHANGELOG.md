@@ -16,6 +16,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - OpenCode defaults to `anthropic/claude-opus-5-5` for `heavy` and `anthropic/claude-sonnet-5-5` for `standard`.
 - `light` no longer uses the retiring Haiku 4.5: Claude Code gets `sonnet` and OpenCode `anthropic/claude-sonnet-5-5`.
 - Cursor's `light` default is `inherit`; `fast` is no longer a documented model value.
+- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of over twenty under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
 
 ### Fixed
 
