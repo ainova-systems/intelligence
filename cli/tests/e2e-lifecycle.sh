@@ -771,7 +771,7 @@ chknot test -e "$POL/.agents/skills/owner-only/agents/openai.yaml"
 echo "== Copilot output is ignored by default; commit_output keeps it tracked =="
 # Copilot in the editor reads its files from disk after sync, as Cursor and
 # Claude Code do, so the default ignores them. Only Copilot on github.com reads
-# the repository, and committing for it is the project's opt-in (decision 0014).
+# the repository, and committing for it is the project's opt-in (decision 0015).
 COP="$OUT/copilot-policy"
 mkdir -p "$COP/.github/workflows" "$COP/intelligence/rules" "$COP/intelligence/agents" \
     "$COP/intelligence/skills/cop-skill"

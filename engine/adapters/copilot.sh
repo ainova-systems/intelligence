@@ -12,7 +12,7 @@
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
 #
-# Git policy (decision 0014): generated output is ignored by default, as it is
+# Git policy (decision 0015): generated output is ignored by default, as it is
 # for Cursor and Claude Code — Copilot in the editor reads it from disk after
 # sync. GitHub's cloud Copilot (code review, the coding agent) reads the
 # repository instead, so `targets.copilot.commit_output: true` keeps the output
@@ -43,6 +43,10 @@ adapter_contract_copilot() {
     for sub in instructions prompts agents skills; do
         "$record" "$output/$sub/"
     done
+    # The root instructions file onboarding quarantines, like CLAUDE.md and
+    # .cursorrules: its content migrates into project rules, and a copy left
+    # behind makes Copilot ignore AGENTS.md (copilot-cli#489).
+    "$record" "$output/copilot-instructions.md"
 }
 
 # copilot_commit_output_var <manifest> — the one reader of

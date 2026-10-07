@@ -1,4 +1,4 @@
-# 0014 — Ignore generated Copilot output
+# 0015 — Ignore generated Copilot output
 
 Date: 2026-10-07
 Status: accepted
@@ -30,7 +30,10 @@ fallback every tool reads, and a fresh clone has it only if it is committed.
 1. The Copilot contract ignores the four directories it owns under its output —
    `instructions/`, `prompts/`, `agents/` and `skills/` — and never `.github/`
    itself. Each is owned and rewritten by every sync, so the ignore covers
-   generated output only.
+   generated output only. The legacy root file `copilot-instructions.md`
+   follows the same policy, as `CLAUDE.md`, `.cursorrules` and `GEMINI.md` do
+   for their tools: onboarding migrates its content into project rules, and a
+   copy left behind makes Copilot ignore `AGENTS.md`.
 2. `targets.copilot.commit_output: true` keeps them tracked for Copilot on
    github.com. It accepts `true` or `false`; omission is `false`, and sync
    refuses any other value and restores every output it touched.

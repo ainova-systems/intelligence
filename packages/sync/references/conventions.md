@@ -364,15 +364,16 @@ GEMINI.md
 # files, so they remain tracked unless the project chooses exact file ignores.
 .opencode/agents/
 
-# Generated Copilot content. `.github/` also holds workflows, templates and
-# hand-written files, so only the generated subdirectories are ignored.
+# Generated Copilot content and its legacy root file. `.github/` also holds
+# workflows, templates and hand-written files, so only these are ignored.
 .github/instructions/
 .github/prompts/
 .github/agents/
 .github/skills/
+.github/copilot-instructions.md
 ```
 
-Copilot output follows the same policy as Cursor and Claude Code: Copilot in the editor reads the generated files from disk after sync, so they are not committed. Never ignore `.github/` wholesale. Copilot on github.com — code review and the coding agent — reads the repository instead of a sync; a project that wants it to see the rules, agents and skills sets `commit_output: true` on its Copilot target and runs `intelligence init`, which takes the four patterns back out of the CLI-managed block (lines above its header stay the project's own):
+Copilot output follows the same policy as Cursor and Claude Code: Copilot in the editor reads the generated files from disk after sync, so they are not committed. `.github/copilot-instructions.md` is treated like `CLAUDE.md` and `.cursorrules`: onboarding migrates it into project rules, and a copy left behind makes Copilot ignore `AGENTS.md`. Never ignore `.github/` wholesale. Copilot on github.com — code review and the coding agent — reads the repository instead of a sync; a project that wants it to see the rules, agents and skills sets `commit_output: true` on its Copilot target and runs `intelligence init`, which takes these five patterns back out of the CLI-managed block (lines above its header stay the project's own):
 
 ```yaml
 targets:

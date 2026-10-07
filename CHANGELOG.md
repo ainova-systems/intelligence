@@ -4,6 +4,23 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.19.0]
+
+### Added
+
+- `targets.copilot.commit_output: true` keeps generated Copilot output tracked for Copilot on github.com (decision 0015).
+
+### Changed
+
+- Generated Copilot output is gitignored by default, as Cursor's and Claude Code's is: `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and the legacy `.github/copilot-instructions.md`. `.github/` itself, workflows and templates stay tracked.
+- `status --check` also reports a Copilot line that `commit_output: true` withdraws but `.gitignore` still holds, and every Git-policy finding names `intelligence init` as the fix.
+
+### Breaking
+
+- [ ] Unless `targets.copilot.commit_output: true`, the CLI-managed block of `.gitignore` lists `.github/instructions/`, `.github/prompts/`, `.github/agents/`, `.github/skills/` and `.github/copilot-instructions.md` — run `intelligence init` to apply it.
+- [ ] Unless `targets.copilot.commit_output: true`, `git ls-files .github/instructions .github/prompts .github/agents .github/skills .github/copilot-instructions.md` prints nothing — run the `git rm --cached` commands `intelligence init` prints, and commit.
+- [ ] `intelligence status --check` exits 0.
+
 ## [0.18.1]
 
 ### Changed
