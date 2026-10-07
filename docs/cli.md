@@ -499,6 +499,6 @@ bash cli/tests/verify.sh
 bash cli/tests/verify.sh all
 ```
 
-The `tests` scope runs every hermetic suite named in the runner's `SUITES` list; the lint scopes need `shellcheck` on `PATH` and refuse to report success without it.
+The `tests` scope runs every hermetic suite named in the runner's `SUITES` list; the lint scopes need `shellcheck` on `PATH` and refuse to report success without it. On Windows the runner moves the scope into WSL when a distribution can run it; `CONTRIBUTING.md` covers the switches.
 
 Build the npm payload with `bash npm/build.sh 0.0.0-dev`. To release, create and push a tag from `main`, then publish a GitHub Release for it. Prerelease tag `vX.Y.Z-rc.N` goes to npm dist-tag `next`; stable tag `vX.Y.Z` goes to `latest` and advances a stale `next` without replacing a newer preview line. Mark an RC Release as a prerelease; the workflow rejects a tag outside `main`, a base version that differs from `engine/VERSION`, or a mismatched prerelease flag.

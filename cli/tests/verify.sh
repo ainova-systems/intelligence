@@ -16,6 +16,10 @@
 #
 # Suites take a repository root so CI can point them at its workspace; they
 # default to the tree this script lives in, which is what the local flow wants.
+#
+# On Windows the scope runs in WSL when a distribution can run it (decision
+# 0014); INTELLIGENCE_VERIFY_NATIVE=1 keeps it in Git Bash, and
+# INTELLIGENCE_VERIFY_WSL_DISTRO names a distribution other than the default.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -94,10 +98,8 @@ changed_paths() {
     git status --porcelain=1 | awk 'NF { print $NF }' || return 1
 }
 
-main() {
-    local scope="${1:-auto}" paths="" want_lint=0 want_tests=0
-
-    case "$scope" in
+run_scope() {
+    case "$1" in
         lint)        gate "lint: engine" lint_engine; gate "lint: cli" lint_cli ;;
         lint-engine) gate "lint: engine" lint_engine ;;
         lint-cli)    gate "lint: cli" lint_cli ;;
@@ -107,6 +109,77 @@ main() {
             gate "lint: cli" lint_cli
             gate "tests: CLI suites" run_suites
             ;;
+    esac
+}
+
+# --- Windows: the same scope in WSL (decision 0014) -------------------------
+# Git Bash starts a process in 50-120 ms where Linux needs about one, and the
+# suites start tens of thousands: the test scope takes over twenty minutes in
+# Git Bash and under three in WSL. The copy lives in the distribution's own
+# filesystem, because a /mnt/ path reaches the tree through 9P, which is slower
+# than Git Bash itself. CI never delegates.
+
+# wsl_cmd <args> - wsl.exe without Git Bash rewriting POSIX-looking arguments
+# into Windows paths.
+wsl_cmd() {
+    local -a distro=()
+    if [ -n "${INTELLIGENCE_VERIFY_WSL_DISTRO:-}" ]; then
+        distro=(-d "$INTELLIGENCE_VERIFY_WSL_DISTRO")
+    fi
+    MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' wsl.exe "${distro[@]}" "$@"
+}
+
+# wsl_ready <scope> - the run is on Git Bash and a distribution has every tool
+# <scope> needs. A run that could have moved but cannot says so.
+wsl_ready() {
+    local -a tools=(git awk tar mktemp)
+    [ -z "${CI:-}" ] || return 1
+    [ "${INTELLIGENCE_VERIFY_NATIVE:-}" != 1 ] || return 1
+    case "$(uname -s)" in MINGW*|MSYS*) ;; *) return 1 ;; esac
+    case "$1" in lint*|all) tools+=(shellcheck) ;; esac
+    if command -v wsl.exe >/dev/null 2>&1 && wsl_cmd --exec bash -c \
+        'for tool; do command -v "$tool" >/dev/null || exit 1; done' bash "${tools[@]}" >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "NOTE: WSL distribution '${INTELLIGENCE_VERIFY_WSL_DISTRO:-default}' cannot run ${tools[*]} — running in Git Bash, where the suites are slow. INTELLIGENCE_VERIFY_NATIVE=1 silences this." >&2
+    return 1
+}
+
+# Runs inside the distribution: unpack the tree from stdin into a private
+# directory and verify it there. One output stream, because wsl.exe relays
+# stdout and stderr separately and a caller's `> log 2>&1` then overwrites one
+# with the other. Interop puts Windows tools on PATH; the gates must find Linux
+# ones only.
+IFS= read -r -d '' WSL_RUNNER <<'EOF' || true
+exec 2>&1
+set -u
+tree="$(mktemp -d)" || exit 1
+trap 'rm -rf "$tree"' EXIT
+trap 'exit 130' INT HUP TERM
+tar -xf - -C "$tree" || exit 1
+PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -v '^/mnt/' | paste -sd: -)"
+cd "$tree" && VERIFY_DELEGATED=1 bash cli/tests/verify.sh "$1" < /dev/null
+EOF
+
+# verify_in_wsl <scope> - the working tree as git sees it: tracked and untracked
+# files, minus ignored ones (the package store, scratch fixtures) and deletions
+# not yet staged.
+verify_in_wsl() {
+    local path
+    banner "WSL: '$1' on a copy of this tree (INTELLIGENCE_VERIFY_NATIVE=1 keeps Git Bash)"
+    git ls-files -z --cached --others --exclude-standard \
+        | while IFS= read -r -d '' path; do
+            if [ -e "$path" ]; then printf '%s\0' "$path"; fi
+        done \
+        | tar --null -T - -cf - \
+        | wsl_cmd --exec bash -c "$WSL_RUNNER" bash "$1"
+}
+
+main() {
+    local scope="${1:-auto}" paths="" want_lint=0 want_tests=0
+
+    case "$scope" in
+        lint|lint-engine|lint-cli|tests|all) ;;
         auto)
             if ! paths="$(changed_paths)"; then
                 echo "git could not report the changed files — refusing to report success." >&2
@@ -120,19 +193,14 @@ main() {
             if grep -Eq '^(cli|engine|packages/sync|examples|npm)/' <<< "$paths"; then
                 want_tests=1
             fi
-
-            if [ "$want_lint" -eq 1 ]; then
-                gate "lint: engine" lint_engine
-                gate "lint: cli" lint_cli
-            else
-                skipped+=("lint — no shell source changed")
-            fi
-
-            if [ "$want_tests" -eq 1 ]; then
-                gate "tests: CLI suites" run_suites
-            else
-                skipped+=("tests — no cli/, engine/, packages/sync/, examples/ or npm/ change")
-            fi
+            [ "$want_lint" -eq 1 ] || skipped+=("lint — no shell source changed")
+            [ "$want_tests" -eq 1 ] || skipped+=("tests — no cli/, engine/, packages/sync/, examples/ or npm/ change")
+            case "$want_lint$want_tests" in
+                11) scope=all ;;
+                10) scope=lint ;;
+                01) scope=tests ;;
+                *)  scope="" ;;
+            esac
             ;;
         *)
             echo "unknown scope '$scope' (use: auto | all | lint | lint-cli | lint-engine | tests)" >&2
@@ -140,11 +208,23 @@ main() {
             ;;
     esac
 
+    if [ -n "$scope" ]; then
+        if wsl_ready "$scope"; then
+            verify_in_wsl "$scope" || failed=1
+        else
+            run_scope "$scope"
+        fi
+    fi
+
     if [ "${#skipped[@]}" -gt 0 ]; then
         banner "skipped"
         printf '  %s\n' "${skipped[@]}"
     fi
 
+    # A delegated run reports through its exit status; the caller prints the verdict.
+    if [ -n "${VERIFY_DELEGATED:-}" ]; then
+        return "$failed"
+    fi
     if [ "$failed" -ne 0 ]; then
         banner "verify FAILED"
         return 1
