@@ -780,6 +780,8 @@ printf -- '---\nname: open\ndescription: "Open"\n---\n\n# Open\n' > "$POL/intell
     || { echo "FAIL: skill-policy sync"; cat "$OUT/policy-sync.txt"; fail=1; }
 chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/owner-only/agents/openai.yaml"
 chk grep -Fqx '  display_name: "Kept"' "$POL/.agents/skills/own-policy/agents/openai.yaml"
+# A file that already sets the policy is kept byte for byte, never given the key twice.
+chk cmp -s "$POL/intelligence/skills/own-policy/agents/openai.yaml" "$POL/.agents/skills/own-policy/agents/openai.yaml"
 chknot test -e "$POL/.agents/skills/open/agents"
 chknot test -e "$POL/intelligence/skills/owner-only/agents"
 # Dropping the field drops the derived file on the next sync.
