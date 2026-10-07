@@ -7,11 +7,12 @@ Status: accepted
 
 An agent's `tier` resolves per tool through the built-in defaults in
 `engine/lib/common.sh` and any `models.<tool>.<tier>` override in
-`intelligence.yaml`. A tier neither defines — a misspelled `haevy`, as a rule —
-rendered an empty `model` for every tool while sync exited 0 and printed
-nothing, so the mistake surfaced only when a tool refused the agent or quietly
-fell back to its own default (issue #39). Custom tier names are legitimate: a
-project may define `models.claude.review-deep` for one tool and no other.
+`intelligence.yaml`. A tier that neither source defines — a misspelled `haevy`,
+as a rule — rendered an empty `model` for every tool while sync exited 0 and
+printed nothing, so the mistake surfaced only when a tool refused the agent or
+quietly fell back to its own default (issue #39). Custom tier names are
+legitimate: a project may define `models.claude.review-deep` for one tool and
+no other.
 
 ## Decision
 
@@ -36,6 +37,8 @@ project may define `models.claude.review-deep` for one tool and no other.
 - **Refusing the sync.** A project that deliberately defines a custom tier for
   one tool would fail on every other enabled tool until it added an override
   for each.
-- **Falling back to `heavy`.** It hides the typo and silently spends a costlier
-  model than the author chose.
+- **Falling back to `heavy`.** It hides the typo and silently substitutes a
+  model the author did not choose — costlier than a misspelled `light` or
+  `standard` meant, weaker than a misspelled `frontier` — and is right only
+  when the misspelled tier was `heavy` itself.
 - **Leaving it silent.** The issue this record closes.
