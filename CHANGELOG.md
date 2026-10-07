@@ -4,6 +4,13 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.18.1]
+
+### Fixed
+
+- A skill with `disable-model-invocation: true` whose own `agents/openai.yaml` sets no invocation policy gains `policy.allow_implicit_invocation: false` in `.agents/skills/`, with every other line kept; sync refuses a file that sets it otherwise, naming the skill. Codex could still select such a skill on its own.
+- Sync warns when a `SKILL.md` is reached through a symlink, since no Codex invocation policy is derived for it.
+
 ## [0.18.0]
 
 ### Added

@@ -763,6 +763,51 @@ printf -- '---\nname: owner-only\ndescription: "Owner only"\n---\n\n# Owner only
 (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-resync.txt" 2>&1) \
     || { echo "FAIL: skill-policy resync"; cat "$OUT/policy-resync.txt"; fail=1; }
 chknot test -e "$POL/.agents/skills/owner-only/agents/openai.yaml"
+# An author's file that sets no policy gains one in the output copy, inside an
+# existing `policy:` block or as a new one, with every other line kept; the
+# source file stays as written.
+pol_skill() {
+    mkdir -p "$POL/intelligence/skills/$1/agents"
+    printf -- '---\nname: %s\ndescription: "%s"\ndisable-model-invocation: true\n---\n\n# %s\n' "$1" "$1" "$1" \
+        > "$POL/intelligence/skills/$1/SKILL.md"
+    printf '%s\n' "${@:2}" > "$POL/intelligence/skills/$1/agents/openai.yaml"
+}
+pol_skill interface-only 'interface:' '  display_name: "Interface only"'
+pol_skill policy-block 'policy:' '    products: []' 'interface:' '  display_name: "Block"'
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-merge.txt" 2>&1) \
+    || { echo "FAIL: skill-policy merge sync"; cat "$OUT/policy-merge.txt"; fail=1; }
+chk grep -Fqx '  allow_implicit_invocation: false' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+chknot grep -q 'allow_implicit_invocation' "$POL/intelligence/skills/interface-only/agents/openai.yaml"
+chk grep -Fqx '    allow_implicit_invocation: false' "$POL/.agents/skills/policy-block/agents/openai.yaml"
+chk grep -Fqx '    products: []' "$POL/.agents/skills/policy-block/agents/openai.yaml"
+chk test "$(grep -c '^policy:' "$POL/.agents/skills/policy-block/agents/openai.yaml")" -eq 1
+# A file whose policy contradicts the field refuses the render and restores it.
+pol_skill contradicts 'policy:' '  allow_implicit_invocation: true'
+RC=0
+(cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/policy-refuse.txt" 2>&1) || RC=$?
+chk test "$RC" -ne 0
+chk grep -Fq 'contradicts sets disable-model-invocation: true, but its agents/openai.yaml sets policy.allow_implicit_invocation: true' \
+    "$OUT/policy-refuse.txt"
+chknot test -e "$POL/.agents/skills/contradicts"
+chk grep -Fqx '  display_name: "Interface only"' "$POL/.agents/skills/interface-only/agents/openai.yaml"
+rm -rf "$POL/intelligence/skills/contradicts"
+# A symlinked SKILL.md is emitted as-is, so nothing is read or derived through
+# it; the run says so instead of passing it silently. Probed: some hosts cannot
+# create a symlink and copy the file instead.
+mkdir -p "$OUT/linked-skill" "$POL/intelligence/skills/linked"
+printf -- '---\nname: linked\ndescription: "Linked"\ndisable-model-invocation: true\n---\n\n# Linked\n' \
+    > "$OUT/linked-skill/SKILL.md"
+if ln -s "$OUT/linked-skill/SKILL.md" "$POL/intelligence/skills/linked/SKILL.md" 2>/dev/null \
+    && [ -L "$POL/intelligence/skills/linked/SKILL.md" ]; then
+    (cd "$POL" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --force > "$OUT/policy-link.txt" 2>&1) \
+        || { echo "FAIL: skill-policy link sync"; cat "$OUT/policy-link.txt"; fail=1; }
+    chk grep -Fq 'linked/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it' \
+        "$OUT/policy-link.txt"
+    chknot test -e "$POL/.agents/skills/linked/agents"
+else
+    echo "  NOTE: this host cannot create a symlink — symlinked SKILL.md case skipped"
+fi
 
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A

@@ -677,12 +677,22 @@ sync_open_skill_dirs() {
 # `agents/openai.yaml` beside SKILL.md. Source skills stay tool-neutral: the
 # policy file is derived here, in the open-standard tree Codex reads, so every
 # adapter sharing that tree writes the same bytes. A skill that ships its own
-# `agents/openai.yaml` keeps it — that is the author configuring Codex directly.
+# `agents/openai.yaml` keeps the rest of it: the output copy gains the policy
+# when the author's file sets none, and a file whose policy says otherwise
+# refuses the render — an owner-only skill Codex can still select is the exact
+# failure the field exists to prevent, so it never passes as a success.
 open_skill_invocation_policies() {
-    local output_dir="$1" path flag rows
-    local -a skill_mds=() policy_dirs=() policies=()
+    local output_dir="$1" path dir flag rows refusals
+    local -a skill_mds=() policy_dirs=() policies=() authored=()
     for path in "$output_dir"/*/SKILL.md; do
-        [ -f "$path" ] && [ ! -L "$path" ] && skill_mds+=("$path")
+        dir="${path%/SKILL.md}"
+        # A link is emitted as-is (see _skill_bundle_note): reading through it
+        # or writing beside it would reach outside the output tree.
+        if [ -L "$dir" ] || [ -L "$path" ]; then
+            echo "  WARN: ${dir##*/}/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it" >&2
+        elif [ -f "$path" ]; then
+            skill_mds+=("$path")
+        fi
     done
     [ "${#skill_mds[@]}" -gt 0 ] || return 0
     # Captured, not streamed: a reader cut short must fail the render rather
@@ -693,13 +703,32 @@ open_skill_invocation_policies() {
     }
     while IFS=$'\x1f' read -r path flag; do
         [ "$flag" = "true" ] || continue
-        path="${path%/SKILL.md}/agents"
-        # A symlinked `agents` would carry the write outside the output tree.
-        [ -L "$path" ] && continue
-        [ -e "$path/openai.yaml" ] || [ -L "$path/openai.yaml" ] && continue
+        dir="${path%/SKILL.md}"
+        path="$dir/agents"
+        if [ -L "$path" ] || [ -L "$path/openai.yaml" ]; then
+            echo "  WARN: ${dir##*/}/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced" >&2
+            continue
+        fi
+        if [ -s "$path/openai.yaml" ]; then
+            authored+=("$path/openai.yaml")
+            continue
+        fi
         policy_dirs+=("$path")
         policies+=("$path/openai.yaml")
     done <<< "$rows"
+    if [ "${#authored[@]}" -gt 0 ]; then
+        refusals="$(enforce_authored_invocation_policies "${authored[@]}")" || {
+            echo "ERROR: could not read agents/openai.yaml under $output_dir" >&2
+            return 1
+        }
+        if [ -n "$refusals" ]; then
+            while IFS=$'\t' read -r path flag; do
+                path="${path%/agents/openai.yaml}"
+                echo "ERROR: ${path##*/} sets disable-model-invocation: true, but its agents/openai.yaml $flag — make them agree, or Codex can still select the skill" >&2
+            done <<< "$refusals"
+            return 1
+        fi
+    fi
     [ "${#policies[@]}" -gt 0 ] || return 0
     mkdir -p "${policy_dirs[@]}"
     for path in "${policies[@]}"; do
@@ -707,6 +736,66 @@ open_skill_invocation_policies() {
             'policy:' '  allow_implicit_invocation: false' > "$path"
     done
     finalize_output_files "${policies[@]}"
+}
+
+# enforce_authored_invocation_policies <openai.yaml>... — one awk pass over
+# author-owned Codex files of skills that set `disable-model-invocation: true`.
+# A file already setting `policy.allow_implicit_invocation: false` is left
+# alone; one without that key gains it, inside an existing `policy:` block or
+# as a new block, every other line kept; one that sets it otherwise, or holds
+# an inline `policy:` it cannot extend safely, is printed as `<file>\t<reason>`
+# and left untouched for the caller to refuse.
+enforce_authored_invocation_policies() {
+    awk '
+        function reset() {
+            file = ""; n = 0; haspol = 0; inpol = 0; polline = 0
+            inline = ""; child = ""; val = ""
+        }
+        function finish(   i, ind, bad) {
+            if (file == "") return
+            bad = ""
+            if (inline != "" && inline !~ /allow_implicit_invocation[[:space:]]*:[[:space:]]*false/)
+                bad = "has an inline policy without allow_implicit_invocation: false"
+            else if (val != "" && val != "false")
+                bad = "sets policy.allow_implicit_invocation: " val
+            if (bad != "") { printf "%s\t%s\n", file, bad; reset(); return }
+            if (inline != "" || val == "false") { reset(); return }
+            ind = (child != "") ? child : "  "
+            for (i = 1; i <= n; i++) {
+                print L[i] > file
+                if (haspol && i == polline) print ind "allow_implicit_invocation: false" > file
+            }
+            if (!haspol) {
+                print "policy:" > file
+                print "  allow_implicit_invocation: false" > file
+            }
+            close(file)
+            reset()
+        }
+        BEGIN { reset() }
+        FNR == 1 { finish(); file = FILENAME }
+        { sub(/\r$/, ""); L[++n] = $0 }
+        /^policy[[:space:]]*:/ {
+            haspol = 1; polline = n; inpol = 1
+            rest = $0
+            sub(/^policy[[:space:]]*:[[:space:]]*/, "", rest)
+            sub(/[[:space:]]*#.*$/, "", rest)
+            if (rest != "") { inline = rest; inpol = 0 }
+            next
+        }
+        inpol && /^[^[:space:]#]/ { inpol = 0 }
+        inpol && /^[[:space:]]+[^[:space:]#]/ {
+            if (child == "") { match($0, /^[[:space:]]+/); child = substr($0, 1, RLENGTH) }
+            if ($0 ~ /^[[:space:]]+allow_implicit_invocation[[:space:]]*:/) {
+                v = $0
+                sub(/^[^:]*:[[:space:]]*/, "", v)
+                sub(/[[:space:]]*#.*$/, "", v)
+                gsub(/["\047]/, "", v)
+                val = v
+            }
+        }
+        END { finish() }
+    ' "$@"
 }
 
 # Lint YAML frontmatter for common pitfalls (unquoted colons, leading tabs).
