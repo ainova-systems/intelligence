@@ -210,6 +210,17 @@ SYNC_PARALLEL=1
 SYNC_BG_PIDS=()
 SYNC_COPY_INDEXES=()
 
+# An accepted output-root directory link is a write path, unlike a nested
+# generated asset link. Checks must retain the bytes behind that root too.
+snapshot_sync_entry() {
+    local src="$1" index="$2"
+    cp -a "$src" "$SYNC_TX_DIR/data/$index" || return $?
+    if [ -n "${IS_SYNC_CHECK:-}" ] && [ -L "$src" ] && [ -d "$src" ]; then
+        mkdir -p "$SYNC_TX_DIR/targets/$index" || return $?
+        cp -a "$src/." "$SYNC_TX_DIR/targets/$index" || return $?
+    fi
+}
+
 snapshot_sync_path() {
     local adapter_name="$1" rel="$2" src index present=0
     case "$SYNC_TX_SEEN_LIST" in
@@ -223,11 +234,11 @@ snapshot_sync_path() {
         # Copies of distinct paths into distinct slots: they can overlap, and
         # The snapshot wait before the render collects every status.
         if [ "$SYNC_PARALLEL" = 1 ]; then
-            cp -a "$src" "$SYNC_TX_DIR/data/$index" 2> "$SYNC_TX_DIR/copy.$index.err" &
+            snapshot_sync_entry "$src" "$index" 2> "$SYNC_TX_DIR/copy.$index.err" &
             SYNC_BG_PIDS+=("$!")
             SYNC_COPY_INDEXES+=("$index")
         else
-            cp -a "$src" "$SYNC_TX_DIR/data/$index"
+            snapshot_sync_entry "$src" "$index"
         fi
         present=1
     fi
@@ -312,6 +323,13 @@ compare_sync_snapshot() {
             continue
         fi
         compare_sync_entries "$snap" "$live" || return $?
+        if [ -d "$SYNC_TX_DIR/targets/$index" ]; then
+            # validate_output_path permitted this physical directory inside
+            # the private project. Only its root is followed; descendants
+            # still use the entry-kind and literal-target comparison.
+            snap="$SYNC_TX_DIR/targets/$index"
+            live="$(cd "$live" && pwd -P)" || return 2
+        fi
         [ ! -L "$snap" ] && [ -d "$snap" ] || continue
         # NUL-delimited paths also preserve whitespace and newlines. find's
         # default walk does not dereference links on GNU or BSD userland.

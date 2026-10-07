@@ -235,8 +235,9 @@ It answers in one of two ways:
   enough) — the engine renders in a private project copy, compares every owned
   and managed path with its snapshot, and discards the copy. The live project's
   bytes, modification times and concurrent edits stay untouched. Names, entry
-  kinds, link targets, bytes and executable bits count; links are never followed
-  when comparing. A clean result is recorded under sync's rules, so the next check is
+  kinds, link targets, bytes and executable bits count; nested generated links
+  are never followed when comparing. An accepted output-root directory link
+  also snapshots and compares its physical directory contents. A clean result is recorded under sync's rules, so the next check is
   fast; a difference records nothing.
 
 Project adapters receive the private project's absolute root during a check.

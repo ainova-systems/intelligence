@@ -1626,7 +1626,8 @@ warn_unsynced() {
         load_yaml_list "$config_file" "$section"
         while IFS= read -r src; do
             [ -z "$src" ] && continue
-            all_sources+=("$src")
+            normalize_path_var "$repo_root/$src"
+            all_sources+=("${IS_NORM_PATH#"$repo_root/"}")
         done <<< "$IS_YAML_LIST"
     done
 

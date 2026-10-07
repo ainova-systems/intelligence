@@ -42,6 +42,7 @@ fail() { printf 'FAIL: %s\n--- stdout\n%s\n--- stderr\n%s\n' "$1" "$OUT" "$ERR" 
 check() { checks=$((checks + 1)); "$@" || fail "$*"; }
 has() { grep -qF -- "$1" <<< "$OUT"; }
 err_has() { grep -qF -- "$1" <<< "$ERR"; }
+err_lacks() { ! err_has "$1"; }
 one_line() { [ -n "$OUT" ] && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" -eq 1 ]; }
 rendered() { grep -qx engine "$TMP/operations"; }
 not_rendered() { ! rendered; }
@@ -174,6 +175,7 @@ echo '== A trailing slash in a source keeps cache checks usable =='
 replace_line "$PROJECT/intelligence.yaml" '    - intelligence/rules' '    - intelligence/rules/'
 run
 check test "$RC" -eq 0
+check err_lacks 'NOT SYNCED: intelligence/rules'
 run --check
 check test "$RC" -eq 0
 check not_rendered
@@ -225,7 +227,7 @@ if MSYS=winsymlinks:nativestrict ln -s ../../../probe.sh "$LINK_PROJECT/intellig
     cp "$TMP/link-manifest" "$LINK_PROJECT/intelligence.yaml"
     cat > "$TMP/probe.sh" <<'EOF'
 adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
-sync_to_probe() { mkdir -p "$1/$3"; printf 'probe\n' > "$1/$3/value"; }
+sync_to_probe() { mkdir -p "$3"; printf 'probe\n' > "$3/value"; }
 EOF
     run_in "$LINK_PROJECT"
     check test "$RC" -eq 0
@@ -233,6 +235,59 @@ EOF
     check test "$RC" -eq 0
 else
     echo '  (native symlinks unavailable ? external-input cases skipped)'
+fi
+
+echo '== An owned directory-link output compares its physical target =='
+if [ -L "$LINK_PROJECT/root-link" ]; then
+    cp "$TMP/link-manifest" "$LINK_PROJECT/intelligence.yaml"
+    sed 's@root-link/.probe@.probe@' "$LINK_PROJECT/intelligence.yaml" > "$TMP/dir-manifest"
+    cp "$TMP/dir-manifest" "$LINK_PROJECT/intelligence.yaml"
+    rm -rf "$LINK_PROJECT/.probe"
+    mkdir "$LINK_PROJECT/actual"
+    ln -s actual "$LINK_PROJECT/.probe"
+    printf old > "$LINK_PROJECT/mode"
+    cat > "$TMP/probe.sh" <<'EOF'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
+sync_to_probe() { mkdir -p "$3"; cat "$1/mode" > "$3/value"; }
+EOF
+    run_in "$LINK_PROJECT"
+    check test "$RC" -eq 0
+    run_in "$LINK_PROJECT" --check
+    check test "$RC" -eq 0
+    check rendered
+    printf new > "$LINK_PROJECT/mode"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 2
+    check grep -qx old "$LINK_PROJECT/actual/value"
+    check test "$(readlink "$LINK_PROJECT/.probe")" = actual
+    run_in "$LINK_PROJECT" --check
+    check test "$RC" -eq 2
+    check rendered
+    check grep -qx old "$LINK_PROJECT/actual/value"
+    run_in "$LINK_PROJECT" --force
+    check test "$RC" -eq 0
+    check grep -qx new "$LINK_PROJECT/actual/value"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 0
+    # External directory targets are refused before the adapter can write.
+    rm "$LINK_PROJECT/.probe"
+    mkdir "$TMP/external-output"
+    printf untouched > "$TMP/external-output/value"
+    ln -s "$TMP/external-output" "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check grep -qx untouched "$TMP/external-output/value"
+    # File and dangling output roots are also refused, matching plain sync.
+    rm "$LINK_PROJECT/.probe"
+    ln -s actual/value "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check grep -qx new "$LINK_PROJECT/actual/value"
+    rm "$LINK_PROJECT/.probe"
+    ln -s missing "$LINK_PROJECT/.probe"
+    run_in "$LINK_PROJECT" --check --force
+    check test "$RC" -eq 1
+    check test ! -e "$LINK_PROJECT/missing"
 fi
 
 echo '== Cached and rendered checks keep indented warning continuations =='
