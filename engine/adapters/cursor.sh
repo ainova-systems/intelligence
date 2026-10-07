@@ -10,6 +10,8 @@
 #     same rules would cause double-loading and burn the context window.
 # Skills: copy skill directories in full (SKILL.md + bundled resources)
 # Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
+# Cursor has no per-agent or per-skill effort field (its effort is part of a
+# model ID), so `effort:` is stripped from both.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -117,7 +119,7 @@ sync_cursor_skills() {
         done
     done <<< "$list"
     [ "${#skill_dirs[@]}" -gt 0 ] || return 0
-    copy_skill_bundle_dirs "$output_dir/skills" "${skill_dirs[@]}"
+    copy_skill_bundle_dirs_for cursor "$output_dir/skills" "${skill_dirs[@]}"
     for d in "${skill_dirs[@]}"; do
         skill_name="${d%/}"
         echo "  skill: ${skill_name##*/}"
@@ -174,13 +176,16 @@ sync_cursor_agents() {
             if (out != "") close(out)
             out = dst "/" base_name(FILENAME)
             count = 0
+            fm = 0
         }
         /^tier:/  { next }
         /^access:/ { next }
         /^tools:/ { next }
         /^disallowedTools:/ { next }
         { sub(/\r$/, "") }
+        FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
+        fm && count == 1 && substr($0, 1, 7) == "effort:" { next }
         count == 2 && /^---$/ {
             print fin_line("model: " MODEL[FILENAME]) > out
             if (RO[FILENAME] != "") print fin_line(RO[FILENAME]) > out

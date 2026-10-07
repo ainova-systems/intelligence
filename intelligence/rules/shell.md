@@ -27,16 +27,19 @@ see any of these.
 
 A reader that rewrites a file it does not own must round-trip the bytes it keeps.
 awk on Windows reads in text mode, so passing a CRLF file through it silently
-rewrites the whole file as LF — for a `.gitignore`, where a `\r` is part of the
-pattern Git matches, that is a content change. Read and write such a file with
-`read`/`printf`.
+rewrites the whole file as LF — for a tracked `.gitignore` that is a whole-file
+diff the project never made, even though Git drops one trailing `\r` per line and
+reads both alike. Read and write such a file with `read`/`printf`.
 
 Decide anything about a CR in Bash, not in a text-mode tool: under MSYS `grep`
 never sees one, while on Linux and macOS it is part of the line, so the same
 `grep -Fx` answers differently per platform — in tests that reads as a passing
 assertion measuring nothing. `read` sees the CR everywhere. Hold `\r` in a
 variable too: bash does not expand `$'\r'` inside a command substitution, so the
-identical expression stops stripping it depending on the caller.
+identical expression stops stripping it depending on the caller. Whether an
+ignore file lists a line is `ignore_file_has_line` (`cli/lib/gitignore.sh`) for
+the writer and `status --check` alike: a second test is how the check came to
+report missing what the writer had already written.
 
 Strip `\r` in awk readers: manifests, rules and frontmatter reach the engine from
 CRLF checkouts.

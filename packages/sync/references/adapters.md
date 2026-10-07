@@ -155,8 +155,10 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `get_model(config, tool, tier)` | Resolve a `frontier`, `heavy`, `standard` or `light` model, including manifest overrides. |
 | `get_model_default(tool, tier)` | Read the built-in model default. |
 | `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the four standard tiers once, then map per file without subprocesses. |
-| `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
+| `map_effort(tool, effort)` / `map_effort_var(tool, effort)` | The level a tool's native effort field receives for a neutral `effort:` (`IS_EFFORT`); empty when the value is absent or off the scale, or the tool has no field. |
+| `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown, quote free-text frontmatter, and keep a valid `effort:` as written, as the shared skills tree does. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
+| `copy_skill_bundle_dirs_for(tool, dest_root, src...)` | The batch form for a tree one tool reads: `SKILL.md`'s `effort:` becomes that tool's level, or is removed when it has none. |
 | `skill_source_rendered(skill_dir)` | Whether sync renders a skill directory an adapter listed with its own glob; a skill left out for its symlinks fails it. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
@@ -165,7 +167,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `get_target_field(config, target, field)` | Read another field from the target configuration. |
 | `repo_rel_link(root, path)` | Produce a stable repo-relative link for a committed output. |
 
-`lint_frontmatter` is run across all inputs by the engine before adapters execute (batched as `lint_frontmatter_files`). It warns about common YAML hazards; adapters should not duplicate that pass.
+`lint_frontmatter` is run across all inputs by the engine before adapters execute (batched as `lint_frontmatter_files`). It warns about common YAML hazards and about an `effort:` off the neutral scale, naming the source once; adapters should not duplicate that pass, and render such a value as absent without a second warning.
 
 Prefer the batched forms inside per-file loops: a process spawn costs tens of milliseconds on Git Bash for Windows, so one-awk-per-file adapters turn large projects into minutes of process creation. The built-in adapters are the reference for the pattern.
 
@@ -219,7 +221,7 @@ Skills follow the [Agent Skills standard](https://agentskills.io). Copy each ski
 copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
 ```
 
-Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It never writes a symlink; how a link in a skills source renders is defined in [conventions](conventions.md#skill-body-and-resources).
+Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It renders `effort:` as the shared tree does; a tree only one tool reads uses `copy_skill_bundle_dirs_for <tool>`, so the copy carries that tool's level or no effort at all. It never writes a symlink; how a link in a skills source renders is defined in [conventions](conventions.md#skill-body-and-resources).
 
 An adapter that lists a skills source with its own glob checks each directory with `skill_source_rendered`. A skill whose directory or `SKILL.md` is a link leaving its source is left out of every output, and sync has already warned about it once.
 
@@ -234,11 +236,20 @@ Source agents use tool-neutral fields:
 name: backend-developer
 description: "Implements backend features"
 tier: heavy
+effort: high
 access: full
 ---
 ```
 
-Map `tier` through `get_model`, not a hardcoded model name. Transform `access: full|readonly` into the target tool's native permission model. Preserve the body as the agent's instructions.
+Map `tier` through `get_model`, not a hardcoded model name. Map `effort` through `map_effort_var` and emit the tool's own effort key only when it returns a level; never derive an effort from the tier, and never copy the source `effort:` line into a tool without a field. Transform `access: full|readonly` into the target tool's native permission model. Preserve the body as the agent's instructions.
+
+| Built-in | `effort:` rendering | Evidence, checked 2026-10-07 |
+|---|---|---|
+| `claude` | `effort:` in agents and skills; `ultra` becomes `max` | [Subagents](https://code.claude.com/docs/en/sub-agents) and [skills](https://code.claude.com/docs/en/skills) accept `low`, `medium`, `high`, `xhigh`, `max`; [model configuration](https://code.claude.com/docs/en/model-config) falls back to the highest level the active model supports at or below the one set |
+| `codex` | `model_reasoning_effort` in `.codex/agents/*.toml`, every level; no per-skill effort | The [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) lists `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, with availability depending on the model |
+| `copilot`, `cursor` | none, in agents or in their own skill copies | No per-agent effort field is rendered, so the tool's own setting applies |
+| `opencode`, `antigravity`, `pi` | none in agents | Same; their skills come from the shared tree |
+| shared `.agents/skills/` | a valid level as written | The open-standard tree several tools read keeps the neutral value |
 
 Built-ins currently emit Claude and Cursor Markdown, Copilot `.agent.md`, Codex TOML, Pi prompt templates and OpenCode Markdown subagents. Read the closest built-in adapter before implementing a new transformation.
 
