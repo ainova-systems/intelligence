@@ -1731,19 +1731,11 @@ load_yaml_list() {
     esac
 }
 
-# load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
-# sections in one manifest pass. Each section runs read_yaml_list's own state
-# machine, so every cached value is what load_yaml_list would have stored.
-load_yaml_lists() {
-    local file="$1" out line s v j
-    shift
-    for s in "$@"; do
-        case "$s" in
-            rules|agents|skills|ignore|submodules) ;;
-            *) return 1 ;;
-        esac
-    done
-    out="$(awk -v sections="$*" '
+# The manifest readers below share their awk programs, so the combined pass in
+# load_manifest_view reads each shape exactly as its single-purpose reader does.
+# Rule order matters when they are joined: the targets program ends its rules
+# with `next`, so it runs last and never hides a line from the others.
+_IS_AWK_LISTS='
         BEGIN { n = split(sections, want, " ") }
         { sub(/\r$/, "") }
         {
@@ -1767,36 +1759,33 @@ load_yaml_lists() {
                 }
             }
         }
-    ' "$file")"
-    for s in "$@"; do
-        j=""
-        while IFS= read -r line; do
-            [ "${line%%$'\037'*}" = "$s" ] || continue
-            v="${line#*$'\037'}"
-            j="$j$v"$'\n'
-        done <<< "$out"
-        while [[ "$j" == *$'\n' ]]; do j="${j%$'\n'}"; done
-        printf -v "IS_YL_${s}_FILE" '%s' "$file"
-        printf -v "IS_YL_${s}_VAL" '%s' "$j"
-    done
-}
+'
 
-# load_targets_cache <file> — parse the whole targets: section once into the
-# global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
-# matching is_target_enabled and get_target_output semantics: inline and block
-# forms, first occurrence wins, `enabled` defaults to 0 when the block ends
-# without one and to empty at end of file. The engine warms this once;
-# both readers consult it before spawning awk.
-load_targets_cache() {
-    local file="$1"
-    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
-        return 0
-    fi
-    IS_TGT_TSV="$(awk '
+# get_yaml_field: the first `  fkey:` inside the first `fsection:` block. A
+# top-level key closes the block; ftag prefixes the printed value.
+_IS_AWK_FIELD='
+        { sub(/\r$/, "") }
+        !fdone {
+            if ($0 ~ "^" fsection ":") fin = 1
+            else if (fin && /^[a-zA-Z]/) fdone = 1
+            else if (fin && $0 ~ "^  " fkey ":") {
+                fval = $0
+                sub(/.*:[[:space:]]*["\047]?/, "", fval)
+                sub(/["\047]?[[:space:]]*$/, "", fval)
+                ffound = 1
+                fdone = 1
+            }
+        }
+        END { if (ffound) print ftag fval }
+'
+
+# load_targets_cache: one `name<TAB>enabled<TAB>output` row per target, each
+# prefixed with ttag.
+_IS_AWK_TARGETS='
         function flush_target(at_sibling) {
             if (name == "") return
             if (enabled == "" && at_sibling) enabled = 0
-            printf "%s\t%s\t%s\n", name, enabled, output
+            printf "%s%s\t%s\t%s\n", ttag, name, enabled, output
             name = ""
         }
         { sub(/\r$/, "") }
@@ -1832,9 +1821,136 @@ load_targets_cache() {
             output = val
         }
         END { flush_target(0) }
-    ' "$file")"
+'
+
+# _yaml_lists_store <file> <awk-output> <section>... — fill the load_yaml_list
+# cache for each section from `<section><US><value>` rows.
+_yaml_lists_store() {
+    local file="$1" out="$2" line v s k saved_ifs="$IFS"
+    local -a lines=() names=() vals=()
+    shift 2
+    names=("$@")
+    IFS=$'\n'
+    set -f
+    # shellcheck disable=SC2206  # rows are `<section><US><value>`, never empty
+    lines=($out)
+    set +f
+    IFS="$saved_ifs"
+    # One pass over the rows in this shell: reading a here-string again per
+    # section costs a system call per byte on Git Bash.
+    for line in "${lines[@]+"${lines[@]}"}"; do
+        s="${line%%$'\037'*}"
+        v="${line#*$'\037'}"
+        for ((k = 0; k < ${#names[@]}; k++)); do
+            [ "${names[k]}" = "$s" ] || continue
+            vals[k]="${vals[k]-}$v"$'\n'
+        done
+    done
+    for ((k = 0; k < ${#names[@]}; k++)); do
+        v="${vals[k]-}"
+        while [[ "$v" == *$'\n' ]]; do v="${v%$'\n'}"; done
+        printf -v "IS_YL_${names[k]}_FILE" '%s' "$file"
+        printf -v "IS_YL_${names[k]}_VAL" '%s' "$v"
+    done
+}
+
+# load_yaml_lists <file> <section>... — warm the load_yaml_list cache for several
+# sections in one manifest pass. Each section runs read_yaml_list's own state
+# machine, so every cached value is what load_yaml_list would have stored.
+load_yaml_lists() {
+    local file="$1" out s
+    shift
+    for s in "$@"; do
+        case "$s" in
+            rules|agents|skills|ignore|submodules) ;;
+            *) return 1 ;;
+        esac
+    done
+    out="$(awk -v sections="$*" "$_IS_AWK_LISTS" "$file")"
+    _yaml_lists_store "$file" "$out" "$@"
+}
+
+# load_targets_cache <file> — parse the whole targets: section once into the
+# global IS_TGT_TSV (one `name<TAB>enabled<TAB>output` row per target),
+# matching is_target_enabled and get_target_output semantics: inline and block
+# forms, first occurrence wins, `enabled` defaults to 0 when the block ends
+# without one and to empty at end of file. The engine warms this once;
+# both readers consult it before spawning awk.
+load_targets_cache() {
+    local file="$1"
+    if [ "${IS_TGT_FILE:-}" = "$file" ]; then
+        return 0
+    fi
+    IS_TGT_TSV="$(awk "$_IS_AWK_TARGETS" "$file")"
     IS_TGT_FILE="$file"
 }
+
+# load_manifest_view <file> <field-section> <field-key> <section>... — one
+# awk pass for what the CLI's preflight reads of a manifest: the
+# load_yaml_lists cache for each <section>, the targets cache, and the one
+# get_yaml_field answer that get_yaml_field_var then returns without a process.
+# Each reader's program is the one it runs alone, so the answers cannot differ.
+# A caller that overlaps the pass with other work runs manifest_view_run (it
+# prints) and hands the output to manifest_view_store itself.
+load_manifest_view() {
+    local out
+    out="$(manifest_view_run "$@")" || return 1
+    manifest_view_store "$out" "$@"
+}
+
+manifest_view_run() {
+    local file="$1" fsection="$2" fkey="$3" s
+    shift 3
+    for s in "$@"; do
+        case "$s" in
+            rules|agents|skills|ignore|submodules) ;;
+            *) return 1 ;;
+        esac
+    done
+    awk -v sections="$*" -v fsection="$fsection" -v fkey="$fkey" \
+        -v ftag=$'\036F' -v ttag=$'\036T' \
+        "$_IS_AWK_LISTS$_IS_AWK_FIELD$_IS_AWK_TARGETS" "$file"
+}
+
+# manifest_view_store <output> <file> <field-section> <field-key> <section>...
+manifest_view_store() {
+    local out="$1" file="$2" fsection="$3" fkey="$4" line lists="" targets="" field="" found=0
+    local saved_ifs="$IFS"
+    local -a lines=()
+    shift 4
+    IFS=$'\n'
+    set -f
+    # shellcheck disable=SC2206  # every row is tagged or `<section><US>`, never empty
+    lines=($out)
+    set +f
+    IFS="$saved_ifs"
+    for line in "${lines[@]+"${lines[@]}"}"; do
+        case "$line" in
+            $'\036T'*) targets="$targets${line#??}"$'\n' ;;
+            $'\036F'*) field="${line#??}"; found=1 ;;
+            *) lists="$lists$line"$'\n' ;;
+        esac
+    done
+    while [[ "$targets" == *$'\n' ]]; do targets="${targets%$'\n'}"; done
+    _yaml_lists_store "$file" "$lists" "$@"
+    IS_TGT_TSV="$targets"
+    IS_TGT_FILE="$file"
+    IS_YF_KEY="$file"$'\037'"$fsection"$'\037'"$fkey"
+    IS_YF_VALUE="$field"
+    IS_YF_FOUND="$found"
+}
+
+# manifest_view_reset — forget every manifest answer cached in this shell. A
+# process that has the manifest rewritten (by a child it ran) calls it before
+# reading again.
+manifest_view_reset() {
+    local s
+    for s in rules agents skills ignore submodules; do
+        unset "IS_YL_${s}_FILE" "IS_YL_${s}_VAL"
+    done
+    unset IS_TGT_FILE IS_TGT_TSV IS_YF_KEY IS_YF_VALUE IS_YF_FOUND
+}
+
 
 # _targets_cache_row <target> — scan the cached TSV; sets IS_TGT_ROW_ENABLED /
 # IS_TGT_ROW_OUTPUT. Returns 1 when the target has no row (reader falls back
@@ -2057,18 +2173,23 @@ get_yaml_field() {
     local file="$1"
     local section="$2"
     local key="$3"
-    awk -v section="$section" -v key="$key" '
-        { sub(/\r$/, "") }
-        $0 ~ "^" section ":" { in_section = 1; next }
-        in_section && /^[a-zA-Z]/ { exit }
-        in_section && $0 ~ "^  " key ":" {
-            val = $0
-            sub(/.*:[[:space:]]*["\047]?/, "", val)
-            sub(/["\047]?[[:space:]]*$/, "", val)
-            print val
-            exit
-        }
-    ' "$file"
+    if [ "${IS_YF_KEY:-}" = "$file"$'\037'"$section"$'\037'"$key" ]; then
+        [ "$IS_YF_FOUND" != 1 ] || printf '%s\n' "$IS_YF_VALUE"
+        return 0
+    fi
+    awk -v fsection="$section" -v fkey="$key" "$_IS_AWK_FIELD" "$file"
+}
+
+# get_yaml_field_var <file> <section> <key> — get_yaml_field into
+# IS_YAML_FIELD, without a process when load_manifest_view read it.
+# shellcheck disable=SC2034  # IS_YAML_FIELD is the return channel
+get_yaml_field_var() {
+    if [ "${IS_YF_KEY:-}" = "$1"$'\037'"$2"$'\037'"$3" ]; then
+        IS_YAML_FIELD=""
+        [ "$IS_YF_FOUND" != 1 ] || IS_YAML_FIELD="$IS_YF_VALUE"
+        return 0
+    fi
+    IS_YAML_FIELD="$(get_yaml_field "$@")"
 }
 
 # Get project name from config.yaml (project.name)

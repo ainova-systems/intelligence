@@ -85,7 +85,7 @@ are reported by Git as normal deletions instead.
 ### `intelligence sync`
 
 ```text
-intelligence sync [adapter] [--compact] [--force]
+intelligence sync [adapter] [--compact] [--force] [--check]
 ```
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
@@ -194,6 +194,49 @@ If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before alignment or restoration. Restore the
 committed lock; the CLI never invents a partial replacement from the packages
 that happen to be locally available.
+
+#### Checking whether sync is needed
+
+`intelligence sync --check` answers whether `intelligence sync` would change any
+generated file, and changes none itself. It prints one status line,
+`IS_STATUS=<code> IS_DETAIL=<reason>`, and exits:
+
+| Exit | `IS_STATUS` | Meaning |
+|---:|---|---|
+| 0 | `ok` | Generated files are what sync would leave |
+| 2 | `out-of-date` | Sync would change generated files, or the project needs alignment first |
+| other | | An error, with sync's own status: an invalid lock or no Intelligence project (1), a newer-major schema (4, `ahead-of-engine`), a failing renderer. A failure that would end in 2 is reported as 1 |
+
+The check runs sync's preflight and takes the project lock like sync. It
+restores a missing or mis-recorded package store from `intelligence.lock`,
+because that store is ignored, reproducible state; restore progress and every
+diagnostic go to stderr. It never applies tracked alignment: when the project
+needs it, the check exits 2 and names `intelligence init --apply`, in CI and
+locally alike. A legacy Intelligence Sync project is an error.
+
+It answers in one of two ways:
+
+- **From the record.** A record left by a successful sync or check, made with the
+  same CLI and engine code in the same environment — adapter filter, project
+  root, layout, bash, locale, `PATH`, umask — answers without rendering. Equal
+  sources and generated files exit 0. When the project's sources (manifest,
+  lock, configured sources, installed packages) or its generated files differ
+  from the record, the check exits 2 at once and names the side that changed:
+  `sources changed` or `generated files changed`. A source change may still
+  render to identical files — a manifest comment, for example; `--force` gives
+  the exact answer.
+- **By rendering.** Without a usable record — none yet, damaged, from an older
+  CLI, or made by other code or in another environment (a different `PATH` is
+  enough) — the engine renders inside its rollback transaction, compares every
+  owned and managed path with the snapshot it took first, and restores that
+  snapshot whatever the result, so bytes and modification times stay as they
+  were. A clean result is recorded under sync's rules, so the next check is
+  fast; a difference records nothing.
+
+`--check --force` always renders: the strict answer. An adapter name scopes the
+check to that adapter, and full and filtered records never stand in for each
+other. `--compact` is accepted and changes nothing, because the check already
+prints a single line.
 
 ### `intelligence update`
 
@@ -487,6 +530,7 @@ The Intelligence engine runs outside the project. The CLI supplies:
 | `IS_MANIFEST_NAME` | `intelligence.yaml` |
 | `IS_SYNC_CMD` | `intelligence sync` |
 | `IS_PROTECTED_DIRS` | `<content-dir>:.intelligence` |
+| `IS_SYNC_CHECK` | set by `sync --check` only: a file to which the engine, after rendering, comparing and restoring every snapshotted path, writes `same` or `differs` |
 
 The engine reads local sources only. Package/network mechanics and project schema alignment remain CLI responsibilities.
 

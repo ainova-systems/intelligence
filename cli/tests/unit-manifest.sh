@@ -723,5 +723,79 @@ cp "$POS" "$OUT/src-anchor.before"
 chk diff "$OUT/src-anchor.before" "$POS"
 chknot ls "$POS.cli.tmp"
 
+echo "== qmap_preload: one pass answers every read as the reader alone does =="
+# Outputs, statuses and strict errors, remembered for documents read together;
+# a document the pass cannot hold (empty, absent) keeps the ordinary path.
+PRE_BAD="$OUT/preload-bad.lock"
+printf 'lockfile_version: 1\nengine_version: "1.0.0"\npackages:\n  "@a/x":\n    url: "https://h/x.git"\n    url: "dup"\n' > "$PRE_BAD"
+PRE_EMPTY="$OUT/preload-empty.lock"
+: > "$PRE_EMPTY"
+PRE_KEYS="$OUT/preload-keys.yaml"
+printf 'packages:\n  "@a/one":\n    version: "1"\n  "":\n    version: "2"\n' > "$PRE_KEYS"
+pre_requests=(
+    "tops${SEP}$CLI_DIR/engine-package.yaml${SEP}${SEP}name url path default_registry${SEP}${SEP}"
+    "keys${SEP}$M1${SEP}packages${SEP}${SEP}${SEP}"
+    "fieldrows${SEP}$M1${SEP}packages${SEP}${SEP}url path version${SEP}"
+    "value${SEP}$M1${SEP}registries${SEP}@acme${SEP}${SEP}"
+    "field${SEP}$M1${SEP}packages${SEP}@acme/two${SEP}version${SEP}"
+    "lock${SEP}$VALID_LOCK${SEP}packages${SEP}${SEP}${SEP}$LOCKFILE_VERSION"
+    "rows${SEP}$VALID_LOCK${SEP}packages${SEP}${SEP}${SEP}"
+    "lock${SEP}$PRE_BAD${SEP}packages${SEP}${SEP}${SEP}$LOCKFILE_VERSION"
+    "rows${SEP}$PRE_BAD${SEP}packages${SEP}${SEP}${SEP}"
+    "keys${SEP}$PRE_KEYS${SEP}packages${SEP}${SEP}${SEP}"
+    "lock${SEP}$PRE_EMPTY${SEP}packages${SEP}${SEP}${SEP}$LOCKFILE_VERSION"
+    "keys${SEP}$OUT/preload-absent.yaml${SEP}packages${SEP}${SEP}${SEP}"
+)
+# answer <request> — stdout, then status, then stderr, as one comparable text.
+answer() {
+    local out rc=0 saved_ifs="$IFS"
+    local -a a=()
+    IFS="$SEP"
+    # shellcheck disable=SC2206
+    a=($1)
+    IFS="$saved_ifs"
+    # The trailing x keeps trailing newlines; the status is the reader's.
+    out="$(rc=0; _qmap_read "${a[@]}" 2> "$OUT/answer.err" || rc=$?; printf x; exit "$rc")" || rc=$?
+    printf '%s|%s|%s' "${out%x}" "$rc" "$(cat "$OUT/answer.err")"
+}
+answer_var() {
+    local rc=0 saved_ifs="$IFS"
+    local -a a=()
+    IFS="$SEP"
+    # shellcheck disable=SC2206
+    a=($1)
+    IFS="$saved_ifs"
+    _qmap_read_var "${a[@]}" 2> "$OUT/answer.err" || rc=$?
+    printf '%s|%s|%s' "$IS_QMAP_OUT" "$rc" "$(cat "$OUT/answer.err")"
+}
+qmap_memo_reset
+want=()
+want_var=()
+for request in "${pre_requests[@]}"; do
+    want+=("$(answer "$request")")
+    want_var+=("$(answer_var "$request")")
+done
+qmap_preload "${pre_requests[@]}"
+# Every request except the empty and the absent document is remembered.
+chk eq "${#QMAP_MEMO_KEYS[@]}" "$(( ${#pre_requests[@]} - 2 ))"
+i=0
+for request in "${pre_requests[@]}"; do
+    eq "$(answer "$request")" "${want[i]}" || { echo "FAIL: preloaded answer differs for request $i"; fail=1; }
+    eq "$(answer_var "$request")" "${want_var[i]}" || { echo "FAIL: preloaded variable answer differs for request $i"; fail=1; }
+    i=$((i + 1))
+done
+# A write forgets every remembered answer: none may outlive its bytes.
+cp "$M1" "$OUT/preload-edit.yaml"
+qmap_preload "keys${SEP}$OUT/preload-edit.yaml${SEP}packages${SEP}${SEP}${SEP}"
+chk test "${#QMAP_MEMO_KEYS[@]}" -gt 0
+qmap_set "$OUT/preload-edit.yaml" packages "@acme/new" version "1.0.0"
+chk eq "${#QMAP_MEMO_KEYS[@]}" "0"
+chk has_key "$OUT/preload-edit.yaml" packages "@acme/new"
+# Output that is not one complete answer per request remembers nothing.
+qmap_preload_plan "keys${SEP}$M1${SEP}packages${SEP}${SEP}${SEP}"
+qmap_preload_store $'\0360 1\n>@acme/one'
+chk eq "${#QMAP_MEMO_KEYS[@]}" "0"
+qmap_memo_reset
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

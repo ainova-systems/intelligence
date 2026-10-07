@@ -124,6 +124,66 @@ for file in "$Y" "$OUT/lists-crlf.yaml" "$OUT/absent-lists.yaml"; do
 done
 chk eq "$(load_yaml_lists "$Y" rules not-a-section; echo "$?")" "1"
 
+echo "== load_manifest_view: one pass, each reader's own answer =="
+# The field reader before it shared its program with the combined pass.
+oracle_yaml_field() {
+    awk -v section="$2" -v key="$3" '
+        { sub(/\r$/, "") }
+        $0 ~ "^" section ":" { in_section = 1; next }
+        in_section && /^[a-zA-Z]/ { exit }
+        in_section && $0 ~ "^  " key ":" {
+            val = $0
+            sub(/.*:[[:space:]]*["\047]?/, "", val)
+            sub(/["\047]?[[:space:]]*$/, "", val)
+            print val
+            exit
+        }
+    ' "$1"
+}
+V="$OUT/view.yaml"
+cat > "$V" <<'EOF'
+project:
+  name: "view"
+  intelligence_dir: 'content'
+project:
+  intelligence_dir: second
+sources:
+  rules:
+    - "intelligence/rules"
+  skills:
+    - a/skills
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  claude:
+    enabled: false
+    output: .claude
+  codex:
+    output: ".codex"
+EOF
+printf 'project:\r\n  intelligence_dir: crlf\r\ntargets:\r\n  agents:\r\n    enabled: true\r\n' > "$OUT/view-crlf.yaml"
+printf 'sources:\n  rules:\n    - r\n' > "$OUT/view-bare.yaml"
+for file in "$V" "$OUT/view-crlf.yaml" "$OUT/view-bare.yaml" "$Y"; do
+    manifest_view_reset
+    load_targets_cache "$file"
+    want_targets="$IS_TGT_TSV"
+    manifest_view_reset
+    want_lists="$(read_yaml_list "$file" rules)|$(read_yaml_list "$file" agents)|$(read_yaml_list "$file" skills)"
+    want_field="$(oracle_yaml_field "$file" project intelligence_dir)"
+    load_manifest_view "$file" project intelligence_dir rules agents skills
+    eq "$IS_TGT_TSV" "$want_targets" || { echo "FAIL: load_manifest_view targets in ${file##*/}"; fail=1; }
+    # shellcheck disable=SC2154  # assigned through printf -v by the reader
+    eq "$IS_YL_rules_VAL|$IS_YL_agents_VAL|$IS_YL_skills_VAL" "$want_lists" \
+        || { echo "FAIL: load_manifest_view lists in ${file##*/}"; fail=1; }
+    get_yaml_field_var "$file" project intelligence_dir
+    eq "$IS_YAML_FIELD" "$want_field" || { echo "FAIL: load_manifest_view field in ${file##*/}"; fail=1; }
+    chk eq "$(get_yaml_field "$file" project intelligence_dir)" "$want_field"
+    manifest_view_reset
+    chk eq "$(get_yaml_field "$file" project intelligence_dir)" "$want_field"
+    chk eq "$(get_yaml_field "$file" project name)" "$(oracle_yaml_field "$file" project name)"
+done
+chk eq "$(load_manifest_view "$V" project intelligence_dir rules not-a-section; echo "$?")" "1"
+manifest_view_reset
+
 echo "== _nested_yaml_values: every key as get_nested_yaml_value reads it =="
 M="$OUT/models.yaml"
 cat > "$M" <<'EOF'

@@ -111,7 +111,7 @@ adapter_contract_safe_concrete_path() {
 # into the caller. Project adapters are trusted executable code during sync;
 # the isolation here is for correctness, not a security boundary.
 adapter_contract_records() (
-    local name="$1" file="$2" output="$3" fn line kind value saw_version=0
+    local name="$1" file="$2" output="$3" fn
     # shellcheck source=/dev/null
     source "$file"
     printf -v fn 'adapter_contract_%s' "$name"
@@ -119,6 +119,38 @@ adapter_contract_records() (
         echo "ERROR: adapter '$name' has no $fn contract" >&2
         return 1
     }
+    _adapter_contract_emit "$name" '' < <("$fn" "$output")
+)
+
+# adapter_contract_records_batch <scratch-file> <name> <file> <output>... —
+# adapter_contract_records for several built-in adapters in one subshell, each
+# record prefixed with "<name><TAB>". One process instead of two per adapter:
+# on Git Bash every fork costs tens of milliseconds. <scratch-file> receives
+# each contract's raw lines before they are checked.
+adapter_contract_records_batch() (
+    local scratch="$1" name file output fn
+    shift
+    while [ "$#" -ge 3 ]; do
+        name="$1" file="$2" output="$3"
+        shift 3
+        # shellcheck source=/dev/null
+        source "$file"
+        printf -v fn 'adapter_contract_%s' "$name"
+        declare -F "$fn" >/dev/null 2>&1 || {
+            echo "ERROR: adapter '$name' has no $fn contract" >&2
+            return 1
+        }
+        # Like the process substitution above, a contract's own status is not
+        # its verdict: the records it printed are.
+        "$fn" "$output" > "$scratch" || true
+        _adapter_contract_emit "$name" "$name"$'\t' < "$scratch" || return 1
+    done
+)
+
+# _adapter_contract_emit <adapter-name> <prefix> — check the contract records
+# on stdin and print each one after <prefix>; return 1 on the first bad one.
+_adapter_contract_emit() {
+    local name="$1" prefix="$2" line kind value saw_version=0
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         kind="${line%%$'\t'*}"
@@ -160,10 +192,10 @@ adapter_contract_records() (
                 return 1
                 ;;
         esac
-        printf '%s\n' "$line"
-    done < <("$fn" "$output")
+        printf '%s%s\n' "$prefix" "$line"
+    done
     [ "$saw_version" -eq 1 ] || {
         echo "ERROR: adapter '$name' contract did not declare version 1" >&2
         return 1
     }
-)
+}

@@ -102,6 +102,18 @@ cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.
 Publish cache state only for a successful render with stable inputs, and preserve
 failure exit codes and rollback. `sync --force` refreshes output and repository
 discovery; a cache hit retains useful diagnostics from the last full run.
+The record keeps tooling, inputs and outputs apart (decision 0015), so
+`sync --check` answers "sync needed" only from a record its own tooling and
+environment made, renders inside the engine's transaction otherwise, and never
+applies tracked alignment. Under `--check`, 2 means only "sync needed": every
+other failure that ends in 2 becomes 1.
+
+On Git Bash every process start costs tens of milliseconds, so the paths a
+cache hit takes count them: the dispatcher sources `sync` instead of starting
+another bash, the preflight reads the package descriptor, manifest and lock in
+one qmap pass and one engine-reader pass (`project_reads_preload`, refreshed
+after any child that may rewrite them), and the fingerprint is one
+`find | awk | git` pipeline.
 
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —

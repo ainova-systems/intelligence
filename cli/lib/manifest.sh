@@ -155,10 +155,20 @@ target_set_enabled() {
     '
 }
 
+_QMAP_AWK="${BASH_SOURCE[0]%/*}/qmap.awk"
+
 # _qmap_read <mode> <file> <block> [key] [field] [expected-lock-version]
 # All scalar reads and strict lock records share one tokenizer. Environment
 # transport preserves literal backslashes that awk -v would interpret again.
 _qmap_read() {
+    if _qmap_memo_find "$@"; then
+        _qmap_memo_replay
+        return
+    fi
+    _qmap_read_file "$@"
+}
+
+_qmap_read_file() {
     local mode="$1" file="$2"
     if [ ! -f "$file" ] || [ ! -r "$file" ]; then
         case "$mode" in
@@ -168,7 +178,139 @@ _qmap_read() {
     fi
     QMAP_MODE="$mode" QMAP_FILE="$file" QMAP_BLOCK="${3:-}" \
         QMAP_KEY="${4:-}" QMAP_FIELD="${5:-}" QMAP_EXPECTED_VERSION="${6:-}" \
-        LC_ALL=C awk -f "${BASH_SOURCE[0]%/*}/qmap.awk" < "$file"
+        LC_ALL=C awk -f "$_QMAP_AWK" < "$file"
+}
+
+# _qmap_read_var <mode> <file> <block> [key] [field] [expected-lock-version]
+# — _qmap_read into IS_QMAP_OUT, as `$(_qmap_read ...)` would capture it, and
+# with its status. A preloaded answer costs no process: on Git Bash every
+# `$(...)` forks, which is what made a lifecycle preflight take half a second.
+# shellcheck disable=SC2034  # IS_QMAP_OUT is the return channel
+_qmap_read_var() {
+    if _qmap_memo_find "$@"; then
+        IS_QMAP_OUT="${QMAP_MEMO_OUTS[$IS_QMAP_MEMO_AT]}"
+        while [[ "$IS_QMAP_OUT" == *$'\n' ]]; do IS_QMAP_OUT="${IS_QMAP_OUT%$'\n'}"; done
+        if [ "${QMAP_MEMO_RCS[$IS_QMAP_MEMO_AT]}" -ne 0 ]; then
+            printf '%s' "${QMAP_MEMO_OUTS[$IS_QMAP_MEMO_AT]}" >&2
+            IS_QMAP_OUT=""
+        fi
+        return "${QMAP_MEMO_RCS[$IS_QMAP_MEMO_AT]}"
+    fi
+    IS_QMAP_OUT="$(_qmap_read_file "$@")"
+}
+
+# --- Reads answered once per process ------------------------------------
+# qmap_preload runs one awk over several requests and remembers each answer —
+# output or strict error, and status — under the exact request it answers.
+# Only a command that holds the project lock may preload, and anything that
+# writes a qmap document forgets every answer (qmap_memo_reset): a remembered
+# read must never outlive the bytes it was read from.
+QMAP_MEMO_KEYS=()
+QMAP_MEMO_RCS=()
+QMAP_MEMO_OUTS=()
+
+qmap_memo_reset() {
+    QMAP_MEMO_KEYS=()
+    QMAP_MEMO_RCS=()
+    QMAP_MEMO_OUTS=()
+}
+
+# _qmap_memo_find <request...> — set IS_QMAP_MEMO_AT to the remembered answer.
+_qmap_memo_find() {
+    local request="${1:-}"$'\037'"${2:-}"$'\037'"${3:-}"$'\037'"${4:-}"$'\037'"${5:-}"$'\037'"${6:-}" i=0
+    while [ "$i" -lt "${#QMAP_MEMO_KEYS[@]}" ]; do
+        if [ "${QMAP_MEMO_KEYS[$i]}" = "$request" ]; then
+            IS_QMAP_MEMO_AT="$i"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+# Print a remembered answer exactly as the awk reader printed it.
+_qmap_memo_replay() {
+    if [ "${QMAP_MEMO_RCS[$IS_QMAP_MEMO_AT]}" -ne 0 ]; then
+        printf '%s' "${QMAP_MEMO_OUTS[$IS_QMAP_MEMO_AT]}" >&2
+        return "${QMAP_MEMO_RCS[$IS_QMAP_MEMO_AT]}"
+    fi
+    printf '%s' "${QMAP_MEMO_OUTS[$IS_QMAP_MEMO_AT]}"
+}
+
+# qmap_preload <request>... — each request is one string of _qmap_read's six
+# arguments, unit-separated. Requests for absent or empty documents are left
+# to the ordinary reader, which reports them exactly as before. A preload that
+# cannot run leaves nothing remembered; reads then take the ordinary path.
+# A caller that wants the awk pass to overlap other work uses the three steps
+# itself: qmap_preload_plan, qmap_preload_run (prints), qmap_preload_store.
+qmap_preload() {
+    local out
+    qmap_preload_plan "$@" || return 0
+    out="$(qmap_preload_run)" || return 0
+    qmap_preload_store "$out"
+}
+
+# qmap_preload_plan <request>... — QMAP_PLAN_REQUESTS, _FILES and _JOBS for the
+# requests one awk pass can answer; returns 1 when there are none.
+qmap_preload_plan() {
+    local request saved_ifs="$IFS"
+    local -a fields=()
+    QMAP_PLAN_REQUESTS=() QMAP_PLAN_FILES=() QMAP_PLAN_JOBS=""
+    for request in "$@"; do
+        IFS=$'\037'
+        set -f
+        # shellcheck disable=SC2206  # splitting on the unit separator is the point
+        fields=($request)
+        set +f
+        IFS="$saved_ifs"
+        case "${fields[1]:-}" in /*) ;; *) continue ;; esac
+        [ -f "${fields[1]}" ] && [ -r "${fields[1]}" ] && [ -s "${fields[1]}" ] || continue
+        QMAP_PLAN_FILES+=("${fields[1]}")
+        QMAP_PLAN_REQUESTS+=("$request")
+        QMAP_PLAN_JOBS="$QMAP_PLAN_JOBS${fields[0]:-}"$'\037'"${fields[2]:-}"$'\037'"${fields[3]:-}"$'\037'"${fields[4]:-}"$'\037'"${fields[5]:-}"$'\n'
+    done
+    [ "${#QMAP_PLAN_FILES[@]}" -gt 0 ]
+}
+
+# qmap_preload_run — the planned pass; a trailing `end` proves it completed.
+qmap_preload_run() {
+    QMAP_JOBS="${QMAP_PLAN_JOBS%$'\n'}" LC_ALL=C awk -f "$_QMAP_AWK" "${QMAP_PLAN_FILES[@]}" && echo end
+}
+
+# qmap_preload_store <output> — remember every planned answer, or nothing when
+# the output is not exactly one complete answer per request.
+qmap_preload_store() {
+    local header line status count raw i=0 saved_ifs="$IFS"
+    local -a lines=() rcs=() outs=()
+    IFS=$'\n'
+    set -f
+    # shellcheck disable=SC2206  # no line is empty: rows carry a ">" prefix
+    lines=($1)
+    set +f
+    IFS="$saved_ifs"
+    while [ "$i" -lt "${#lines[@]}" ]; do
+        header="${lines[i]}"
+        i=$((i + 1))
+        if [ "$header" = end ]; then
+            [ "$i" -eq "${#lines[@]}" ] && [ "${#rcs[@]}" -eq "${#QMAP_PLAN_REQUESTS[@]}" ] || return 0
+            QMAP_MEMO_KEYS+=("${QMAP_PLAN_REQUESTS[@]}")
+            QMAP_MEMO_RCS+=("${rcs[@]}")
+            QMAP_MEMO_OUTS+=("${outs[@]}")
+            return 0
+        fi
+        case "$header" in $'\036'[01]' '[0-9]*) ;; *) return 0 ;; esac
+        status="${header:1:1}" count="${header#* }"
+        raw=""
+        while [ "$count" -gt 0 ]; do
+            line="${lines[i]-}"
+            case "$line" in '>'*) ;; *) return 0 ;; esac
+            raw="$raw${line#>}"$'\n'
+            i=$((i + 1))
+            count=$((count - 1))
+        done
+        rcs+=("$status")
+        outs+=("$raw")
+    done
 }
 
 # qmap_validate_document <file> <block> — structural validation only.
@@ -190,6 +332,7 @@ qmap_value() { _qmap_read value "$1" "$2" "$3"; }
 _qmap_stage() {
     local file="$1"; shift
     local tmp="$file.cli.tmp" rc=0
+    qmap_memo_reset
     awk "$@" "$file" > "$tmp" || rc=$?
     [ "$rc" -eq 0 ] || { rm -f "$tmp"; die "internal: manifest edit refused (awk exit $rc) for $file"; }
     [ -s "$tmp" ] || { rm -f "$tmp"; die "internal: manifest edit produced an empty file for $file"; }
