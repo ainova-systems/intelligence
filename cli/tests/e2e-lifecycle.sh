@@ -159,6 +159,10 @@ chk grep -Fqx '.agents/skills/' "$FRESH/.gitignore"
 chknot grep -Fqx '.agents/' "$FRESH/.gitignore"
 chk grep -Fqx 'intelligence/_backup/' "$FRESH/.gitignore"
 chknot grep -Fqx '.github/' "$FRESH/.gitignore"
+for sub in instructions prompts agents skills; do
+    chk grep -Fqx ".github/$sub/" "$FRESH/.gitignore"
+done
+chknot git -C "$FRESH" check-ignore -q .github/workflows/x.yml
 for policy in .vscodeignore .npmignore .dockerignore; do
     chk grep -Fqx '# Intelligence development context and generated output' "$FRESH/$policy"
     chk grep -Fqx '.intelligence/**' "$FRESH/$policy"
@@ -1123,6 +1127,105 @@ EOF
 else
     echo "  NOTE: this host cannot create a symlink — symlinks in a skill source not exercised"
 fi
+
+echo "== Copilot output is ignored by default; commit_output keeps it tracked =="
+# Copilot in the editor reads its files from disk after sync, as Cursor and
+# Claude Code do, so the default ignores them. Only Copilot on github.com reads
+# the repository, and committing for it is the project's opt-in (decision 0020).
+COP="$OUT/copilot-policy"
+mkdir -p "$COP/.github/workflows" "$COP/intelligence/rules" "$COP/intelligence/agents" \
+    "$COP/intelligence/skills/cop-skill"
+printf 'name: ci\non: push\n' > "$COP/.github/workflows/ci.yml"
+printf -- '---\npaths:\n  - "src/**"\ndescription: "scoped"\n---\n\n# Scoped\n' \
+    > "$COP/intelligence/rules/cop-scoped.md"
+printf -- '---\nname: cop-agent\ndescription: "An agent"\ntier: standard\naccess: full\n---\n\n# Agent\n' \
+    > "$COP/intelligence/agents/cop-agent.md"
+printf -- '---\nname: cop-skill\ndescription: "A skill"\n---\n\n# Skill\n' \
+    > "$COP/intelligence/skills/cop-skill/SKILL.md"
+git -C "$COP" init --quiet
+COP_GENERATED=(.github/instructions/cop-scoped.instructions.md .github/agents/cop-agent.agent.md
+    .github/skills/cop-skill/SKILL.md)
+# cop_commit_output <yaml-value|""> — rewrite the Copilot entry through a temp
+# file; BSD sed -i takes a suffix argument, so in-place editing is not portable.
+cop_commit_output() {
+    awk -v setting="$1" '{
+        sub(/\r$/, "")
+        if ($0 !~ /^  copilot:/) { print; next }
+        if (setting == "") print "  copilot: { enabled: true, output: \".github\" }"
+        else print "  copilot: { enabled: true, output: \".github\", commit_output: " setting " }"
+    }' "$COP/intelligence.yaml" > "$COP/intelligence.yaml.tmp"
+    mv "$COP/intelligence.yaml.tmp" "$COP/intelligence.yaml"
+}
+run_in "$COP" init --targets copilot --bare
+chk test "$RC" -eq 0
+printf '%s\n' "$OUTPUT" > "$OUT/copilot-init.txt"
+chk grep -Fq 'targets.copilot.commit_output: true' "$OUT/copilot-init.txt"
+chknot grep -Fq 'AGENTS.md, and .github/' "$OUT/copilot-init.txt"
+for sub in instructions prompts agents skills; do
+    chk grep -Fqx ".github/$sub/" "$COP/.gitignore"
+done
+# `.github/` holds workflows, templates and hand-written files: never wholesale.
+chknot grep -Fqx '.github/' "$COP/.gitignore"
+for path in "${COP_GENERATED[@]}"; do
+    chk test -f "$COP/$path"
+    chk git -C "$COP" check-ignore -q "$path"
+done
+chknot git -C "$COP" check-ignore -q .github/workflows/ci.yml
+chknot git -C "$COP" check-ignore -q AGENTS.md
+run_in "$COP" status --check
+chk test "$RC" -eq 0
+
+# Opting in: until init withdraws the lines, status --check names them.
+cop_commit_output true
+run_in "$COP" status --check
+chk test "$RC" -ne 0
+printf '%s\n' "$OUTPUT" | grep -Fq "keeps '.github/agents/' tracked, but .gitignore still ignores it" \
+    || { echo "FAIL: status --check did not report the stale Copilot ignore"; fail=1; }
+run_in "$COP" init
+chk test "$RC" -eq 0
+for sub in instructions prompts agents skills; do
+    chknot grep -Fqx ".github/$sub/" "$COP/.gitignore"
+done
+chk grep -Fqx '.intelligence/' "$COP/.gitignore"
+for path in "${COP_GENERATED[@]}"; do
+    chknot git -C "$COP" check-ignore -q "$path"
+done
+cp "$COP/.gitignore" "$OUT/copilot-commit.gitignore"
+run_in "$COP" init --no-sync
+chk cmp -s "$OUT/copilot-commit.gitignore" "$COP/.gitignore"
+run_in "$COP" status --check
+chk test "$RC" -eq 0
+git -C "$COP" add -A
+git -C "$COP" -c user.email=t@t -c user.name=t commit --quiet -m "committed Copilot output"
+chk test -n "$(git -C "$COP" ls-files .github/agents/cop-agent.agent.md)"
+
+# Back to the default — the state an existing project with committed output
+# reaches on this release. init restores the ignores; Git keeps tracking what
+# it already tracks, so init names each generated file to untrack and never
+# untracks one itself.
+cop_commit_output ""
+# Until init runs, status --check names each missing line and the command
+# that adds it.
+run_in "$COP" status --check
+chk test "$RC" -ne 0
+printf '%s\n' "$OUTPUT" | grep -Fq "Git policy is missing '.github/agents/' — run 'intelligence init'" \
+    || { echo "FAIL: status --check did not name init for a missing Copilot ignore"; fail=1; }
+run_in "$COP" init
+chk test "$RC" -eq 0
+for sub in instructions prompts agents skills; do
+    chk test "$(grep -Fxc ".github/$sub/" "$COP/.gitignore")" -eq 1
+done
+for path in "${COP_GENERATED[@]}"; do
+    printf '%s\n' "$OUTPUT" | grep -Fq "git rm --cached -- '$path'" \
+        || { echo "FAIL: init did not name the tracked generated file $path"; fail=1; }
+done
+if printf '%s\n' "$OUTPUT" | grep -Fq ".github/workflows/ci.yml"; then
+    echo "FAIL: init told the project to untrack a hand-written workflow"
+    fail=1
+fi
+chk test -n "$(git -C "$COP" ls-files .github/agents/cop-agent.agent.md)"
+run_in "$COP" status --check
+chk test "$RC" -eq 0
 
 echo "== fresh clone of migrated project + sync =="
 git -C "$LEG" -c user.email=t@t -c user.name=t add -A

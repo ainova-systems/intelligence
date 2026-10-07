@@ -57,7 +57,7 @@ the one form the shell conventions define for it: a `WARNING:` line.
 ## Adapters
 
 One file defines both sides of the versioned interface:
-`adapter_contract_<name>(configured_output)` and
+`adapter_contract_<name>(configured_output, [manifest])` and
 `sync_to_<name>(repo_root, config_file, output_dir)`. Built-ins live in
 `engine/adapters/`; project adapters live in `<content-dir>/adapters/`, survive
 upgrades, and override a built-in of the same name with a visible note.
@@ -65,7 +65,10 @@ upgrades, and override a built-in of the same name with a visible note.
 The contract declares every owned and shared managed write path, the required target,
 onboarding legacy and preserved paths, and Git policy. Backup, rollback,
 enable/disable checks and `status --check` all read that declaration — never restate
-ownership in a CLI case statement.
+ownership in a CLI case statement. The manifest argument may choose Git policy
+(`targets.copilot.commit_output`) but never ownership: the engine and the sync
+cache read ownership alone and pass none, so no sync pays for the read, and every
+caller that applies or checks Git policy passes it.
 
 Every emitted text file passes through `finalize_output_file`; skill directories are
 copied with `copy_skill_bundle`; adapters sharing `.agents/skills/` use

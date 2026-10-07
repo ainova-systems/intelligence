@@ -84,7 +84,11 @@ print_new_project_onboarding() {
     echo "    intelligence adapter disable cursor"
     echo "  Version control:"
     echo "    Generated adapter output is gitignored by CLI-owned path."
-    echo "    Commit intelligence.yaml, intelligence.lock, intelligence/, AGENTS.md, and .github/."
+    echo "    Commit intelligence.yaml, intelligence.lock, intelligence/, and AGENTS.md."
+    if [ "$(is_target_enabled "$manifest" copilot)" = "1" ]; then
+        echo "    Copilot on github.com reads the repository, not a sync: to commit its output, set"
+        echo "    targets.copilot.commit_output: true, then run intelligence init."
+    fi
     echo "    Existing .vscodeignore, .npmignore, and .dockerignore files receive packaging exclusions."
     echo "    Shared tool settings remain trackable; review the exact ownership policy:"
     echo "    https://github.com/ainova-systems/intelligence/blob/main/packages/sync/references/conventions.md#generated-output-and-version-control"

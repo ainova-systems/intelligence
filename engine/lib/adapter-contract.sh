@@ -1,10 +1,17 @@
 #!/bin/bash
 # Declarative adapter ownership contract shared by the engine and CLI.
 #
-# Every adapter exposes adapter_contract_<name> <configured-output>. The
-# function emits tab-separated records through the helpers below. Keeping the
+# Every adapter exposes adapter_contract_<name> <configured-output> [manifest].
+# The function emits tab-separated records through the helpers below. Keeping the
 # declaration beside sync_to_<name>() makes backup, rollback, git policy and
 # lifecycle checks consume the same ownership model as the writer itself.
+#
+# The manifest argument exists for Git policy alone: a target field may choose
+# whether generated output is ignored (targets.copilot.commit_output). Ownership
+# never depends on it, so the engine and the sync cache, which read ownership
+# only, pass none and spare every sync the extra read; a contract given none
+# declares its default policy. Every caller that applies or checks Git policy
+# passes the manifest.
 
 adapter_contract_version()  { printf 'version\t%s\n' "$1"; }
 adapter_contract_requires() { printf 'requires\t%s\n' "$1"; }
@@ -14,6 +21,10 @@ adapter_contract_legacy()   { printf 'legacy\t%s\n' "$1"; }
 adapter_contract_preserve() { printf 'preserve\t%s\n' "$1"; }
 adapter_contract_ignore()   { printf 'ignore\t%s\n' "$1"; }
 adapter_contract_include()  { printf 'include\t%s\n' "$1"; }
+# An ignore line the policy must not hold: the writer takes it back out of the
+# region it manages. It is how a configuration that keeps output tracked undoes
+# the default ignore an earlier alignment already wrote.
+adapter_contract_unignore() { printf 'unignore\t%s\n' "$1"; }
 
 # --- cross-adapter ownership -------------------------------------------------
 #
@@ -106,12 +117,12 @@ adapter_contract_safe_concrete_path() {
     esac
 }
 
-# adapter_contract_records <adapter-name> <adapter-file> <configured-output>
+# adapter_contract_records <adapter-name> <adapter-file> <configured-output> [manifest]
 # Source and query in a subshell so a project adapter cannot leak shell state
 # into the caller. Project adapters are trusted executable code during sync;
 # the isolation here is for correctness, not a security boundary.
 adapter_contract_records() (
-    local name="$1" file="$2" output="$3" fn line kind value saw_version=0
+    local name="$1" file="$2" output="$3" manifest="${4:-}" fn line kind value saw_version=0
     # shellcheck source=/dev/null
     source "$file"
     printf -v fn 'adapter_contract_%s' "$name"
@@ -149,7 +160,7 @@ adapter_contract_records() (
                     return 1
                 }
                 ;;
-            ignore|include)
+            ignore|include|unignore)
                 adapter_contract_safe_path "$value" || {
                     echo "ERROR: adapter '$name' declares unsafe $kind path '$value'" >&2
                     return 1
@@ -161,7 +172,7 @@ adapter_contract_records() (
                 ;;
         esac
         printf '%s\n' "$line"
-    done < <("$fn" "$output")
+    done < <("$fn" "$output" "$manifest")
     [ "$saw_version" -eq 1 ] || {
         echo "ERROR: adapter '$name' contract did not declare version 1" >&2
         return 1
