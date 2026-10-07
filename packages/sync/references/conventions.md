@@ -194,7 +194,7 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 
 A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
 
-The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default.
+The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default. Another tier name works only where `models.<tool>.<tier>` defines it; elsewhere — a typo, as a rule — the agent renders with an empty `model` and sync warns once per tool and tier.
 
 ### Effort mappings
 
@@ -270,7 +270,7 @@ argument-hint: "<route-name>"
 
 Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes.
 
-`disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field — a skill that ships its own `agents/openai.yaml` keeps it unchanged.
+`disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 
 These limits reject a skill instead of degrading it:
 
