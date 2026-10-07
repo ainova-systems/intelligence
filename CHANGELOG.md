@@ -8,7 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- `sources:` names an installed package's directory as `package:<name>/<dir>` — `package:sync/rules` instead of `.intelligence/packages/@ainova-systems/sync/rules` — so a project's source list carries no vendor scope. `<name>` is the full `@scope/name`, or the part after its `/` while no other declared package shares it. The engine renders a token exactly as the store path it stands for; `sync` warns about, and `status --check` reports, a token that names no declared package, one two declared packages share, or a malformed one (decision 0015).
+- `sources:` names an installed package's directory as `package:<name>/<dir>` — `package:sync/rules` instead of `.intelligence/packages/@ainova-systems/sync/rules` — so a project's source list carries no vendor scope. `<name>` is the full `@scope/name`, or the part after its `/` while no other declared package shares it. The engine renders a token exactly as the store path it stands for; `sync` warns about, and `status --check` reports, a token that names no declared package, one two declared packages share, or a malformed one (decision 0019).
 
 ### Changed
 

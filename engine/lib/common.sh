@@ -1802,7 +1802,7 @@ report_context_source_sizes() {
 # engine's own loops and the CLI — so expansion costs no process, and the CLI sees
 # exactly what the engine renders (decision 0009). A token that does not resolve
 # passes through verbatim: it names no directory, so it is skipped like any
-# missing source, and `status --check` reports why (decision 0015).
+# missing source, and `status --check` reports why (decision 0019).
 #
 # These functions are the token's only definition. The CLI's editors
 # (lib/manifest.sh) and `status --check` load this same string:

@@ -1,4 +1,4 @@
-# 0015 — Name package sources by package
+# 0019 — Name package sources by package
 
 Date: 2026-10-07
 Status: accepted
@@ -58,10 +58,18 @@ Two facts constrained the replacement:
    territory, as they treat `.intelligence/` paths, and accept one as a
    `--before` / `--after` anchor.
 7. The change ships as `0.19.0`, a minor, with a `### Breaking` checklist item:
-   every teammate needs CLI `0.19.0` or later. This is a deliberate exception to
-   decision 0005, point 4: a CLI `0.18` or earlier is of the same major, so it
-   is not refused — it reads a token as a path and renders the project without
-   its package content.
+   every teammate needs CLI `0.19.0` or later. A CLI `0.18` or earlier is of the
+   same major, so it is not refused — it reads a token as a path and renders the
+   project without its package content. That breaks two standing rules, and the
+   owner granted an exception to both for this change: decision 0005, point 4
+   (and its restatement in `intelligence/rules/cli.md`), which releases a shape
+   an older engine of the same major cannot read as a major; and
+   `dev-rollback-safety`, whose expand-contract would ship the reader a release
+   before anything writes a token. The owner's reasons: the project is not
+   ready for its first stable major, and the breaking impact is not critical,
+   because the `### Breaking` checklist tells every teammate and CI job to run
+   CLI `0.19.0` or later before the migrated manifest is committed. The
+   exception covers this change only; both rules stand for every other.
 
 ## Consequences
 
@@ -90,8 +98,15 @@ Two facts constrained the replacement:
   already refused in project entries (`source_entry_problem`), so a `package:`
   token can never collide with one.
 - **Releasing as `1.0.0`.** Under decision 0005 a newer major makes an older
-  CLI refuse the project loudly instead of rendering it partially; it was
-  weighed and not chosen, and `1.0.0` remains a separate decision.
+  CLI refuse the project loudly instead of rendering it partially. The owner is
+  not ready for a first stable major, and judges the partial render not
+  critical with the `### Breaking` checklist in place (point 7).
+- **Reading tokens in `0.19.0` and writing them a release later.** Migration 3,
+  `init`, the package operations and the examples would keep writing store paths
+  until the next release, so teammates had a release to upgrade before any
+  manifest carried a token — the expand-contract `dev-rollback-safety` asks for.
+  The owner took the exception in point 7 instead of splitting the change
+  across releases, for the same reasons.
 - **No automatic migration.** Existing manifests would keep the store path
   until someone edited each one by hand — a hand edit with no gate behind it —
   and both spellings would stay in the field indefinitely.

@@ -47,3 +47,7 @@ lifecycle preflight, and CI refuses that tracked mutation.
   the `0.11.x` gaps this decision exists to admit, and the shape has not changed within the line.
 - **Let an older CLI align the project to its own version.** That is a downgrade: the next teammate
   on the current CLI moves everything back and the tracked diff ping-pongs between versions.
+
+Exception in 0019 (this file is append-only, the items above are unchanged): `package:` sources
+ship in the minor `0.19.0` although a `0.18` engine cannot read them, by the owner's decision.
+Point 4 stands for every other change.
