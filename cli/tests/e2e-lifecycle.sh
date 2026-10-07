@@ -1008,11 +1008,11 @@ EOF
     printf '\000\001binary\377' > "$LS/_shared/assets/data.bin"
     ln -s ../../_shared/guide.md "$LS/plain/references/guide.md"
     ln -s ../_shared/assets "$LS/plain/assets"
-    link_skill "$LS/_shared/aliased" aliased
+    link_skill "$LS/_shared/aliased" aliased 'effort: ultra'
     ln -s ../../guide.md "$LS/_shared/aliased/references/guide.md"
     ln -s _shared/aliased "$LS/aliased"
     mkdir -p "$LS/linked-md"
-    printf -- '---\nname: linked-md\ndescription: Linked: colon\ndisable-model-invocation: true\n---\n\n# Linked md\n' \
+    printf -- '---\nname: linked-md\ndescription: Linked: colon\neffort: ultra\ndisable-model-invocation: true\n---\n\n# Linked md\n' \
         > "$LS/_shared/linked-md.md"
     ln -s ../_shared/linked-md.md "$LS/linked-md/SKILL.md"
     link_skill "$LS/policy-linked" policy-linked 'disable-model-invocation: true'
@@ -1066,6 +1066,14 @@ EOF
         chknot test -e "$tree/plain/loop"
         # SKILL.md behind a link gets the frontmatter quoting every SKILL.md gets.
         chk grep -Fqx 'description: "Linked: colon"' "$tree/linked-md/SKILL.md"
+    done
+    # ... and the effort each tree renders (#47): Claude's level, the neutral
+    # value in the shared tree, no key where the tool has no field.
+    for skill in linked-md aliased; do
+        chk grep -Fqx 'effort: max' "$LNK/.claude/skills/$skill/SKILL.md"
+        chk grep -Fqx 'effort: ultra' "$LNK/.agents/skills/$skill/SKILL.md"
+        chknot grep -q '^effort:' "$LNK/.github/skills/$skill/SKILL.md"
+        chknot grep -q '^effort:' "$LNK/.cursor/skills/$skill/SKILL.md"
     done
     for skill in plain aliased linked-md policy-linked agents-linked esc-policy esc-agents; do
         chk test -f "$LNK/.opencode/commands/$skill.md"

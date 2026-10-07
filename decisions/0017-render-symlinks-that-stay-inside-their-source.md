@@ -18,8 +18,9 @@ one pointed out of the repository. The shared `.agents/skills` tree, the
 `find -type d`, which skips a linked directory, so Codex, Pi, OpenCode and
 Antigravity lost such a skill without a word. A linked `SKILL.md` stayed a
 link in every tree, with a warning compact output dropped: no frontmatter
-quoting, no layout tokens, no Codex invocation policy, so an owner-only skill
-stayed selectable in Codex. A linked `agents/openai.yaml` was left unenforced.
+quoting, no layout tokens, no `effort:` rendering, no Codex invocation policy,
+so an owner-only skill stayed selectable in Codex. A linked
+`agents/openai.yaml` was left unenforced.
 
 Decision [0006](0006-safe-skill-imports-and-adapter-growth.md) already rules
 out copying contents from an escaping symlink automatically.
@@ -31,8 +32,9 @@ out copying contents from an escaping symlink automatically.
    reaches a regular file or directory inside the same source directory, sync
    renders it exactly like that file or directory, as regular files in every
    skill tree. Everything that runs on a skill runs on that copy: frontmatter
-   quoting, layout tokens, the Codex invocation policy, and any transform added
-   later.
+   quoting, layout tokens, each tool's `effort:` level
+   ([0015](0015-separate-reasoning-effort-from-the-model-tier.md)), the Codex
+   invocation policy, and any transform added later.
 2. **Any other link is left out, and said so.** A link that resolves outside
    its source — elsewhere in the repository included — that dangles, or that
    points to a directory enclosing it, is never read through and never copied.
@@ -54,9 +56,11 @@ out copying contents from an escaping symlink automatically.
   two skills of one source work in every tool. A skill kept elsewhere is added
   as its own source (`intelligence source add`) or a package; both render it in
   full.
-- A source without links costs what it cost before: the listing walks it once.
-  A source with links resolves them in one extra process, plus one `readlink`
-  call per link-chain hop for all its file links together, never per file.
+- A source without links still costs one `find`, which now walks below the
+  skill directories to see a link inside a bundle, and replaces the separate
+  `find` the frontmatter lint ran. A source with links resolves them in one
+  extra process, plus one `readlink` call per link-chain hop for all its file
+  links together, never per file.
 - A source with links already bypasses sync reuse, which refuses to fingerprint
   a link ([0010](0010-skip-unchanged-local-sync.md)), so a change behind a link
   always renders.

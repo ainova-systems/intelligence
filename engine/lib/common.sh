@@ -1751,8 +1751,8 @@ warn_unsynced() {
 # from here, once per run: the skill list read_source_artifact_files returns,
 # the membership the glob-listing adapters check (skill_source_rendered), and
 # the plan copy_skill_bundle_dirs applies to its copy. A skill rendered from a
-# link is an ordinary skill from then on — quoting, token expansion and the
-# Codex invocation policy all run on the output copy.
+# link is an ordinary skill from then on — quoting, token expansion, the
+# effort rendering and the Codex invocation policy all run on the output copy.
 #
 # skill_source_inventory <repo_root> <config_file> fills, in the caller's
 # shell and fail-closed like read_source_artifact_files:
