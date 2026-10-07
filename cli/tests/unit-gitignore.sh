@@ -171,7 +171,7 @@ cp "$D/.gitignore" "$OUT/repair.once"
 gitignore_add_effective_include "$D" ".claude/settings.json"
 chk cmp -s "$OUT/repair.once" "$D/.gitignore"
 
-# --- Copilot's Git policy (decision 0015) ------------------------------------
+# --- Copilot's Git policy (decision 0020) ------------------------------------
 COPILOT_DIRS=(instructions prompts agents skills)
 COPILOT_ADAPTER="$IS_ENGINE_DIR/adapters/copilot.sh"
 # copilot_manifest <dir> <copilot entry> — the caller writes the target entry,

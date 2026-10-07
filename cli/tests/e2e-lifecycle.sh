@@ -867,7 +867,7 @@ fi
 echo "== Copilot output is ignored by default; commit_output keeps it tracked =="
 # Copilot in the editor reads its files from disk after sync, as Cursor and
 # Claude Code do, so the default ignores them. Only Copilot on github.com reads
-# the repository, and committing for it is the project's opt-in (decision 0015).
+# the repository, and committing for it is the project's opt-in (decision 0020).
 COP="$OUT/copilot-policy"
 mkdir -p "$COP/.github/workflows" "$COP/intelligence/rules" "$COP/intelligence/agents" \
     "$COP/intelligence/skills/cop-skill"

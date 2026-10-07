@@ -12,7 +12,7 @@
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
 #
-# Git policy (decision 0015): generated output is ignored by default, as it is
+# Git policy (decision 0020): generated output is ignored by default, as it is
 # for Cursor and Claude Code — Copilot in the editor reads it from disk after
 # sync. GitHub's cloud Copilot (code review, the coding agent) reads the
 # repository instead, so `targets.copilot.commit_output: true` keeps the output

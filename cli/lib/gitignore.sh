@@ -88,29 +88,17 @@ gitignore_collapse_duplicates() {
     local root="$1" probe="$2"; shift 2
     local file="$root/.gitignore" tmp backup before=0 after=0
     local -a lines=() managed=("$@") last_idx=()
-    local line key i mi n hdr=-1 keep final_newline=1
+    local key i mi n hdr keep final_newline
     [ -f "$file" ] || return 0
 
-    # Read and write the file's own bytes, without awk: on Windows it reads in
-    # text mode and would hand back every line stripped of its CR, rewriting a
-    # CRLF file as LF. A line's CR is significant to Git, and either way the
-    # lines this function does not remove must survive byte-for-byte.
-    line=""
-    while IFS= read -r line; do
-        lines[${#lines[@]}]="$line"
-        line=""
-    done < "$file"
-    # `read` returns 1 at EOF but still fills `line` when the file's last line
-    # carries no newline; preserve that ending instead of adding one.
-    if [ -n "$line" ]; then
-        lines[${#lines[@]}]="$line"
-        final_newline=0
-    fi
-    n=${#lines[@]}
-    for ((i = 0; i < n; i++)); do
-        if [ "${lines[i]%"$IS_CR"}" = "$IS_GITIGNORE_HEADER" ]; then hdr=$i; break; fi
-    done
+    gitignore_read_var "$file"
+    hdr=$IS_GI_HEADER
     [ "$hdr" -ge 0 ] || return 0
+    # A header was found, so the array is not empty — Bash 3.2 under `set -u`
+    # cannot expand an empty one.
+    lines=("${IS_GI_LINES[@]}")
+    final_newline=$IS_GI_FINAL_NEWLINE
+    n=${#lines[@]}
 
     # Where each managed line last occurs below the header. Indexed arrays and
     # arithmetic `for` only — Bash 3.2 has no associative arrays.
@@ -164,7 +152,12 @@ gitignore_collapse_duplicates() {
 # gitignore_read_var <file> — load the file's lines as stored, CRs included, into
 # IS_GI_LINES. IS_GI_HEADER is the index of this policy's header (-1 when the
 # file has none) and IS_GI_FINAL_NEWLINE is 0 when the last line ends without
-# one. `read`, never awk, for the reason gitignore_collapse_duplicates gives.
+# one. Every writer that rewrites .gitignore line by line reads it here.
+#
+# `read`, never awk: on Windows awk reads in text mode and would hand back every
+# line stripped of its CR, rewriting a CRLF file as LF. A line's CR is
+# significant to Git, and the lines a writer does not remove must survive
+# byte-for-byte.
 gitignore_read_var() {
     local file="$1" line i
     IS_GI_LINES=()
@@ -175,6 +168,8 @@ gitignore_read_var() {
         IS_GI_LINES[${#IS_GI_LINES[@]}]="$line"
         line=""
     done < "$file"
+    # `read` returns 1 at EOF but still fills `line` when the file's last line
+    # carries no newline; preserve that ending instead of adding one.
     if [ -n "$line" ]; then
         IS_GI_LINES[${#IS_GI_LINES[@]}]="$line"
         IS_GI_FINAL_NEWLINE=0

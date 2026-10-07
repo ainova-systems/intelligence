@@ -1,4 +1,4 @@
-# 0015 — Ignore generated Copilot output
+# 0020 — Ignore generated Copilot output
 
 Date: 2026-10-07
 Status: accepted

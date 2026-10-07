@@ -8,7 +8,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Added
 
-- `targets.copilot.commit_output: true` keeps generated Copilot output tracked for Copilot on github.com (decision 0015).
+- `targets.copilot.commit_output: true` keeps generated Copilot output tracked for Copilot on github.com (decision 0020).
 
 ### Changed
 
