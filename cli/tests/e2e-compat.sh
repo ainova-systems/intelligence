@@ -2,8 +2,9 @@
 # Hermetic e2e for the schema-compatibility gate: a CLI OLDER than the project.
 # A project stamped a newer minor or patch within the same major syncs with one
 # warning and is never restamped or re-pinned downward; a newer major is refused
-# with the `ahead-of-engine` status and exit 4. No network: the engine-content
-# store is seeded from this tree.
+# with the `ahead-of-engine` status and exit 4. Compact sync keeps every warning
+# within its line contract. No network: the engine-content store is seeded from
+# this tree.
 set -euo pipefail
 unset CI
 REPO="${1:-$(cd "$(dirname "$0")/../.." && pwd)}"
@@ -244,6 +245,28 @@ if [ -n "$BEHIND" ]; then
 else
     echo "  (engine $ENGINE_VER has no lower version to stamp; skipped)"
 fi
+
+echo "== 7. compact output keeps every warning, the frontmatter checks included =="
+# A description over 1024 characters gets the agent rejected at load time. The
+# first sync `init` runs is compact, so a warning compact output drops is one
+# nobody reads: a full render and the unchanged run that replays it both carry it.
+P6="$OUT/lint-warning"
+make_project "$P6" "$ENGINE_VER"
+mkdir -p "$P6/intelligence/agents"
+awk '{ print } $0 == "  agents:" { print "    - \"intelligence/agents\"" }' "$P6/intelligence.yaml" > "$OUT/p6.yaml"
+mv "$OUT/p6.yaml" "$P6/intelligence.yaml"
+long_description="$(printf '%01100d' 0 | tr 0 x)"
+printf -- '---\nname: verbose\ndescription: "%s"\n---\n\n# Verbose\n' "$long_description" \
+    > "$P6/intelligence/agents/verbose.md"
+REJECTED="description is 1100 chars — over the 1024-char limit; the skill/agent will be REJECTED at load time"
+xok "$REJECTED" "$P6" sync --compact --force
+compact_contract_ok "$OUTPUT" || { echo "FAIL: forced compact output broke its contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+printf '%s\n' "$OUTPUT" | grep -q "^WARNING: .*verbose.md:3 $REJECTED" \
+    || { echo "FAIL: the rejection warning is not a WARNING: line"; printf '%s\n' "$OUTPUT"; fail=1; }
+xok "$REJECTED" "$P6" sync --compact
+compact_contract_ok "$OUTPUT" || { echo "FAIL: replayed compact output broke its contract"; printf '%s\n' "$OUTPUT"; fail=1; }
+xok "Unchanged: generated files are up to date." "$P6" sync
+has "$REJECTED"
 
 if [ "$fail" -eq 0 ]; then
     echo "e2e-compat: OK"

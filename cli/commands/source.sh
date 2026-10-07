@@ -168,7 +168,7 @@ case "$action" in
             echo "added: $dir"
         fi
         if [ ! -d "$IP_ROOT/$dir" ]; then
-            echo "  WARN: $dir does not exist yet — sync skips a missing source and renders it once the directory appears." >&2
+            echo "WARNING: $dir does not exist yet — sync skips a missing source and renders it once the directory appears." >&2
         fi
         print_section "$manifest" "$IP_ROOT" "$section"
         echo "Run 'intelligence sync' to render it."

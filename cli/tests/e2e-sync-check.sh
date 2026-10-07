@@ -294,11 +294,16 @@ source_link="$PROJECT/intelligence/skills/demo/assets/link"
 if MSYS=winsymlinks:nativestrict ln -s "$TMP/link-target/file" "$source_link" 2>/dev/null && [ -L "$source_link" ]; then
     run
     check test "$RC" -eq 0
-    check test -L "$PROJECT/.claude/skills/demo/assets/link"
+    check test ! -e "$PROJECT/.claude/skills/demo/assets/link"
+    check test ! -e "$PROJECT/.agents/skills/demo/assets/link"
+    # Skills never emit escaping links; a hand-edited generated link still
+    # belongs to the rollback snapshot and must come back untouched.
+    ln -s "$TMP/link-target/file" "$PROJECT/.claude/skills/demo/assets/link"
+    ln -s "$TMP/link-target/file" "$PROJECT/.agents/skills/demo/assets/link"
     save_outputs
     # The fingerprint cannot carry a link, so every check takes the render path.
     run --check
-    check test "$RC" -eq 0
+    check test "$RC" -eq 2
     check rendered
     check outputs_kept
     check test "$(readlink "$PROJECT/.claude/skills/demo/assets/link")" = "$TMP/link-target/file"

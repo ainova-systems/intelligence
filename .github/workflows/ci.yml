@@ -530,8 +530,9 @@ jobs:
           # Every text pass in the engine (LF normalization, token expansion,
           # frontmatter quoting) reads a file and writes it back. Run one of
           # those through a symlink and the link's TARGET — a host file outside
-          # the repo — is copied into the generated skill. `cp -R` preserves
-          # symlinks precisely so that cannot happen; assert it stays true.
+          # the repo — is copied into the generated skill. A link that resolves
+          # outside its skills source is never read through: its skill is left
+          # out of every output (decision 0017); assert it stays true.
           PROJ=$RUNNER_TEMP/symskill
           SECRET=$RUNNER_TEMP/secret
           mkdir -p "$PROJ/intelligence"/{rules,agents,skills/evil-skill} "$SECRET"
@@ -562,6 +563,9 @@ jobs:
             grep -rl "TOP-SECRET-HOST-CONTENT" .claude .agents AGENTS.md
             exit 1
           fi
-          test -L .claude/skills/evil-skill/SKILL.md \
-            || { echo "FAIL: symlinked SKILL.md was replaced by a real file"; exit 1; }
-          echo "OK: symlinked SKILL.md left as a symlink; no host content in outputs"
+          for tree in .claude/skills .agents/skills; do
+            if [ -e "$tree/evil-skill" ] || [ -L "$tree/evil-skill" ]; then
+              echo "FAIL: a skill whose SKILL.md escapes its source reached $tree"; exit 1
+            fi
+          done
+          echo "OK: escaping SKILL.md left out of every output; no host content in outputs"

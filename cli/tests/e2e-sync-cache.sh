@@ -360,6 +360,10 @@ miss
 check has 'unquoted colon'
 hit
 check has 'unquoted colon'
+run --compact
+check test "$RC" -eq 0
+check grep -q '^WARNING: .*warning.md:2 unquoted colon' <<< "$OUTPUT"
+hit
 rm "$PROJECT/intelligence/rules/warning.md"
 miss
 
@@ -372,6 +376,17 @@ miss --force
 check has 'NOT SYNCED: apps/one/intelligence/rules'
 hit
 check has 'NOT SYNCED: apps/one/intelligence/rules'
+run --compact
+check test "$RC" -eq 0
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
+check grep -Fxq 'WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>' <<< "$OUTPUT"
+miss --compact --force
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
+check grep -Fxq 'WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>' <<< "$OUTPUT"
+hit
+run --compact
+check test "$RC" -eq 0
+check grep -Fxq 'WARNING: NOT SYNCED: apps/one/intelligence/rules' <<< "$OUTPUT"
 mkdir -p "$PROJECT/apps/two/intelligence/rules"
 printf '# Unconfigured\n' > "$PROJECT/apps/two/intelligence/rules/test.md"
 hit
@@ -447,9 +462,12 @@ mkdir "$TMP/external"
 printf external > "$TMP/external/file"
 if MSYS=winsymlinks:nativestrict ln -s "$TMP/external/file" "$PROJECT/intelligence/skills/demo/assets/link" 2>/dev/null && [ -L "$PROJECT/intelligence/skills/demo/assets/link" ]; then
     miss
+    check has "WARNING: skill 'demo' renders without assets/link"
     miss
     rm "$PROJECT/intelligence/skills/demo/assets/link"
-    miss
+    # The link never reached an output (decision 0017), so without it inputs
+    # and outputs are again exactly what the cache recorded.
+    hit
     rm -rf "$PROJECT/.intelligence/sync-cache"
     MSYS=winsymlinks:nativestrict ln -s "$TMP/external" "$PROJECT/.intelligence/sync-cache"
     miss

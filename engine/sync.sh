@@ -113,45 +113,42 @@ while IFS=$'\037' read -r section src state _dir alias holders; do
     echo "WARNING: sources.$section '$src' $IS_SOURCE_PROBLEM — skipped; 'intelligence status --check' reports it" >&2
 done <<< "${IS_YL_UNRESOLVED:-}"
 
-# Lint frontmatter across all source files (rules, agents, skills).
-# Catches issues like unquoted colons that strict YAML consumers reject.
-LINT_FILES=()
-LINT_SKILL_DIRS=()
-for section in rules agents skills; do
-    load_yaml_list "$CONFIG_FILE" "$section"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        src_dir="$REPO_ROOT/$src"
-        [ -d "$src_dir" ] || continue
-        if [ "$section" = "skills" ]; then
-            LINT_SKILL_DIRS+=("$src_dir")
-        else
-            for f in "$src_dir"/*.md; do
-                [ -f "$f" ] && LINT_FILES+=("$f")
-            done
-        fi
-    done <<< "$IS_YAML_LIST"
-done
-# One find for every skills source: it walks its start points in order.
-if [ "${#LINT_SKILL_DIRS[@]}" -gt 0 ]; then
-    while IFS= read -r f; do
-        [ -n "$f" ] && LINT_FILES+=("$f")
-    done < <(find "${LINT_SKILL_DIRS[@]}" -mindepth 2 -maxdepth 2 -name 'SKILL.md' 2>/dev/null)
-fi
-if [ "${#LINT_FILES[@]}" -gt 0 ]; then
-    lint_frontmatter_files "${LINT_FILES[@]}"
-fi
 
 # Sources stay read-only for the whole run (validate_output_path refuses an
 # output inside one), so read_source_artifact_files enumerates each section
 # once, in this shell, and its later callers — the agents adapter, the shared
 # skill directory, the context report — replay it. Adapters that list sources
 # with in-shell globs spawn nothing and keep their own, locale-ordered listing.
+# The skills pass also settles every symlink in a skills source and warns once
+# about each it leaves out (decision 0017).
 # shellcheck disable=SC2034  # read by read_source_artifact_files in lib/common.sh
 IS_SOURCE_FILES_MEMO=1
 for section in rules agents skills; do
     read_source_artifact_files "$REPO_ROOT" "$CONFIG_FILE" "$section"
 done
+
+# Lint frontmatter across all source files (rules, agents, skills).
+# Catches issues like unquoted colons that strict YAML consumers reject.
+# Skills are the rendered ones the pass above settled: SKILL.md behind a link
+# inside its source is linted, one that leaves its source is never read.
+LINT_FILES=()
+LINT_SKILLS=()
+[ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || LINT_SKILLS=("${IS_SOURCE_FILES[@]}")
+for section in rules agents; do
+    load_yaml_list "$CONFIG_FILE" "$section"
+    while IFS= read -r src; do
+        [ -z "$src" ] && continue
+        src_dir="$REPO_ROOT/$src"
+        [ -d "$src_dir" ] || continue
+        for f in "$src_dir"/*.md; do
+            [ -f "$f" ] && LINT_FILES+=("$f")
+        done
+    done <<< "$IS_YAML_LIST"
+done
+[ "${#LINT_SKILLS[@]}" -eq 0 ] || LINT_FILES+=("${LINT_SKILLS[@]}")
+if [ "${#LINT_FILES[@]}" -gt 0 ]; then
+    lint_frontmatter_files "${LINT_FILES[@]}"
+fi
 
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):

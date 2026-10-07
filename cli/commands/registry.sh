@@ -51,7 +51,7 @@ case "$sub" in
             echo "  index.yaml reachable — $n package(s):"
             qmap_keys "$index" "packages" | sed 's/^/    /'
         elif [ "$force" -eq 1 ]; then
-            echo "  WARN: no index.yaml at $url — recording anyway (--force)." >&2
+            echo "WARNING: no index.yaml at $url — recording anyway (--force)." >&2
         else
             echo "ERROR: no index.yaml found at $url — not adding it." >&2
             echo "  A registry is a git repo with index.yaml at its root, mapping names to sources:" >&2

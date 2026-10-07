@@ -452,8 +452,11 @@ copy_md_with_quoted_frontmatter() {
 # ship support files beside SKILL.md, and SKILL.md bodies point at them by
 # relative path, so dropping them breaks the skill at runtime). Markdown is
 # normalized to LF; every other file is copied byte-for-byte so potentially
-# binary assets survive. `cp -R` copies symlinks as symlinks (POSIX), so a
-# link inside a source skill never leaks host file content into the output.
+# binary assets survive. A symlink never reaches the output: the plan
+# skill_source_inventory made turns a link inside its source into the regular
+# file or directory it points at and leaves any other out, and the flush
+# removes a link no plan covered (a copy from outside every skills source), so
+# no host file outside the source is ever copied in (decision 0017).
 #
 # SKILL.md frontmatter is quoted for EVERY consumer, not only the strict-YAML
 # ones. `argument-hint: [pr-number]` is a YAML *flow sequence*, so an unquoted
@@ -470,7 +473,7 @@ copy_md_with_quoted_frontmatter() {
 # Usage: copy_skill_bundle "src/skill/dir" "dest/skill/dir"
 copy_skill_bundle() {
     _skill_bundles_reset
-    _skill_bundle_stage "$1" "$2"
+    _skill_bundle_stage "$1" "$2" || return 1
     _skill_bundles_flush open
 }
 
@@ -478,7 +481,8 @@ copy_skill_bundle() {
 # copies every source skill directory into <dest_root>/<skill-name>, then one
 # awk pass quotes and finalizes every bundled markdown file across all
 # bundles. A later source with the same skill name overwrites file-by-file in
-# order, exactly like the sequential per-bundle copies did.
+# order, exactly like the sequential per-bundle copies did. A skill with links
+# to resolve is copied from its materialized stage, in the same order.
 copy_skill_bundle_dirs() {
     copy_skill_bundle_dirs_for open "$@"
 }
@@ -489,13 +493,27 @@ copy_skill_bundle_dirs_for() {
     local effort_tool="$1" dest_root="$2"
     shift 2
     [ "$#" -gt 0 ] || return 0
-    local src dest
+    local src dest linked=0
     local -a srcs=()
     for src in "$@"; do
-        srcs+=("${src%/}")
+        src="${src%/}"
+        srcs+=("$src")
+        ! _ski_planned "$src" || linked=1
     done
     mkdir -p "$dest_root"
-    cp -R "${srcs[@]}" "$dest_root/"
+    if [ "$linked" = 0 ]; then
+        cp -R "${srcs[@]}" "$dest_root/"
+    else
+        for src in "${srcs[@]}"; do
+            if _ski_planned "$src"; then
+                _skill_bundle_materialize "$src" || return 1
+                cp -R "$IS_SKI_STAGED" "$dest_root/" || return 1
+                rm -rf "${IS_SKI_STAGED%/*}"
+            else
+                cp -R "$src" "$dest_root/" || return 1
+            fi
+        done
+    fi
     _skill_bundles_reset
     for src in "${srcs[@]}"; do
         dest="$dest_root/${src##*/}"
@@ -513,24 +531,63 @@ _skill_bundles_reset() {
 _skill_bundle_stage() {
     local src="${1%/}" dest="$2"
     mkdir -p "$dest"
-    cp -R "$src/." "$dest/"
+    if _ski_planned "$src"; then
+        _skill_bundle_materialize "$src" || return 1
+        cp -R "$IS_SKI_STAGED/." "$dest/" || return 1
+        rm -rf "${IS_SKI_STAGED%/*}"
+    else
+        cp -R "$src/." "$dest/"
+    fi
     _skill_bundle_note "$dest"
+}
+
+# _skill_bundle_materialize <skill_dir> — copy a skill whose plan holds links
+# into a fresh stage and apply the plan there, parents first: each planned link
+# is replaced by a copy of the file or directory it resolves to inside its
+# source, or removed. Sets IS_SKI_STAGED to <stage>/<name>; the caller copies
+# it on and removes the stage. Spawns per link, never per file — a source
+# without links never comes here.
+_skill_bundle_materialize() {
+    local src="$1" key stage out rec rel act phys first=1
+    _ski_key_var "$src"
+    key="$_SKI_KEY"
+    stage="$(mktemp -d -t intelligence-skill-XXXXXX)" || return 1
+    out="$stage/${key##*/}"
+    while IFS= read -r rec; do
+        case "$rec" in
+            "$key$IS_SKI_US"*) ;;
+            *) continue ;;
+        esac
+        rec="${rec#"$key$IS_SKI_US"}"
+        rel="${rec%%"$IS_SKI_US"*}"
+        rec="${rec#*"$IS_SKI_US"}"
+        act="${rec%%"$IS_SKI_US"*}"
+        phys="${rec#*"$IS_SKI_US"}"
+        if [ "$first" = 1 ]; then
+            first=0
+            if [ -z "$rel" ]; then
+                # The skill directory itself is the link.
+                mkdir "$out" && cp -R "$phys/." "$out/" || return 1
+                continue
+            fi
+            cp -R "$src" "$stage/" || return 1
+        fi
+        # The copy holds the link itself here; `rm -f` never follows it and
+        # refuses a directory, so a plan that no longer matches stops the run.
+        rm -f "$out/$rel" || return 1
+        case "$act" in
+            f) cp "$phys" "$out/$rel" || return 1 ;;
+            d) mkdir "$out/$rel" && cp -R "$phys/." "$out/$rel/" || return 1 ;;
+        esac
+    done <<< "$IS_SKI_PLAN"
+    IS_SKI_STAGED="$out"
 }
 
 # Record a staged bundle for the flush pass: mark its SKILL.md for
 # frontmatter quoting and deduplicate the destination.
 _skill_bundle_note() {
     local dest="$1"
-    # A symlinked SKILL.md is left exactly as `cp -R` produced it — a
-    # symlink. `[ -f ]` follows links, so quoting it would read the link's
-    # TARGET and write that content into a real file, turning
-    # `skills/x/SKILL.md -> /etc/…` into a copy of a host file inside the
-    # output. That is the leak the symlink-preserving copy exists to
-    # prevent, so skip the rewrite and say so (the same reason
-    # `find -type f` in the flush never matches a symlink).
-    if [ -L "$dest/SKILL.md" ]; then
-        echo "  WARN: ${dest##*/}/SKILL.md is a symlink — emitted as-is (frontmatter not quoted, tokens not expanded)" >&2
-    elif [ -f "$dest/SKILL.md" ]; then
+    if [ -f "$dest/SKILL.md" ]; then
         _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
     # The same skill name from a later source overwrites the earlier copy;
@@ -547,11 +604,25 @@ _skill_bundle_note() {
 # _skill_bundles_flush <effort-tool>
 _skill_bundles_flush() {
     [ "${#_SB_DESTS[@]}" -gt 0 ] || return 0
-    local -a mds=()
-    local f quote_list="$_SB_QUOTE_LIST"
+    local -a mds=() links=()
+    local f listing quote_list="$_SB_QUOTE_LIST"
+    # Captured, not streamed: a listing cut short could leave a link behind.
+    listing="$(find "${_SB_DESTS[@]}" \( -type l -o -type f -name '*.md' \) -print)" || {
+        echo "ERROR: could not list the skill copies under ${_SB_DESTS[0]%/*}" >&2
+        return 1
+    }
     while IFS= read -r f; do
-        [ -n "$f" ] && mds+=("$f")
-    done < <(find "${_SB_DESTS[@]}" -type f -name '*.md')
+        [ -n "$f" ] || continue
+        if [ -L "$f" ]; then links+=("$f"); else mds+=("$f"); fi
+    done <<< "$listing"
+    # A link only a copy from outside every skills source can bring: no plan
+    # resolved it, so it is not followed but removed.
+    if [ "${#links[@]}" -gt 0 ]; then
+        rm -f "${links[@]}" || return 1
+        for f in "${links[@]}"; do
+            echo "WARNING: ${f#"${REPO_ROOT:-}"/} was copied as a symlink from outside every skills source — removed; generated output never holds one" >&2
+        done
+    fi
     _skill_bundles_reset
     [ "${#mds[@]}" -gt 0 ] || return 0
     effort_map_var "$1"
@@ -711,19 +782,15 @@ sync_open_skill_dirs() {
 # when the author's file sets none, and a file whose policy says otherwise, or
 # that sync cannot read as saying it, refuses the render — an owner-only skill
 # Codex can still select is the exact failure the field exists to prevent, so
-# it never passes as a success.
+# it never passes as a success. The tree holds no symlink — copy_skill_bundle_dirs
+# renders a link inside its source as a regular file and leaves any other out —
+# so a skill whose SKILL.md or agents/openai.yaml is a link in its source is
+# read and enforced like any other.
 open_skill_invocation_policies() {
     local output_dir="$1" path dir flag rows refusals
     local -a skill_mds=() policy_dirs=() policies=() authored=()
     for path in "$output_dir"/*/SKILL.md; do
-        dir="${path%/SKILL.md}"
-        # A link is emitted as-is (see _skill_bundle_note): reading through it
-        # or writing beside it would reach outside the output tree.
-        if [ -L "$dir" ] || [ -L "$path" ]; then
-            echo "  WARN: ${dir##*/}/SKILL.md is reached through a symlink — Codex gets no invocation policy derived for it" >&2
-        elif [ -f "$path" ]; then
-            skill_mds+=("$path")
-        fi
+        [ ! -f "$path" ] || skill_mds+=("$path")
     done
     [ "${#skill_mds[@]}" -gt 0 ] || return 0
     # Captured, not streamed: a reader cut short must fail the render rather
@@ -736,10 +803,6 @@ open_skill_invocation_policies() {
         [ "$flag" = "true" ] || continue
         dir="${path%/SKILL.md}"
         path="$dir/agents"
-        if [ -L "$path" ] || [ -L "$path/openai.yaml" ]; then
-            echo "  WARN: ${dir##*/}/agents/openai.yaml is a symlink — left as-is, its invocation policy is not enforced" >&2
-            continue
-        fi
         if [ -s "$path/openai.yaml" ]; then
             authored+=("$path/openai.yaml")
             continue
@@ -860,6 +923,8 @@ enforce_authored_invocation_policies() {
 # Lint YAML frontmatter for common pitfalls (unquoted colons, leading tabs).
 # Print warnings to stderr; do not fail. Strict consumers (Codex CLI) reject
 # these files with cryptic messages — catching them in sync gives better DX.
+# Each finding is a `WARNING:` line: the author has to edit the source, so
+# `sync --compact` (the first sync `init` runs) must keep it.
 # Batched: one awk process lints every file passed.
 # The engine lints every source once, so this is also where an `effort:` off
 # IS_EFFORT_LEVELS is reported — read with frontmatter_index's semantics,
@@ -892,7 +957,7 @@ lint_frontmatter_files() {
             }
         }
         in_fm && /^\t/ {
-            printf "  WARN: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
+            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
         }
         in_fm && /^[a-zA-Z0-9_-]+:[[:space:]]+[^"\047|>[{]/ {
             value_start = index($0, ":") + 1
@@ -900,10 +965,10 @@ lint_frontmatter_files() {
             sub(/^[[:space:]]+/, "", value)
             if (value ~ /:[[:space:]]/ || value ~ /:$/) {
                 col = index(value, ":") + value_start
-                printf "  WARN: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
+                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
             }
             if (value ~ /"/) {
-                printf "  WARN: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
+                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
             }
         }
         # Field-length limits. Both Claude Code and the Agent Skills standard
@@ -922,7 +987,7 @@ lint_frontmatter_files() {
             }
             limit = (key == "name") ? 64 : 1024
             if (length(val) > limit) {
-                printf "  WARN: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
+                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
     ' "$@"
@@ -1655,11 +1720,7 @@ warn_unsynced() {
         done
 
         if [ "$matched" = false ]; then
-            if [ $warnings -eq 0 ]; then
-                echo ""
-                echo "=== WARNING: Unsynced directories ==="
-            fi
-            echo "  NOT SYNCED: $rel_dir"
+            echo "WARNING: NOT SYNCED: $rel_dir" >&2
             warnings=$((warnings + 1))
         fi
     done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
@@ -1670,10 +1731,363 @@ warn_unsynced() {
         # and hand-placing an entry in an ordered list decides which artifact
         # wins. The engine may also run without the CLI around it.
         if [ "${IS_CLI:-0}" = "1" ]; then
-            echo "  Wire one in: intelligence source add <rules|agents|skills> <path>"
+            echo "WARNING: Wire one in: intelligence source add <rules|agents|skills> <path>" >&2
         else
-            echo "  Add these paths to sources: in ${config_file##*/}"
+            echo "WARNING: Add these paths to sources: in ${config_file##*/}" >&2
         fi
+    fi
+}
+
+# --- Skill sources and the symlinks inside them (decision 0017) ---
+#
+# A symlink in a skills source renders as the regular file or directory it
+# resolves to while that stays inside the same source, and is left out with a
+# WARNING: line when it resolves outside it, nowhere, or to a directory that
+# encloses it. Generated output never holds a link, and nothing is ever copied
+# from outside the source (decision 0006). Every consumer takes that decision
+# from here, once per run: the skill list read_source_artifact_files returns,
+# the membership the glob-listing adapters check (skill_source_rendered), and
+# the plan copy_skill_bundle_dirs applies to its copy. A skill rendered from a
+# link is an ordinary skill from then on — quoting, token expansion, the
+# effort rendering and the Codex invocation policy all run on the output copy.
+#
+# skill_source_inventory <repo_root> <config_file> fills, in the caller's
+# shell and fail-closed like read_source_artifact_files:
+#   IS_SKI_LIST  <source>/<skill>/SKILL.md of every rendered skill, one a line,
+#                sources in manifest order, names in byte order;
+#   IS_SKI_KEYS  "\n<source>/<skill>\n…", the same skills as a membership set;
+#   IS_SKI_PLAN  "\n" + one record a line for every link in a rendered skill,
+#                parents first: <source>/<skill> US <path in the skill copy>
+#                US f|d|x US <physical target>. f and d materialize the file or
+#                directory at that path, x leaves the link out; an empty path
+#                is the skill directory itself.
+# The resolution spawns processes only for a source that holds a link, and
+# then per source and per link-chain hop, never per file.
+IS_SKI_US=$'\x1f'
+
+skill_source_inventory() {
+    local repo_root="$1" config_file="$2" memo_key src dir listing
+    memo_key="$repo_root"$'\n'"$config_file"
+    if [ "${IS_SOURCE_FILES_MEMO:-0}" = 1 ] && [ "${IS_SKI_KEY:-}" = "$memo_key" ]; then
+        return 0
+    fi
+    IS_SKI_KEY=""
+    IS_SKI_LIST=""
+    IS_SKI_KEYS=$'\n'
+    IS_SKI_PLAN=$'\n'
+    load_yaml_list "$config_file" "skills"
+    while IFS= read -r src; do
+        [ -n "$src" ] || continue
+        dir="$repo_root/$src"
+        while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+        [ -d "$dir" ] || continue
+        # Every directory and link at any depth: the top level holds the
+        # skills, and a link anywhere below one is part of its bundle. -H
+        # lists a source that is itself a link through it, as a glob does.
+        # Command substitution, so find or sort failing stops the run here
+        # instead of yielding a short list.
+        listing="$(find -H "$dir" -mindepth 1 \( -type d -o -type l \) -print | LC_ALL=C sort)" || {
+            echo "ERROR: cannot enumerate skills under '$dir' — refusing to render a partial list." >&2
+            exit 1
+        }
+        [ -n "$listing" ] || continue
+        _ski_source "$repo_root" "$dir" "$listing"
+    done <<< "$IS_YAML_LIST"
+    [ "${IS_SOURCE_FILES_MEMO:-0}" != 1 ] || IS_SKI_KEY="$memo_key"
+}
+
+# skill_source_rendered <skill_dir> — the inventory renders this skill. For
+# adapters that list a skills source with their own glob.
+skill_source_rendered() {
+    _ski_key_var "$1"
+    case "${IS_SKI_KEYS:-}" in
+        *$'\n'"$_SKI_KEY"$'\n'*) return 0 ;;
+    esac
+    return 1
+}
+
+# _ski_key_var <skill_dir> — the key a skill is listed and planned under, its
+# source and name joined by one slash however the caller spelled a trailing
+# slash on either.
+_ski_key_var() {
+    local path="$1" parent
+    while [ "${path%/}" != "$path" ]; do path="${path%/}"; done
+    parent="${path%/*}"
+    while [ -n "$parent" ] && [ "${parent%/}" != "$parent" ]; do parent="${parent%/}"; done
+    _SKI_KEY="$parent/${path##*/}"
+}
+
+# _ski_planned <skill_dir> — the skill has links the copy has to resolve.
+_ski_planned() {
+    _ski_key_var "$1"
+    case "${IS_SKI_PLAN:-}" in
+        *$'\n'"$_SKI_KEY$IS_SKI_US"*) return 0 ;;
+    esac
+    return 1
+}
+
+# _ski_source <repo_root> <source_dir> <listing> — inventory one skills source.
+_ski_source() {
+    local repo_root="$1" f rel
+    local -a tops=() links=()
+    _SKI_DIR="$2"
+    _SKI_ROOT_REL="${2#"$repo_root"/}"
+    _SKI_REPO="$repo_root"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        rel="${f#"$_SKI_DIR"/}"
+        case "$rel" in
+            */*) [ ! -L "$f" ] || links+=("$f") ;;
+            *)
+                tops+=("$f")
+                [ ! -L "$f" ] || links+=("$f")
+                ;;
+        esac
+    done <<< "$3"
+    _SKI_LREL=(); _SKI_LSTAT=(); _SKI_LKIND=(); _SKI_LTREL=(); _SKI_LPHYS=()
+    [ "${#links[@]}" -eq 0 ] || _ski_classify_links "${links[@]}"
+    for f in "${tops[@]+"${tops[@]}"}"; do
+        _ski_skill "${f##*/}"
+    done
+}
+
+# _ski_classify_links <link>... — resolve every link of the current source and
+# record where it leads: ok (inside the source), outside, dangling, or other
+# (neither a file nor a directory). A link that cannot be resolved stops the
+# run, like any enumeration that cannot answer.
+_ski_classify_links() {
+    local out root_phys rec kind phys i=0 link
+    local -a recs=()
+    out="$(_ski_physical "$_SKI_DIR" "$@")" || {
+        echo "ERROR: cannot resolve the symlinks under '$_SKI_DIR' — refusing to render a partial list." >&2
+        exit 1
+    }
+    while IFS= read -r rec; do recs+=("$rec"); done <<< "$out"
+    if [ "${#recs[@]}" -ne $(($# + 1)) ]; then
+        echo "ERROR: cannot resolve the symlinks under '$_SKI_DIR' — refusing to render a partial list." >&2
+        exit 1
+    fi
+    root_phys="${recs[0]%/}"
+    for link in "$@"; do
+        rec="${recs[i + 1]}"
+        kind="${rec%%"$IS_SKI_US"*}"
+        phys="${rec#*"$IS_SKI_US"}"
+        _SKI_LREL[i]="${link#"$_SKI_DIR"/}"
+        _SKI_LKIND[i]="$kind"
+        _SKI_LPHYS[i]="$phys"
+        _SKI_LTREL[i]=""
+        case "$kind" in
+            d|f)
+                case "$phys" in
+                    "$root_phys"/*) _SKI_LSTAT[i]=ok; _SKI_LTREL[i]="${phys#"$root_phys"/}" ;;
+                    "${root_phys:-/}") _SKI_LSTAT[i]=ok ;;
+                    *) _SKI_LSTAT[i]=outside ;;
+                esac
+                ;;
+            o) _SKI_LSTAT[i]=other ;;
+            *) _SKI_LSTAT[i]=dangling ;;
+        esac
+        i=$((i + 1))
+    done
+}
+
+# _ski_physical <source_dir> <link>... — print the source's physical path,
+# then one "<kind> US <physical target>" line per link: d (directory), f
+# (regular file), o (anything else) or x (dangling, or a link loop). Runs in a
+# subshell so it can change directory: `cd -P` resolves a directory, and a
+# file's chain is read with one readlink per hop for all links at once (no
+# readlink -f on macOS).
+_ski_physical() (
+    local dir="$1" link target targets i k n hops=0 parent
+    local -a kind=() cur=() phys=() pend=() next=() paths=()
+    shift
+    n=$#
+    cd -P -- "$dir" 2>/dev/null || exit 1
+    printf '%s\n' "$PWD"
+    i=0
+    for link in "$@"; do
+        kind[i]=x; phys[i]=""; cur[i]="$link"
+        if [ -d "$link" ]; then
+            cd -P -- "$link" 2>/dev/null || exit 1
+            kind[i]=d; phys[i]="$PWD"
+        elif [ -f "$link" ]; then
+            kind[i]=f; pend+=("$i")
+        elif [ -e "$link" ]; then
+            kind[i]=o
+        fi
+        i=$((i + 1))
+    done
+    while [ "${#pend[@]}" -gt 0 ]; do
+        hops=$((hops + 1))
+        [ "$hops" -le 40 ] || exit 1
+        paths=()
+        for i in "${pend[@]}"; do paths+=("${cur[i]}"); done
+        targets="$(readlink "${paths[@]}")" || exit 1
+        next=(); k=0
+        while IFS= read -r target; do
+            # More lines than links: a target held a newline.
+            [ "$k" -lt "${#pend[@]}" ] || exit 1
+            i="${pend[k]}"
+            case "$target" in
+                /*) cur[i]="$target" ;;
+                *) cur[i]="${cur[i]%/*}/$target" ;;
+            esac
+            [ ! -L "${cur[i]}" ] || next+=("$i")
+            k=$((k + 1))
+        done <<< "$targets"
+        [ "$k" -eq "${#pend[@]}" ] || exit 1
+        pend=("${next[@]+"${next[@]}"}")
+    done
+    for ((i = 0; i < n; i++)); do
+        if [ "${kind[i]}" = f ]; then
+            parent="${cur[i]%/*}"
+            cd -P -- "${parent:-/}" 2>/dev/null || exit 1
+            phys[i]="${PWD%/}/${cur[i]##*/}"
+        fi
+        printf '%s%s%s\n' "${kind[i]}" "$IS_SKI_US" "${phys[i]}"
+    done
+)
+
+# _ski_link_var <path in source> — set _SKI_K to the index of the link at that
+# path, or -1.
+_ski_link_var() {
+    local k=0
+    _SKI_K=-1
+    while [ "$k" -lt "${#_SKI_LREL[@]}" ]; do
+        if [ "${_SKI_LREL[k]}" = "$1" ]; then
+            _SKI_K="$k"
+            return 0
+        fi
+        k=$((k + 1))
+    done
+}
+
+# _ski_loops <target> <open> — materializing the directory at <target> would
+# copy one of the <open> paths (newline-separated) being materialized, the
+# link itself included, so it would never end.
+_ski_loops() {
+    local target="$1" open
+    [ -n "$target" ] || return 0
+    while IFS= read -r open; do
+        case "$open" in "$target"|"$target"/*) return 0 ;; esac
+    done <<< "$2"
+    return 1
+}
+
+# _ski_skill <name> — decide one top-level entry of the current source: a
+# rendered skill (with its plan and warnings), a skill left out, or no skill.
+_ski_skill() {
+    local name="$1" key content open="" state rel link reason nl=$'\n'
+    key="$_SKI_DIR/$name"
+    _SKI_ENTRIES="$nl"
+    _SKI_DROPS=""
+    _ski_link_var "$name"
+    if [ "$_SKI_K" -ge 0 ]; then
+        # The skill directory is itself a link. A test through one that
+        # leaves the source only stats it; nothing is read from outside.
+        case "${_SKI_LSTAT[_SKI_K]}:${_SKI_LKIND[_SKI_K]}" in
+            ok:d) ;;
+            outside:d)
+                _ski_warn "$name" "" "$name" outside
+                return 0
+                ;;
+            dangling:*)
+                _ski_warn "$name" "" "$name" dangling
+                return 0
+                ;;
+            *) return 0 ;;
+        esac
+        content="${_SKI_LTREL[_SKI_K]}"
+        if _ski_loops "$content" ""; then
+            [ ! -f "$_SKI_DIR/$name/SKILL.md" ] || _ski_warn "$name" "" "$name" loop
+            return 0
+        fi
+        _SKI_ENTRIES="$_SKI_ENTRIES$key$IS_SKI_US${IS_SKI_US}d$IS_SKI_US${_SKI_LPHYS[_SKI_K]}$nl"
+        open="$nl"
+    else
+        content="$name"
+    fi
+    _ski_expand "$key" "$content" "" "$open"
+    # A skill is a directory whose SKILL.md renders as a regular file.
+    case "$_SKI_ENTRIES" in
+        *"$nl$key${IS_SKI_US}SKILL.md${IS_SKI_US}f$IS_SKI_US"*) state=ok ;;
+        *"$nl$key${IS_SKI_US}SKILL.md${IS_SKI_US}x$IS_SKI_US"*) state=dropped ;;
+        *"$nl$key${IS_SKI_US}SKILL.md$IS_SKI_US"*) state=none ;;
+        *)
+            state=none
+            [ ! -f "$_SKI_DIR/$content/SKILL.md" ] || state=ok
+            ;;
+    esac
+    case "$state" in
+        none) return 0 ;;
+        dropped)
+            while IFS="$IS_SKI_US" read -r rel link reason; do
+                [ "$rel" != "SKILL.md" ] || _ski_warn "$name" "" "$link" "$reason"
+            done <<< "$_SKI_DROPS"
+            return 0
+            ;;
+    esac
+    IS_SKI_LIST="$IS_SKI_LIST$_SKI_DIR/$name/SKILL.md$nl"
+    IS_SKI_KEYS="$IS_SKI_KEYS$key$nl"
+    IS_SKI_PLAN="$IS_SKI_PLAN${_SKI_ENTRIES#"$nl"}"
+    while IFS="$IS_SKI_US" read -r rel link reason; do
+        [ -z "$rel" ] || _ski_warn "$name" "$rel" "$link" "$reason"
+    done <<< "$_SKI_DROPS"
+}
+
+# _ski_expand <key> <content> <prefix> <open> — plan every link inside the
+# source directory <content> as it lands at <prefix> in the skill copy,
+# recursing into each directory a link materializes. <open> holds the
+# locations of the links already being materialized, for _ski_loops.
+_ski_expand() {
+    local key="$1" content="$2" prefix="$3" open="$4" k=0 rel out location
+    while [ "$k" -lt "${#_SKI_LREL[@]}" ]; do
+        rel="${_SKI_LREL[k]}"
+        case "$rel" in
+            "$content"/*) ;;
+            *) k=$((k + 1)); continue ;;
+        esac
+        out="${prefix:+$prefix/}${rel#"$content"/}"
+        case "${_SKI_LSTAT[k]}:${_SKI_LKIND[k]}" in
+            ok:f)
+                _SKI_ENTRIES="$_SKI_ENTRIES$key$IS_SKI_US$out${IS_SKI_US}f$IS_SKI_US${_SKI_LPHYS[k]}"$'\n'
+                ;;
+            ok:d)
+                location="${rel%/*}"
+                if _ski_loops "${_SKI_LTREL[k]}" "$open$location"; then
+                    _ski_drop "$key" "$out" "$rel" loop
+                else
+                    _SKI_ENTRIES="$_SKI_ENTRIES$key$IS_SKI_US$out${IS_SKI_US}d$IS_SKI_US${_SKI_LPHYS[k]}"$'\n'
+                    _ski_expand "$key" "${_SKI_LTREL[k]}" "$out" "$open$location"$'\n'
+                fi
+                ;;
+            *) _ski_drop "$key" "$out" "$rel" "${_SKI_LSTAT[k]}" ;;
+        esac
+        k=$((k + 1))
+    done
+}
+
+# _ski_drop <key> <path in copy> <path in source> <reason> — leave a link out.
+_ski_drop() {
+    _SKI_ENTRIES="$_SKI_ENTRIES$1$IS_SKI_US$2${IS_SKI_US}x$IS_SKI_US"$'\n'
+    _SKI_DROPS="$_SKI_DROPS$2$IS_SKI_US$3$IS_SKI_US$4"$'\n'
+}
+
+# _ski_warn <skill> <path in copy> <path in source> <reason> — one WARNING:
+# line naming the skill and the link by its own path. An empty <path in copy>
+# means the whole skill is left out.
+_ski_warn() {
+    local link="$_SKI_ROOT_REL/$3" what
+    case "$4" in
+        outside) what="is a symlink that resolves outside $_SKI_ROOT_REL" ;;
+        dangling) what="is a dangling symlink" ;;
+        loop) what="is a symlink to a directory that encloses it" ;;
+        *) what="is a symlink to neither a file nor a directory" ;;
+    esac
+    if [ -n "$2" ]; then
+        echo "WARNING: skill '$1' renders without $2: $link $what" >&2
+    else
+        echo "WARNING: skill '$1' is left out of every output: $link $what" >&2
     fi
 }
 
@@ -1696,6 +2110,9 @@ warn_unsynced() {
 # replay that answer. Only the engine sets it: a sync never writes into a
 # source (validate_output_path refuses), so each caller would otherwise re-run
 # the same find and sort for every source directory.
+#
+# Skills come from skill_source_inventory, which also decides what a symlink
+# inside a skills source renders as.
 read_source_artifact_files() {
     local repo_root="$1"
     local config_file="$2"
@@ -1703,8 +2120,15 @@ read_source_artifact_files() {
     local src f dir listing memo_key="" key_var="" list_var="" joined=""
 
     IS_SOURCE_FILES=()
+    if [ "$section" = "skills" ]; then
+        skill_source_inventory "$repo_root" "$config_file"
+        while IFS= read -r f; do
+            [ -n "$f" ] && IS_SOURCE_FILES+=("$f")
+        done <<< "$IS_SKI_LIST"
+        return 0
+    fi
     case "${IS_SOURCE_FILES_MEMO:-0}:$section" in
-        1:rules|1:agents|1:skills)
+        1:rules|1:agents)
             key_var="IS_SF_${section}_KEY"
             list_var="IS_SF_${section}_LIST"
             memo_key="$repo_root"$'\n'"$config_file"
@@ -1731,12 +2155,6 @@ read_source_artifact_files() {
                     exit 1
                 }
                 ;;
-            skills)
-                listing="$(find "$dir" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)" || {
-                    echo "ERROR: cannot enumerate $section under '$dir' — refusing to render a partial list." >&2
-                    exit 1
-                }
-                ;;
             *) continue ;;
         esac
         [ -n "$listing" ] || continue
@@ -1744,10 +2162,6 @@ read_source_artifact_files() {
         # array it fills survives and any failure inside it is this shell's.
         while IFS= read -r f; do
             [ -n "$f" ] || continue
-            if [ "$section" = "skills" ]; then
-                [ -f "$f/SKILL.md" ] || continue
-                f="$f/SKILL.md"
-            fi
             IS_SOURCE_FILES+=("$f")
             joined="$joined$f"$'\n'
         done <<< "$listing"
