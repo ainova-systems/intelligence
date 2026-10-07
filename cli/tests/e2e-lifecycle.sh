@@ -720,6 +720,23 @@ chk grep -Fqx 'model_reasoning_effort = "low"' "$TIERS/.codex/agents/light-agent
 chk grep -Fqx "model = \"$(default_model codex heavy)\"" "$TIERS/.codex/agents/untiered-agent.toml"
 chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/untiered-agent.toml"
 chk grep -Fqx "model: $(default_model claude heavy)" "$TIERS/.claude/agents/untiered-agent.md"
+# A tier nothing resolves still renders, but never silently: one warning per
+# tool and tier, however many agents carry it. A custom tier the manifest
+# overrides resolves quietly for that tool.
+for name in typo-agent typo-twin; do
+    printf -- '---\nname: %s\ndescription: "Typo"\ntier: haevy\naccess: full\n---\n\n# Agent\n' "$name" \
+        > "$TIERS/intelligence/agents/$name.md"
+done
+printf -- '---\nname: custom-agent\ndescription: "Custom"\ntier: review-deep\naccess: full\n---\n\n# Agent\n' \
+    > "$TIERS/intelligence/agents/custom-agent.md"
+printf '%s\n' 'models:' '  claude:' '    review-deep: "claude-opus-5-5"' >> "$TIERS/intelligence.yaml"
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/tiers-unknown.txt" 2>&1) \
+    || { echo "FAIL: unknown-tier sync"; cat "$OUT/tiers-unknown.txt"; fail=1; }
+chk test "$(grep -Fc "no claude model for tier 'haevy'" "$OUT/tiers-unknown.txt")" -eq 1
+chk grep -Fq "no codex model for tier 'haevy'" "$OUT/tiers-unknown.txt"
+chknot grep -Fq "no claude model for tier 'review-deep'" "$OUT/tiers-unknown.txt"
+chk grep -Fqx 'model: claude-opus-5-5' "$TIERS/.claude/agents/custom-agent.md"
+chknot grep -Fq "tier 'heavy'" "$OUT/tiers-unknown.txt"
 
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,

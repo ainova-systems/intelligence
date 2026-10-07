@@ -1010,7 +1010,10 @@ load_model_tiers() {
 }
 
 # resolve_model_var <tier> — set IS_MODEL from the tiers load_model_tiers
-# resolved. An empty tier resolves to heavy, like get_model's default.
+# resolved. An empty tier resolves to heavy, like get_model's default. A tier
+# the tool has no default for and the manifest overrides nowhere — a typo, as a
+# rule — still renders an empty model, but never silently: the run warns once
+# per tool and tier.
 # shellcheck disable=SC2034  # IS_MODEL is the return channel read by adapters
 resolve_model_var() {
     case "$1" in
@@ -1018,7 +1021,17 @@ resolve_model_var() {
         heavy|"") IS_MODEL="$IS_MODEL_HEAVY" ;;
         standard) IS_MODEL="$IS_MODEL_STANDARD" ;;
         light)    IS_MODEL="$IS_MODEL_LIGHT" ;;
-        *)        IS_MODEL="$(get_model "$IS_MODEL_CFG" "$IS_MODEL_IDE" "$1")" ;;
+        *)
+            IS_MODEL="$(get_model "$IS_MODEL_CFG" "$IS_MODEL_IDE" "$1")"
+            [ -n "$IS_MODEL" ] && return 0
+            case "${IS_MODEL_WARNED:-|}" in
+                *"|$IS_MODEL_IDE:$1|"*) ;;
+                *)
+                    IS_MODEL_WARNED="${IS_MODEL_WARNED:-|}$IS_MODEL_IDE:$1|"
+                    echo "  WARN: no $IS_MODEL_IDE model for tier '$1' — agents with it get an empty model; use frontier, heavy, standard or light, or set models.$IS_MODEL_IDE.$1" >&2
+                    ;;
+            esac
+            ;;
     esac
 }
 
