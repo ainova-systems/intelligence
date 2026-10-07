@@ -460,11 +460,17 @@ copy_md_with_quoted_frontmatter() {
 # "argument-hint must be a string" — the skill silently disappears from the
 # picker. Quoting is idempotent: an already-quoted value passes through
 # untouched.
+#
+# The same pass renders SKILL.md's `effort:` for the tool that reads the copy
+# (map_effort_var): the first `effort:` line becomes the tool's level, and is
+# dropped — with every later one — when the tool has no level for it. The
+# plain forms render for the shared `open` tree, which keeps a neutral level as
+# written and drops only an empty or off-scale one.
 # Usage: copy_skill_bundle "src/skill/dir" "dest/skill/dir"
 copy_skill_bundle() {
     _skill_bundles_reset
     _skill_bundle_stage "$1" "$2"
-    _skill_bundles_flush
+    _skill_bundles_flush open
 }
 
 # copy_skill_bundle_dirs <dest_root> <src_dir>... — batch form: ONE cp -R
@@ -473,8 +479,14 @@ copy_skill_bundle() {
 # bundles. A later source with the same skill name overwrites file-by-file in
 # order, exactly like the sequential per-bundle copies did.
 copy_skill_bundle_dirs() {
-    local dest_root="$1"
-    shift
+    copy_skill_bundle_dirs_for open "$@"
+}
+
+# copy_skill_bundle_dirs_for <tool> <dest_root> <src_dir>... — the batch form
+# for a tree one tool reads, rendering `effort:` for that tool.
+copy_skill_bundle_dirs_for() {
+    local effort_tool="$1" dest_root="$2"
+    shift 2
     [ "$#" -gt 0 ] || return 0
     local src dest
     local -a srcs=()
@@ -488,7 +500,7 @@ copy_skill_bundle_dirs() {
         dest="$dest_root/${src##*/}"
         _skill_bundle_note "$dest"
     done
-    _skill_bundles_flush
+    _skill_bundles_flush "$effort_tool"
 }
 
 _skill_bundles_reset() {
@@ -531,6 +543,7 @@ _skill_bundle_note() {
     esac
 }
 
+# _skill_bundles_flush <effort-tool>
 _skill_bundles_flush() {
     [ "${#_SB_DESTS[@]}" -gt 0 ] || return 0
     local -a mds=()
@@ -540,18 +553,27 @@ _skill_bundles_flush() {
     done < <(find "${_SB_DESTS[@]}" -type f -name '*.md')
     _skill_bundles_reset
     [ "${#mds[@]}" -gt 0 ] || return 0
+    effort_map_var "$1"
     # One awk: quote free-text frontmatter fields in each top-level SKILL.md
     # (strict-YAML consumers reject unquoted colons; `argument-hint:
     # [pr-number]` would otherwise arrive as a YAML flow sequence and the
-    # skill silently vanishes from the picker) and expand layout tokens in
-    # every bundled markdown file. Quoting is idempotent — already-quoted
-    # values pass through untouched. The quote list travels through the
-    # environment, like emit_wrapped_bodies specs.
+    # skill silently vanishes from the picker), render its `effort:` for the
+    # tool, and expand layout tokens in every bundled markdown file. Quoting is
+    # idempotent — already-quoted values pass through untouched. The quote list
+    # and the effort map travel through the environment, like
+    # emit_wrapped_bodies specs. The effort key is matched exactly as
+    # frontmatter_index reads it, so the line rewritten is the one the
+    # lint judged.
     is_fin_awk_vars
-    IS_QUOTE_LIST="$quote_list" awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+    IS_QUOTE_LIST="$quote_list" IS_EFFORT_MAP="$IS_EFFORT_MAP" awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN {
             qn = split(ENVIRON["IS_QUOTE_LIST"], QL, "\n")
             for (qi = 1; qi <= qn; qi++) if (QL[qi] != "") QUOTE[QL[qi]] = 1
+            en = split(ENVIRON["IS_EFFORT_MAP"], EL, "\n")
+            for (ei = 1; ei <= en; ei++) {
+                eq = index(EL[ei], "=")
+                if (eq > 0) EFFORT[substr(EL[ei], 1, eq - 1)] = substr(EL[ei], eq + 1)
+            }
         }
         function yamlq(s,    out, i, c) {
             out = ""
@@ -572,11 +594,18 @@ _skill_bundles_flush() {
             flush_file()
             out_file = FILENAME; line_n = 0
             state = (FILENAME in QUOTE) ? "before" : ""
+            effort_seen = 0
         }
         { sub(/\r$/, "") }
         state == "before" {
             if (FNR == 1 && $0 == "---") state = "in_fm"
             else state = "after"
+        }
+        state == "in_fm" && FNR > 1 && substr($0, 1, 7) == "effort:" {
+            if (effort_seen++) next
+            val = fm_value_strip(substr($0, 8))
+            if (!(val in EFFORT)) next
+            if (EFFORT[val] != val) $0 = "effort: " EFFORT[val]
         }
         state == "in_fm" && FNR > 1 {
             if ($0 == "---") state = "after"
@@ -660,7 +689,7 @@ sync_open_skill_dirs() {
     # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
     # target gets it — not just this open-standard dir.
     if [ "$count" -gt 0 ]; then
-        copy_skill_bundle_dirs "$output_dir" "${skill_dirs[@]}"
+        copy_skill_bundle_dirs_for open "$output_dir" "${skill_dirs[@]}"
         open_skill_invocation_policies "$output_dir" || return 1
     fi
 
@@ -713,16 +742,34 @@ open_skill_invocation_policies() {
 # Print warnings to stderr; do not fail. Strict consumers (Codex CLI) reject
 # these files with cryptic messages — catching them in sync gives better DX.
 # Batched: one awk process lints every file passed.
+# The engine lints every source once, so this is also where an `effort:` off
+# IS_EFFORT_LEVELS is reported — read with frontmatter_index's semantics,
+# first occurrence only. Adapters render it as absent and say nothing, so the
+# warning names the source exactly once however many tools render it.
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
     [ "$#" -gt 0 ] || return 0
-    awk '
-        FNR == 1 { in_fm = 0; done = 0 }
+    awk -v levels="$IS_EFFORT_LEVELS" "$IS_AWK_LIB"'
+        BEGIN {
+            nl = split(levels, LV, " ")
+            allowed = ""
+            for (li = 1; li <= nl; li++) {
+                LEVEL[LV[li]] = 1
+                allowed = allowed (li > 1 ? ", " : "") LV[li]
+            }
+        }
+        FNR == 1 { in_fm = 0; done = 0; effort_seen = 0 }
         { sub(/\r$/, "") }
         done { next }
         FNR == 1 && $0 != "---" { done = 1; next }
         FNR == 1 { in_fm = 1; next }
         in_fm && $0 == "---" { done = 1; next }
+        in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
+            effort = fm_value_strip(substr($0, 8))
+            if (effort != "" && !(effort in LEVEL)) {
+                printf "  WARN: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", FILENAME, FNR, effort, allowed > "/dev/stderr"
+            }
+        }
         in_fm && /^\t/ {
             printf "  WARN: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
         }
@@ -876,8 +923,8 @@ get_model_default_var() {
         cursor:heavy)     IS_MODEL_DEFAULT="inherit" ;;
         cursor:standard)  IS_MODEL_DEFAULT="inherit" ;;
         cursor:light)     IS_MODEL_DEFAULT="inherit" ;;
-        # GPT-6 has no mid model, so frontier and heavy share Astra; Codex
-        # separates them by reasoning effort instead.
+        # GPT-6 has no mid model, so frontier and heavy share Astra and render
+        # identically; reasoning effort comes from `effort:`, never the tier.
         copilot:frontier) IS_MODEL_DEFAULT="gpt-6-astra" ;;
         copilot:heavy)    IS_MODEL_DEFAULT="gpt-6-astra" ;;
         copilot:standard) IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
@@ -1108,6 +1155,64 @@ map_access_to_claude_tools() {
 map_access_to_claude_disallowed() {
     map_access_to_claude_disallowed_var "$1"
     echo "$IS_CLAUDE_DISALLOWED"
+}
+
+# --- Effort Mapping ---
+
+# `effort:` is the tool-neutral reasoning effort an agent or skill asks for,
+# lowest first (decision 0015). It is independent of `tier`, which selects the
+# model only. A value off this scale — matched exactly, case included — is an
+# absent effort: lint_frontmatter_files warns about it and no tool receives
+# one, because a typo in another source's package must not block a sync.
+IS_EFFORT_LEVELS="low medium high xhigh max ultra"
+
+# effort_levels_var <tool> — set IS_EFFORT_TOOL_LEVELS to the levels the tool's
+# native effort field accepts, in scale order; empty for a tool without one.
+# `open` is the shared Agent Skills tree (.agents/skills/), which keeps the
+# neutral value for the tools that read it.
+effort_levels_var() {
+    case "$1" in
+        claude)     IS_EFFORT_TOOL_LEVELS="low medium high xhigh max" ;;
+        codex|open) IS_EFFORT_TOOL_LEVELS="$IS_EFFORT_LEVELS" ;;
+        # Copilot, Cursor, OpenCode, Antigravity and Pi have no per-agent
+        # effort field: the tool's own setting applies.
+        *)          IS_EFFORT_TOOL_LEVELS="" ;;
+    esac
+}
+
+# map_effort_var <tool> <effort> — set IS_EFFORT to the level the tool receives:
+# the same level, or the nearest lower one the tool has (`ultra` is `max` for
+# Claude Code). Empty when the effort is absent or off the scale, or the tool
+# has no field. Which levels a particular model supports is the tool's call: a
+# manifest may override the model, and the tools fall back on their own.
+map_effort_var() {
+    local level best=""
+    IS_EFFORT=""
+    effort_levels_var "$1"
+    for level in $IS_EFFORT_LEVELS; do
+        case " $IS_EFFORT_TOOL_LEVELS " in *" $level "*) best="$level" ;; esac
+        if [ "$level" = "${2-}" ]; then
+            IS_EFFORT="$best"
+            return 0
+        fi
+    done
+}
+
+map_effort() {
+    map_effort_var "$1" "$2"
+    echo "$IS_EFFORT"
+}
+
+# effort_map_var <tool> — set IS_EFFORT_MAP to one `<neutral>=<native>` line per
+# level the tool maps, so a batched awk pass rewrites `effort:` in place with
+# map_effort_var's answers instead of a second copy of the mapping.
+effort_map_var() {
+    local level map=""
+    for level in $IS_EFFORT_LEVELS; do
+        map_effort_var "$1" "$level"
+        [ -z "$IS_EFFORT" ] || map+="$level=$IS_EFFORT"$'\n'
+    done
+    IS_EFFORT_MAP="$map"
 }
 
 # --- Validation ---

@@ -4,7 +4,7 @@ project:
   name: "intelligence"
 
 # Schema version of this manifest. The CLI keeps it in step with its engine.
-schema_version: "0.18.1"
+schema_version: "0.19.0"
 
 # Where content comes from. Nothing here has to exist: a directory that is
 # absent is skipped, so a project consuming only packages authors nothing of
@@ -13,6 +13,7 @@ schema_version: "0.18.1"
 #                                      its stack, and the constraints to respect
 #   intelligence/agents/<name>.md      a persona (frontmatter: name, description,
 #                                      tier: frontier|heavy|standard|light,
+#                                      effort: low|medium|high|xhigh|max|ultra,
 #                                      access: full|readonly)
 #   intelligence/skills/<name>/SKILL.md  a procedure invoked as /<name>
 # '.intelligence/' is CLI-managed (packages + engine content) — never edit it.
@@ -66,6 +67,6 @@ registries:
 
 packages:
   "@ainova-systems/sync":
-    version: "0.18.1"
+    version: "0.19.0"
   "@ainova-systems/core":
     version: "^0.9.3"

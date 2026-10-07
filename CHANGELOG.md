@@ -4,11 +4,21 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
-## [0.18.1]
+## [0.19.0]
+
+### Added
+
+- Agents and skills accept a tool-neutral `effort:` — `low`, `medium`, `high`, `xhigh`, `max` or `ultra`. Claude Code agents and skills receive it as `effort:` (`ultra` becomes `max`), Codex agents as `model_reasoning_effort`, and the shared `.agents/skills/` tree keeps it as written; Copilot, Cursor, OpenCode, Antigravity and Pi receive no effort key (decision 0015).
+- An `effort:` off that scale prints a `WARN` line naming the source file and the value, renders as absent and leaves sync successful; an empty `effort:` is absent without a warning.
 
 ### Changed
 
 - On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of close to an hour under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+- A tier no longer sets a reasoning effort in any tool. Codex agents without `effort:` no longer get a tier-derived `model_reasoning_effort` (`xhigh` for `frontier`, `high` for `heavy` or no tier, `medium` for `standard`, `low` for `light`), so Codex's own setting applies and `frontier` and `heavy` render identical Codex agents.
+
+### Breaking
+
+- [ ] Every Codex agent that should keep a reasoning effort states it as `effort:` in its source; after sync, `.codex/agents/*.toml` carries `model_reasoning_effort` only for agents whose source sets a valid `effort:`.
 
 ## [0.18.0]
 
