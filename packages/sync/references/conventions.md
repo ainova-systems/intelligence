@@ -185,11 +185,14 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 
 ### Tier mappings
 
-| Tier | Claude | Cursor | Copilot / Codex | OpenCode | Typical use |
-|---|---|---|---|---|---|
-| `heavy` | `opus` | `inherit` | `gpt-5.6-sol` | `anthropic/claude-opus-4-8` | implementation, complex reasoning, migration |
-| `standard` | `sonnet` | `inherit` | `gpt-5.6-terra` | `anthropic/claude-sonnet-5` | review, validation, analysis |
-| `light` | `haiku` | `fast` | `gpt-5.6-luna` | `anthropic/claude-haiku-4-5-20251001` | lookups and simple formatting |
+| Tier | Claude | Cursor | Copilot / Codex | OpenCode | Antigravity | Typical use |
+|---|---|---|---|---|---|---|
+| `frontier` | `fable` | `inherit` | `gpt-6-astra` | `anthropic/claude-fable-5-1` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
+| `heavy` | `opus` | `inherit` | `gpt-6-astra` | `anthropic/claude-opus-5-5` | `pro` | implementation, complex reasoning, migration |
+| `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
+| `light` | `sonnet` | `inherit` | `gpt-6-luna` | `anthropic/claude-sonnet-5-5` | `flash` | lookups and simple formatting |
+
+Codex also receives a reasoning effort per tier — `xhigh`, `high`, `medium`, `low` — which is what separates `frontier` from `heavy` in Codex. Copilot has no effort field, so its `frontier` and `heavy` agents are identical. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default.
 
