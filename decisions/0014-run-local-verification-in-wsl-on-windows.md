@@ -6,8 +6,8 @@ Status: accepted
 ## Context
 
 `bash cli/tests/verify.sh tests` could not finish inside a working session on the
-maintainer's Windows host. Under Git Bash, fifteen of the seventeen suites took
-48 minutes: `e2e-sync-cache` 635 s, `e2e-negative` 633 s, `e2e-lifecycle` 573 s,
+maintainer's Windows host. Under Git Bash the seventeen suites took 52 minutes,
+all passing: `e2e-sync-cache` 635 s, `e2e-negative` 633 s, `e2e-lifecycle` 573 s,
 and `unit-manifest` 56 s for a parser suite. On the same host, in a WSL 2 Ubuntu
 distribution, all seventeen suites took 167 s, and `cli-e2e` takes 79 s on
 `ubuntu-latest`.
