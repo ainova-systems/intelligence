@@ -26,6 +26,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - `status --check` no longer reports `.gitignore` patterns as missing when the file has CRLF line endings on Linux and macOS; it decides presence the way the `.gitignore` writer does, so `intelligence init` clears the finding (#45).
 - `update` keeps a package's `sources:` entries where they stand. It removed them and wired them first again, so updating one of two packages moved it ahead of the other and reversed which package's same-named files won.
+- An entry in `sources:`, `ignore:` or `submodules:` followed by a `# comment` reads without the comment, and without whitespace outside its quotes. The comment was read as part of the path, so sync skipped that source without a word and `status --check` refused the `#`; a `#` inside quotes is still part of the value, and the `source` and `package` commands read entries the same way.
 
 ## [0.18.1]
 

@@ -385,5 +385,28 @@ chknot test -e "$REF/.claude/rules/acme.md"
 is "rules after the remove" "sync:rules,intelligence/rules" "$(ref_joined rules)"
 chk rrun status --check
 
+echo "== a trailing comment is not part of a source (AC10) =="
+# Until 0.19.0 the list reader kept `  # project rules` as part of the path, so
+# the directory was skipped in silence and `status --check` refused the `#`.
+awk '{ if ($0 == "    - \"intelligence/rules\"") $0 = $0 "  # project rules"; print }' \
+    "$OUT/ref-ac1.yaml" > "$REF/intelligence.yaml"
+chk grep -qx '    - "intelligence/rules"  # project rules' "$REF/intelligence.yaml"
+mkdir -p "$REF/intelligence/rules"
+printf '# Marker\n\nCOMMENT_MARKER\n' > "$REF/intelligence/rules/marker.md"
+out="$(rrun sync 2>&1)" || { echo "FAIL: sync with a commented source: $out"; fail=1; }
+chk test -f "$REF/.claude/rules/marker.md"
+chk grep -q COMMENT_MARKER "$REF/.claude/rules/marker.md"
+rc=0
+out="$(rrun status --check 2>&1)" || rc=$?
+is "status --check with a commented source" "0" "$rc"
+grep -q "sources.rules 'intelligence/rules  #" <<< "$out" && { echo "FAIL: status --check still reads the comment: $out"; fail=1; }
+out="$(rrun source list)"
+grep -qx '  2\. intelligence/rules' <<< "$out" || { echo "FAIL: source list does not show the entry as intelligence/rules: $out"; fail=1; }
+# The editors read it the same way: it anchors, and the comment stays on its line.
+mkdir -p "$REF/docs/rules"
+chk rrun source add rules docs/rules --before intelligence/rules
+chk grep -qx '    - "intelligence/rules"  # project rules' "$REF/intelligence.yaml"
+grep -qx '  2\. docs/rules' <<< "$(rrun source list)" || { echo "FAIL: --before a commented entry misplaced docs/rules"; fail=1; }
+
 [ "$fail" -eq 0 ] && echo "CLI-E2E-SOURCES: ALL OK"
 exit "$fail"

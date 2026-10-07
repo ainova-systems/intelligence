@@ -853,5 +853,48 @@ chk eq "$(sources_alias_users "$REFS/intelligence.yaml" ac)" ""
 chk grep -q "sources.skills 'acme:skills'" <( ( assert_alias_unused "$REFS/intelligence.yaml" "@acme/tools" acme remove ) 2>&1 )
 chk assert_alias_unused "$REFS/intelligence.yaml" "@acme/tools" unused replace
 
+echo "== sources editors read an entry exactly as the engine does =="
+# One reading (decision 0009, point 7): the editors match an item through the
+# engine's yaml_item. They used to cut ` #...` after removing quotes, so a `#`
+# inside quotes ended the value for them but not for the engine.
+CM="$OUT/comments.yaml"
+seed_comments() {
+    cat > "$CM" <<'YAML'
+sources:
+  rules:
+    - ".intelligence/packages/@acme/tools/rules"  # the package
+    - "a #b"
+    - "intelligence/rules"  # project rules
+  agents:
+    - "acme:agents" # by alias
+packages:
+  "@acme/tools":
+    alias: "acme"
+YAML
+}
+seed_comments
+chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" ".intelligence/packages/@acme/tools/rules|a #b|intelligence/rules"
+chk sources_has_entry "$CM" rules "intelligence/rules"
+chk sources_has_entry "$CM" rules "a #b"
+chknot sources_has_entry "$CM" rules "a"
+# An anchor behind a comment is found, and the comment stays on its line.
+sources_add_entry "$CM" rules "docs/rules" after "intelligence/rules"
+chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" ".intelligence/packages/@acme/tools/rules|a #b|intelligence/rules|docs/rules"
+chk grep -qx '    - "intelligence/rules"  # project rules' "$CM"
+sources_add_entry "$CM" rules "first/rules" before "a #b"
+chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" ".intelligence/packages/@acme/tools/rules|first/rules|a #b|intelligence/rules|docs/rules"
+# Removal matches the value, never the comment; "a" is not "a #b".
+sources_remove_entry "$CM" rules "a"
+chk sources_has_entry "$CM" rules "a #b"
+sources_remove_entry "$CM" rules "a #b"
+sources_remove_entry "$CM" rules "intelligence/rules"
+chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" ".intelligence/packages/@acme/tools/rules|first/rules|docs/rules"
+# The package's entries go in every spelling, comments and all.
+chk package_source_listed "$CM" agents ".intelligence/packages/@acme/tools/agents"
+unwire_package_sources "$CM" "@acme/tools"
+chk eq "$(sources_list_entries "$CM" rules | paste -sd'|' -)" "first/rules|docs/rules"
+chk eq "$(sources_list_entries "$CM" agents)" ""
+chknot grep -q 'the package\|by alias' "$CM"
+
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-MANIFEST: ALL OK"
 exit "$fail"

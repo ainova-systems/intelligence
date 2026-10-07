@@ -2029,6 +2029,37 @@ IS_PKG_REF_AWK='
     }
 '
 
+# The value of one block-sequence item in the manifest — the only reading of a
+# list entry. Every list reader below and the CLI's `sources:` editors
+# (lib/manifest.sh) load this string, so an entry the engine renders and the
+# entry an editor compares are the same text (decision 0009, point 7).
+#
+#   yaml_item(text)   <text> is what follows the item's `-`. Returns the value:
+#                     whitespace around it and a trailing `# comment` dropped,
+#                     then every quote removed, as the readers always did. A
+#                     comment starts at a `#` that follows whitespace outside
+#                     quotes; inside a quoted scalar a `#` is part of the value,
+#                     and so is one with no whitespace before it (`a#b`).
+IS_YAML_ITEM_AWK='
+    function yaml_item(s,   q, e, rest) {
+        sub(/^[ \t]+/, "", s)
+        q = substr(s, 1, 1)
+        rest = s
+        s = ""
+        if (q == "\"" || q == "\047") {
+            e = index(substr(rest, 2), q)
+            if (e == 0) { s = rest; rest = "" }
+            else { s = substr(rest, 1, e + 1); rest = substr(rest, e + 2) }
+        }
+        if (s == "" && substr(rest, 1, 1) == "#") rest = ""
+        else if (match(rest, /[ \t]#/)) rest = substr(rest, 1, RSTART - 1)
+        s = s rest
+        sub(/[ \t]+$/, "", s)
+        gsub(/["\047]/, "", s)
+        return s
+    }
+'
+
 # The manifest list reader. `mode` selects what it prints for each entry:
 #   expand    the entry as the engine renders it: a reference becomes its store
 #             path, one that resolves to nothing is left out
@@ -2045,16 +2076,10 @@ IS_YAML_LIST_AWK='
     $0 ~ "^" section ":" { current_section = section; depth = 0; next }
     $0 ~ "^  " section ":" { current_section = section; depth = 2; next }
     current_section == section && depth == 0 && /^  - / {
-        val = $0
-        sub(/^  - /, "", val)
-        gsub(/["\047]/, "", val)
-        vals[++nv] = val
+        vals[++nv] = yaml_item(substr($0, 5))
     }
     current_section == section && depth == 2 && /^    - / {
-        val = $0
-        sub(/^    - /, "", val)
-        gsub(/["\047]/, "", val)
-        vals[++nv] = val
+        vals[++nv] = yaml_item(substr($0, 7))
     }
     END {
         sources = section == "rules" || section == "agents" || section == "skills"
@@ -2100,14 +2125,14 @@ read_yaml_list() {
             fi
             ;;
     esac
-    awk -v section="$section" -v mode=expand "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$file"
+    awk -v section="$section" -v mode=expand "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$file"
 }
 
 # read_yaml_list_raw <file> <section> — the entries exactly as written,
 # references included and never cached. The CLI's sources editors compare and
 # rewrite these, so an entry is matched as the user spelled it.
 read_yaml_list_raw() {
-    awk -v section="$2" -v mode=raw "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$1"
+    awk -v section="$2" -v mode=raw "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$1"
 }
 
 # read_source_entries <file> <section> — one \037-separated line per entry: as
@@ -2116,7 +2141,7 @@ read_yaml_list_raw() {
 # packages declare that alias, their names. One pass of the parser the engine
 # renders through, so a verdict can never disagree with the render.
 read_source_entries() {
-    awk -v section="$2" -v mode=classify "$IS_PKG_REF_AWK$IS_YAML_LIST_AWK" "$1"
+    awk -v section="$2" -v mode=classify "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK$IS_YAML_LIST_AWK" "$1"
 }
 
 # read_package_aliases <file> — one \037-separated line per declared package that
@@ -2205,7 +2230,7 @@ load_yaml_lists() {
             *) return 1 ;;
         esac
     done
-    out="$(awk -v sections="$*" "$IS_PKG_REF_AWK"'
+    out="$(awk -v sections="$*" "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK"'
         BEGIN { n = split(sections, want, " ") }
         { sub(/\r$/, ""); pkr_collect($0) }
         {
@@ -2216,18 +2241,12 @@ load_yaml_lists() {
                 if ($0 ~ "^" s ":") { cur[k] = s; dep[k] = 0; continue }
                 if ($0 ~ "^  " s ":") { cur[k] = s; dep[k] = 2; continue }
                 if (cur[k] == s && dep[k] == 0 && /^  - /) {
-                    val = $0
-                    sub(/^  - /, "", val)
-                    gsub(/["\047]/, "", val)
                     got_s[++ng] = s
-                    got_v[ng] = val
+                    got_v[ng] = yaml_item(substr($0, 5))
                 }
                 if (cur[k] == s && dep[k] == 2 && /^    - /) {
-                    val = $0
-                    sub(/^    - /, "", val)
-                    gsub(/["\047]/, "", val)
                     got_s[++ng] = s
-                    got_v[ng] = val
+                    got_v[ng] = yaml_item(substr($0, 7))
                 }
             }
         }

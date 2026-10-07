@@ -157,6 +157,56 @@ chk eq "$(read_yaml_list_raw "$OUT/lists-store.yaml" rules)" "$(oracle_yaml_list
 chk eq "$(read_yaml_list "$OUT/lists-store.yaml" rules | paste -sd, -)" \
     ".intelligence/packages/@a/b/rules,.intelligence/packages/@a/b/rules,a:rules,intelligence/rules"
 
+echo "== list entries: a trailing comment is not part of the value =="
+# Every list read_yaml_list and load_yaml_list(s) serve read `- "x"  # c` as
+# `x  # c`, so a commented source named a directory that does not exist and was
+# skipped in silence. A comment starts at a `#` after whitespace outside quotes.
+C="$OUT/comments.yaml"
+cat > "$C" <<'EOF'
+sources:
+  rules:
+    - "intelligence/rules"  # project rules
+    - 'single'	# a tab before the comment
+    - plain # unquoted
+    - "a #b"
+    - plain#hash
+    - "#quoted"
+    -   "spaced"
+    - intelligence/extra
+  agents:
+    - "intelligence/agents" # agents
+ignore:
+  - "node_modules"  # dependencies
+  - "bin"
+submodules:
+  - "libs/shared" # a submodule
+EOF
+# Whitespace after the closing quote is no part of the value either; written
+# here because an editor would strip it from the fixture above.
+awk '{ if ($0 == "    -   \"spaced\"") $0 = $0 "  "; print }' "$C" > "$C.tmp" && mv "$C.tmp" "$C"
+chk grep -qx '    -   "spaced"  ' "$C"
+want_rules='intelligence/rules,single,plain,a #b,plain#hash,#quoted,spaced,intelligence/extra'
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+chk eq "$(read_yaml_list "$C" rules | paste -sd, -)" "$want_rules"
+chk eq "$(read_yaml_list_raw "$C" rules | paste -sd, -)" "$want_rules"
+chk eq "$(read_source_entries "$C" rules | awk -F'\037' '{ print $1 }' | paste -sd, -)" "$want_rules"
+chk eq "$(read_yaml_list "$C" agents)" "intelligence/agents"
+chk eq "$(read_yaml_list "$C" ignore | paste -sd, -)" "node_modules,bin"
+chk eq "$(read_yaml_list "$C" submodules)" "libs/shared"
+# The cache the engine warms reads them the same way.
+load_yaml_lists "$C" rules agents skills ignore submodules
+load_yaml_list "$C" rules
+chk eq "$(printf '%s\n' "$IS_YAML_LIST" | paste -sd, -)" "$want_rules"
+load_yaml_list "$C" ignore
+chk eq "$(printf '%s\n' "$IS_YAML_LIST" | paste -sd, -)" "node_modules,bin"
+load_yaml_list "$C" submodules
+chk eq "$IS_YAML_LIST" "libs/shared"
+for section in rules agents skills ignore submodules; do unset "IS_YL_${section}_FILE" "IS_YL_${section}_VAL"; done
+# A reference behind a comment resolves like any other entry.
+printf 'sources:\n  rules:\n    - "sync:rules"  # by alias\n    - "@a/sync/rules" # by name\npackages:\n  "@a/sync":\n    alias: "sync"\n' > "$OUT/comments-refs.yaml"
+chk eq "$(read_yaml_list "$OUT/comments-refs.yaml" rules | paste -sd, -)" \
+    ".intelligence/packages/@a/sync/rules,.intelligence/packages/@a/sync/rules"
+
 echo "== package references: each spelling renders as its store path =="
 # list_is <label> <want, comma-joined> <reader...>
 list_is() {

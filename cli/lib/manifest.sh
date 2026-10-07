@@ -442,7 +442,7 @@ sources_has_entry() {
 sources_add_entry() {
     local file="$1" section="$2" entry="$3" pos="${4:-last}" anchor="${5:-}"
     sources_has_entry "$file" "$section" "$entry" && return 0
-    _qmap_stage "$file" -v section="$section" -v entry="$entry" -v pos="$pos" -v anchor="$anchor" '
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" -v pos="$pos" -v anchor="$anchor" "$IS_YAML_ITEM_AWK"'
         function line() { return "    - \"" entry "\"" }
         function place() { print line(); done = 1 }
         # Blank lines inside sources: are held back so an insert lands next to
@@ -450,13 +450,11 @@ sources_add_entry() {
         # one section from the next.
         function flush_tail(   i) { for (i = 1; i <= ntail; i++) print tail[i]; blanks = ntail; ntail = 0 }
         function open_section() { flush_tail(); print "  " section ":"; place(); if (blanks) print "" }
+        # The entry as the engine reads it (yaml_item, engine/lib/common.sh).
         function value(s,   v) {
             v = s
-            sub(/^[ \t]*-[ \t]*/, "", v)
-            gsub(/["\x27]/, "", v)
-            sub(/[ \t]+#.*$/, "", v)
-            sub(/[ \t]+$/, "", v)
-            return v
+            sub(/^[ \t]*-/, "", v)
+            return yaml_item(v)
         }
         BEGIN { anchored = (pos == "before" || pos == "after") }
         { sub(/\r$/, "") }
@@ -512,23 +510,20 @@ sources_add_entry_first() {
 }
 
 # sources_remove_entry <file> <section> <entry> — remove `- "entry"` from
-# sources.<section>.
+# sources.<section>, matching each item as the engine reads it (yaml_item).
 sources_remove_entry() {
     local file="$1" section="$2" entry="$3"
     [ -f "$file" ] || return 0
-    _qmap_stage "$file" -v section="$section" -v entry="$entry" '
+    _qmap_stage "$file" -v section="$section" -v entry="$entry" "$IS_YAML_ITEM_AWK"'
         { sub(/\r$/, "") }
         /^sources:[ \t]*$/ { ins = 1; print; next }
         ins && /^[^ #]/ { ins = 0; insec = 0 }
         ins && $0 ~ "^  " section ":[ \t]*$" { insec = 1; print; next }
         ins && /^  [A-Za-z_]/ { insec = 0 }
-        insec {
+        insec && /^[ \t]*-/ {
             line = $0
-            sub(/^[ \t]*-[ \t]*/, "", line)
-            gsub(/["\x27]/, "", line)
-            sub(/[ \t]+#.*$/, "", line)
-            sub(/[ \t]+$/, "", line)
-            if (line == entry) next
+            sub(/^[ \t]*-/, "", line)
+            if (yaml_item(line) == entry) next
         }
         { print }
     '
@@ -648,7 +643,7 @@ sources_remove_package() {
     shift 2
     [ -f "$file" ] || return 0
     tmp="$file.cli.tmp"
-    awk -v name="$name" -v only=" $* " "$IS_PKG_REF_AWK"'
+    awk -v name="$name" -v only=" $* " "$IS_PKG_REF_AWK$IS_YAML_ITEM_AWK"'
         BEGIN { store = ".intelligence/packages/" name }
         FNR == 1 { pass++ }
         pass == 1 { sub(/\r$/, ""); pkr_collect($0); next }
@@ -665,11 +660,8 @@ sources_remove_package() {
         }
         ins && sec != "" && /^[ \t]*-/ {
             v = $0
-            sub(/^[ \t]*-[ \t]*/, "", v)
-            gsub(/["\047]/, "", v)
-            sub(/[ \t]+#.*$/, "", v)
-            sub(/[ \t]+$/, "", v)
-            dir = pkr_expand(v)
+            sub(/^[ \t]*-/, "", v)
+            dir = pkr_expand(yaml_item(v))
             if (only == "  ") drop = dir == store || index(dir, store "/") == 1
             else drop = index(only, " " sec " ") && dir == store "/" sec
             if (drop) { changed = 1; next }
