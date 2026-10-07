@@ -207,6 +207,24 @@ grep -q "WARNING: sources.rules 'package:nope/rules' resolves to no single decla
 chk test -f "$TOK/.claude/skills/intelligence-sync/SKILL.md"
 out="$(trun source list)"
 grep -q 'package:nope/rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag the unresolved token: $out"; fail=1; }
+# The full form of a package `packages:` does not declare names nothing either,
+# even while the store still holds its directory: nothing renders from it, and a
+# store directory missing behind it never sends sync into a restore.
+awk '{ print } /^  rules:$/ { print "    - \"package:@acme/gone/rules\"" }' "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"
+mkdir -p "$TOK/.intelligence/packages/@acme/gone/rules"
+printf '# Gone\n\nGONE_MARKER\n' > "$TOK/.intelligence/packages/@acme/gone/rules/gone.md"
+out="$(trun status --check 2>&1 || true)"
+grep -q "'package:@acme/gone/rules' matches no declared package" <<< "$out" \
+    || { echo "FAIL: status --check does not name an undeclared full-form token: $out"; fail=1; }
+out="$(trun sync 2>&1)" || { echo "FAIL: sync with an undeclared full-form token failed"; fail=1; }
+grep -q "WARNING: sources.rules 'package:@acme/gone/rules' resolves to no single declared package" <<< "$out" \
+    || { echo "FAIL: sync did not warn about an undeclared full-form token: $out"; fail=1; }
+chknot test -e "$TOK/.claude/rules/gone.md"
+out="$(trun source list)"
+grep -q 'package:@acme/gone/rules  UNRESOLVED' <<< "$out" || { echo "FAIL: source list does not flag an undeclared full-form token: $out"; fail=1; }
+rm -rf "$TOK/.intelligence/packages/@acme"
+out="$(trun sync 2>&1)" || { echo "FAIL: sync with an undeclared full-form token and no store failed"; fail=1; }
+if grep -q 'restoring package store' <<< "$out"; then echo "FAIL: an undeclared full-form token sent sync into a restore: $out"; fail=1; fi
 # A malformed token and a short name two declared packages share are judged too.
 awk '{ print } /^  rules:$/ { print "    - \"package:sync\"" } /^packages:$/ { print "  \"@acme/sync\":"; print "    ref: \"HEAD\"" }' \
     "$OUT/tokens-before.yaml" > "$TOK/intelligence.yaml"

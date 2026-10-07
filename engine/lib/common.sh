@@ -1662,8 +1662,8 @@ report_context_source_sizes() {
 # `.intelligence/packages/@scope/name/<dir>`, so the list a project reads carries
 # no vendor scope. <name> is the package's full `@scope/name`, or the part after
 # its `/` when exactly one package declared in `packages:` carries that part. The
-# full form names its package by itself and always expands; the short form
-# resolves against the declared names only.
+# full form never depends on the other declared names, but either form expands
+# only to a package `packages:` declares.
 #
 # The list parser below expands a token in the awk pass that already reads the
 # manifest. That pass is the one point every reader goes through — adapters, the
@@ -1755,7 +1755,7 @@ IS_PKG_TOKEN_AWK='
     }
     function pkt_expand(entry,   st) {
         st = pkt_parse(entry)
-        if (st == "ok" || st == "undeclared") return ".intelligence/packages/" PKT_NAME "/" PKT_DIR
+        if (st == "ok") return ".intelligence/packages/" PKT_NAME "/" PKT_DIR
         return entry
     }
     function pkt_store(entry,   pre, rest, p, i) {

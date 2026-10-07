@@ -27,8 +27,8 @@ Two facts constrained the replacement:
 1. A sources entry may name a directory inside an installed package as
    `package:<name>/<dir>`. `<name>` is the full `@scope/name`, or the part after
    its `/` when exactly one package declared in `packages:` carries that part.
-   The full form is always accepted and expands on its own; the short form
-   resolves against the declared names only.
+   The full form never depends on the other declared names, but either form
+   expands only to a package `packages:` declares.
 2. Expansion happens in the engine's list parser (`read_yaml_list`,
    `load_yaml_lists` in `engine/lib/common.sh`), inside the awk pass that already
    reads the manifest. Every reader goes through it, so adapters, project

@@ -396,7 +396,7 @@ sources:
     - "intelligence/rules"
 ```
 
-`package:<name>/<dir>` names `<dir>` inside an installed package. `<name>` is the full `@scope/name`, or the part after its `/` when exactly one package declared in `packages:` carries that part. The full form, `package:@ainova-systems/sync/rules`, is always accepted. The engine renders a token exactly as it renders the store path it stands for: expansion happens inside the list parser every reader shares, so `sync`, `status --check` and project adapters all see the same directory.
+`package:<name>/<dir>` names `<dir>` inside an installed package. `<name>` is the full `@scope/name`, or the part after its `/` when exactly one package declared in `packages:` carries that part. The full form, `package:@ainova-systems/sync/rules`, never depends on the other declared names, but either form names only a package `packages:` declares. The engine renders a token exactly as it renders the store path it stands for: expansion happens inside the list parser every reader shares, so `sync`, `status --check` and project adapters all see the same directory.
 
 The CLI writes one canonical spelling: short while no other declared package shares the short name, full for every package that does. `package add`, `package remove`, `update`, restore and alignment all apply it. Adding a package whose short name collides rewrites the existing short tokens of that name to the full form; removing it returns the survivor to the short form. Every rewrite happens in place — the order of `sources:` is the override rule, so no entry moves. `update` likewise leaves a package's entries where they stand, adding a section a new version gained and dropping one it lost.
 

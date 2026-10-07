@@ -110,9 +110,9 @@ for section in rules agents skills; do
     load_yaml_list "$CONFIG_FILE" "$section"
     while IFS= read -r src; do
         [ -z "$src" ] && continue
-        # The parser expands every package token that names a package, so one
-        # still spelled `package:` resolved to nothing. It is skipped like a
-        # missing directory, but it is a manifest error, not an absent source.
+        # The parser expands every package token that names a declared package,
+        # so one still spelled `package:` resolved to nothing. It is skipped like
+        # a missing directory, but it is a manifest error, not an absent source.
         case "$src" in
             package:*)
                 echo "WARNING: sources.$section '$src' resolves to no single declared package — skipped; 'intelligence status --check' says why" >&2

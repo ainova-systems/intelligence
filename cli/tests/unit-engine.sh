@@ -197,7 +197,7 @@ registries:
 EOF
 want_rows="package:sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules
 package:@ainova-systems/sync/rules|ok|.intelligence/packages/@ainova-systems/sync/rules
-package:@acme/undeclared/rules|undeclared|.intelligence/packages/@acme/undeclared/rules
+package:@acme/undeclared/rules|undeclared|package:@acme/undeclared/rules
 package:nope/rules|unknown|package:nope/rules
 package:twin/rules|ambiguous|package:twin/rules
 package:sync|invalid|package:sync
@@ -220,8 +220,8 @@ unset IS_YL_rules_FILE IS_YL_rules_VAL
 printf 'packages:\r\n  "@ainova-systems/sync":\r\n    version: "1"\r\nsources:\r\n  rules:\r\n    - "package:sync/rules"\r\n' > "$OUT/tokens-crlf.yaml"
 list_is "packages: before sources:, CRLF" ".intelligence/packages/@ainova-systems/sync/rules" read_yaml_list "$OUT/tokens-crlf.yaml" rules
 printf 'sources:\n  rules:\n    - "package:sync/rules"\n    - "package:@ainova-systems/sync/rules"\n' > "$OUT/tokens-bare.yaml"
-list_is "no packages: block — a short token names nothing, the full form still expands" \
-    "package:sync/rules,.intelligence/packages/@ainova-systems/sync/rules" read_yaml_list "$OUT/tokens-bare.yaml" rules
+list_is "no packages: block — neither form names anything" \
+    "package:sync/rules,package:@ainova-systems/sync/rules" read_yaml_list "$OUT/tokens-bare.yaml" rules
 # A commented-out block declares nothing.
 printf 'sources:\n  rules:\n    - "package:core/rules"\n# packages:\n#   "@ainova-systems/core":\n#     version: "1"\n' > "$OUT/tokens-commented.yaml"
 list_is "a commented packages: block declares nothing" "package:core/rules" read_yaml_list "$OUT/tokens-commented.yaml" rules

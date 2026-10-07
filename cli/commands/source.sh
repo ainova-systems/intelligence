@@ -71,12 +71,12 @@ print_section() {
         n=$((n + 1))
         note=""
         case "$state" in
-            ok|undeclared) note="  package" ;;
-            unknown|ambiguous|invalid) note="  UNRESOLVED — intelligence status --check" ;;
+            ok) note="  package" ;;
+            undeclared|unknown|ambiguous|invalid) note="  UNRESOLVED — intelligence status --check" ;;
             *) case "$dir" in .intelligence/*) note="  package" ;; esac ;;
         esac
         case "$state" in
-            unknown|ambiguous|invalid) ;;
+            undeclared|unknown|ambiguous|invalid) ;;
             *) [ -d "$root/$dir" ] || note="$note  MISSING" ;;
         esac
         printf '  %d. %s%s\n' "$n" "$entry" "$note"
