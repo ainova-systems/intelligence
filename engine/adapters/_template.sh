@@ -27,6 +27,7 @@
 #   has_paths(file)                     — check if file has paths: field
 #   get_model(config, ide, tier)        — resolve model from config or default
 #   get_model_default(ide, tier)        — hardcoded default for ide:tier
+#   map_effort(tool, effort)            — the tool's level for a neutral effort; "" when none
 #   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly->restricted
 #   map_access_to_claude_disallowed(access) — readonly->"Write, Edit", full->""
 #   read_yaml_list(manifest, section)   — read a source list from intelligence.yaml,

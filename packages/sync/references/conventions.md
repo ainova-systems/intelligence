@@ -194,9 +194,25 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 | `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
 | `light` | `sonnet` | `inherit` | `gpt-6-luna` | `anthropic/claude-sonnet-5-5` | `flash` | lookups and simple formatting |
 
-Codex also receives a reasoning effort per tier — `xhigh`, `high`, `medium`, `low` — which is what separates `frontier` from `heavy` in Codex. Copilot has no effort field, so its `frontier` and `heavy` agents are identical. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
+A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default. Another tier name works only where `models.<tool>.<tier>` defines it; elsewhere — a typo, as a rule — the agent renders with an empty `model` and sync warns once per tool and tier.
+
+### Effort mappings
+
+`effort:` asks for a reasoning effort, independently of the model `tier` selects. The scale, lowest first, is `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, matched exactly. Write it only where an agent or skill needs a level other than the tool's own setting: without it, no tool receives an effort.
+
+| `effort:` | Claude agents and skills (`effort:`) | Codex agents (`model_reasoning_effort`) | Copilot, Cursor, OpenCode, Antigravity and Pi agents |
+|---|---|---|---|
+| `low`, `medium`, `high`, `xhigh`, `max` | the same level | the same level | not emitted |
+| `ultra` | `max` | `ultra` | not emitted |
+| absent, empty or off the scale | not emitted | not emitted | not emitted |
+
+A level a tool lacks becomes the nearest lower level it has. Which levels a particular model supports is left to the tool: a manifest can override the model, and Claude Code itself falls back to the highest level the active model supports at or below the one requested. Tools without a per-agent effort field keep their own setting.
+
+A value off the scale — `hiigh`, `High` — never fails a sync. Sync prints a `WARNING:` line naming the file, the value and the allowed levels — `sync --compact` and `init` show it too — and renders the artifact as if `effort:` were absent, because packages arrive from many sources and one author's typo must not block another team. An empty `effort:` is simply absent.
+
+Skills take the same field. `.claude/skills/` receives Claude's level, the shared `.agents/skills/` tree keeps a valid level as written, and Copilot's and Cursor's skill copies carry none; an empty or off-scale value is removed from every copy. Codex has no per-skill effort.
 
 ### Access mappings
 
@@ -254,7 +270,7 @@ argument-hint: "<route-name>"
 4. Report the changed route and verification.
 ```
 
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand.
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes.
 
 `disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 

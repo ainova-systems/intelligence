@@ -143,7 +143,8 @@ sync_copilot_skills() {
 
     local count=0
     if [ "${#skill_dirs[@]}" -gt 0 ]; then
-        copy_skill_bundle_dirs "$output_dir/skills" "${skill_dirs[@]}"
+        # Copilot has no effort field: the copy carries no `effort:`.
+        copy_skill_bundle_dirs_for copilot "$output_dir/skills" "${skill_dirs[@]}"
         for d in "${skill_dirs[@]}"; do
             skill_name="${d%/}"
             count=$((count + 1))
