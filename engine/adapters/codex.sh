@@ -103,7 +103,8 @@ sync_codex_agents() {
             name="${path##*/}"; name="${name%.md}"
             resolve_model_var "$tier"
             case "$tier" in
-                heavy)    effort="high" ;;
+                frontier) effort="xhigh" ;;
+                heavy|"") effort="high" ;;
                 standard) effort="medium" ;;
                 light)    effort="low" ;;
                 *)        effort="medium" ;;

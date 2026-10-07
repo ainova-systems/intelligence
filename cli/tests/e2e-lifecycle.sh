@@ -664,6 +664,63 @@ agr_rule_limit 10
 override_chars="$(wc -c < "$AGR/.agents/rules/big.md" | tr -d '[:space:]')"
 chk grep -Fq ".agents/rules/big.md renders $override_chars;" "$OUT/agr-override-10.txt"
 
+echo "== every built-in adapter renders every model tier =="
+# The expected model comes from the engine's own default table, so a model
+# bump does not touch this test; what it pins is that each adapter emits the
+# tier's resolved model, never an empty one, and Codex's effort ladder.
+TIERS="$OUT/model-tiers"
+mkdir -p "$TIERS/intelligence/agents"
+git -C "$TIERS" init --quiet
+cat > "$TIERS/intelligence.yaml" <<EOF
+project:
+  name: model-tiers
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+  agents:
+    - "intelligence/agents"
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  claude: { enabled: true, output: ".claude" }
+  codex: { enabled: true, output: ".codex" }
+  copilot: { enabled: true, output: ".github" }
+  cursor: { enabled: true, output: ".cursor" }
+  opencode: { enabled: true, output: ".opencode" }
+EOF
+for tier in frontier heavy standard light; do
+    printf -- '---\nname: %s-agent\ndescription: "A %s agent"\ntier: %s\naccess: full\n---\n\n# Agent\n' \
+        "$tier" "$tier" "$tier" > "$TIERS/intelligence/agents/$tier-agent.md"
+done
+printf -- '---\nname: untiered-agent\ndescription: "No tier"\naccess: full\n---\n\n# Agent\n' \
+    > "$TIERS/intelligence/agents/untiered-agent.md"
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/tiers-sync.txt" 2>&1) || { echo "FAIL: model-tier sync"; cat "$OUT/tiers-sync.txt"; fail=1; }
+# shellcheck source=/dev/null
+default_model() { (source "$REPO/engine/lib/common.sh" && get_model_default "$1" "$2"); }
+for tier in frontier heavy standard light; do
+    for tool in claude codex copilot cursor opencode antigravity; do
+        [ -n "$(default_model "$tool" "$tier")" ] || { echo "FAIL: no $tool default for $tier"; fail=1; }
+    done
+    chk grep -Fqx "model: $(default_model claude "$tier")" "$TIERS/.claude/agents/$tier-agent.md"
+    chk grep -Fqx "model = \"$(default_model codex "$tier")\"" "$TIERS/.codex/agents/$tier-agent.toml"
+    chk grep -Fqx "model: $(default_model copilot "$tier")" "$TIERS/.github/agents/$tier-agent.agent.md"
+    chk grep -Fqx "model: $(default_model cursor "$tier")" "$TIERS/.cursor/agents/$tier-agent.md"
+    chk grep -Fqx "model: \"$(default_model opencode "$tier")\"" "$TIERS/.opencode/agents/$tier-agent.md"
+    chk grep -Fqx "model: \"$(default_model antigravity "$tier")\"" "$TIERS/.agents/agents/$tier-agent.md"
+done
+chk grep -Fqx 'model_reasoning_effort = "xhigh"' "$TIERS/.codex/agents/frontier-agent.toml"
+chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/heavy-agent.toml"
+chk grep -Fqx 'model_reasoning_effort = "medium"' "$TIERS/.codex/agents/standard-agent.toml"
+chk grep -Fqx 'model_reasoning_effort = "low"' "$TIERS/.codex/agents/light-agent.toml"
+# No tier resolves to heavy, and its effort follows the model it resolved to.
+chk grep -Fqx "model = \"$(default_model codex heavy)\"" "$TIERS/.codex/agents/untiered-agent.toml"
+chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/untiered-agent.toml"
+chk grep -Fqx "model: $(default_model claude heavy)" "$TIERS/.claude/agents/untiered-agent.md"
+
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,
 # for project skills as much as package ones, and an author's own file is kept.

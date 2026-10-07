@@ -152,9 +152,9 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; special key `paths#` counts `paths:` lines). |
 | `has_frontmatter(file)` / `has_paths(file)` | Inspect source shape. |
 | `strip_frontmatter(file)` | Emit the body without its first frontmatter block. |
-| `get_model(config, tool, tier)` | Resolve a `heavy`, `standard` or `light` model, including manifest overrides. |
+| `get_model(config, tool, tier)` | Resolve a `frontier`, `heavy`, `standard` or `light` model, including manifest overrides. |
 | `get_model_default(tool, tier)` | Read the built-in model default. |
-| `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the three standard tiers once, then map per file without subprocesses. |
+| `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the four standard tiers once, then map per file without subprocesses. |
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
