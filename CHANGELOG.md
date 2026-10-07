@@ -4,11 +4,18 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.18.1]
+
+### Changed
+
+- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of over twenty under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+
 ## [0.18.0]
 
 ### Added
 
 - Agents accept `tier: frontier` above `heavy`: `fable` for Claude Code, `gpt-6-astra` with `model_reasoning_effort = "xhigh"` for Codex, `gpt-6-astra` for Copilot, `anthropic/claude-fable-5-1` for OpenCode, `pro` for Antigravity and `inherit` for Cursor (decision 0013).
+- Sync writes Codex's `agents/openai.yaml` with `allow_implicit_invocation: false` beside every skill in `.agents/skills/` whose frontmatter sets `disable-model-invocation: true`; a skill's own `agents/openai.yaml` is kept.
 
 ### Changed
 
@@ -16,7 +23,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - OpenCode defaults to `anthropic/claude-opus-5-5` for `heavy` and `anthropic/claude-sonnet-5-5` for `standard`.
 - `light` no longer uses the retiring Haiku 4.5: Claude Code gets `sonnet` and OpenCode `anthropic/claude-sonnet-5-5`.
 - Cursor's `light` default is `inherit`; `fast` is no longer a documented model value.
-- On Windows, `bash cli/tests/verify.sh` runs its scope in WSL when a distribution can, so the suites finish in minutes instead of over twenty under Git Bash; `INTELLIGENCE_VERIFY_NATIVE=1` keeps Git Bash (decision 0014).
+- `intelligence-upgrade` and `intelligence-manage-adapters` run only when the owner invokes them, and `intelligence-operator` no longer preloads them, so a forked sync never previews an update or inspects adapters on its own.
 
 ### Fixed
 

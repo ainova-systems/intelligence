@@ -157,7 +157,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the four standard tiers once, then map per file without subprocesses. |
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
-| `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`. |
+| `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
 | `finalize_output_files(file...)` / `finalize_copy_files(dest, src...)` | Batch forms: finalize in place, or copy-and-finalize into a directory, in one process. |
 | `emit_wrapped_bodies(spec)` | Emit many header + source-body + tail outputs in one process (see `engine/lib/common.sh` for the spec format). |

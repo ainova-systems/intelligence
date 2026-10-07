@@ -24,6 +24,11 @@ For example, "remember the workflow we just used" belongs to
 `intelligence-update-context`; and "reduce our overlapping skills" belongs to
 `intelligence-review-context`.
 
+`intelligence-upgrade` and `intelligence-manage-adapters` run only as slash
+commands the owner types: they change versions, the lock and whole tool outputs,
+so an agent never selects them on its own (`disable-model-invocation`; Codex
+receives the same through the `agents/openai.yaml` sync derives).
+
 `intelligence-upgrade` changes installed versions; `intelligence-update-context`
 edits project knowledge. The upgrade skill coordinates the existing
 `intelligence update` and `intelligence upgrade` CLI commands.
