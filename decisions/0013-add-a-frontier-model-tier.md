@@ -2,6 +2,7 @@
 
 Date: 2026-10-07
 Status: accepted
+Superseded by 0015 in part: point 2's separation of `frontier` from `heavy` by Codex reasoning effort, and point 3's effort clause. A tier now selects the model only.
 
 ## Context
 

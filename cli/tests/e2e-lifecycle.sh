@@ -671,9 +671,10 @@ chk grep -Fq ".agents/rules/big.md renders $override_chars;" "$OUT/agr-override-
 echo "== every built-in adapter renders every model tier =="
 # The expected model comes from the engine's own default table, so a model
 # bump does not touch this test; what it pins is that each adapter emits the
-# tier's resolved model, never an empty one, and Codex's effort ladder.
+# tier's resolved model, never an empty one, and that a tier never sets a
+# reasoning effort (decision 0015).
 TIERS="$OUT/model-tiers"
-mkdir -p "$TIERS/intelligence/agents"
+mkdir -p "$TIERS/intelligence/agents" "$TIERS/intelligence/skills"
 git -C "$TIERS" init --quiet
 cat > "$TIERS/intelligence.yaml" <<EOF
 project:
@@ -686,6 +687,7 @@ sources:
   agents:
     - "intelligence/agents"
   skills:
+    - "intelligence/skills"
 
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
@@ -716,14 +718,20 @@ for tier in frontier heavy standard light; do
     chk grep -Fqx "model: \"$(default_model opencode "$tier")\"" "$TIERS/.opencode/agents/$tier-agent.md"
     chk grep -Fqx "model: \"$(default_model antigravity "$tier")\"" "$TIERS/.agents/agents/$tier-agent.md"
 done
-chk grep -Fqx 'model_reasoning_effort = "xhigh"' "$TIERS/.codex/agents/frontier-agent.toml"
-chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/heavy-agent.toml"
-chk grep -Fqx 'model_reasoning_effort = "medium"' "$TIERS/.codex/agents/standard-agent.toml"
-chk grep -Fqx 'model_reasoning_effort = "low"' "$TIERS/.codex/agents/light-agent.toml"
-# No tier resolves to heavy, and its effort follows the model it resolved to.
+# No tier resolves to heavy.
 chk grep -Fqx "model = \"$(default_model codex heavy)\"" "$TIERS/.codex/agents/untiered-agent.toml"
-chk grep -Fqx 'model_reasoning_effort = "high"' "$TIERS/.codex/agents/untiered-agent.toml"
 chk grep -Fqx "model: $(default_model claude heavy)" "$TIERS/.claude/agents/untiered-agent.md"
+# A tier selects the model only: without `effort:` no tool receives an effort,
+# so the tool's own setting applies — and frontier and heavy, which share a
+# Codex model, render the same agent.
+for agent in frontier-agent heavy-agent standard-agent light-agent untiered-agent; do
+    chknot grep -q 'model_reasoning_effort' "$TIERS/.codex/agents/$agent.toml"
+    chknot grep -q '^effort:' "$TIERS/.claude/agents/$agent.md"
+done
+eq() { [ "$1" = "$2" ]; }
+# same_but_identity <a> <b> — identical once name and description are set aside.
+same_but_identity() { eq "$(grep -Ev '^(name|description) = ' "$1")" "$(grep -Ev '^(name|description) = ' "$2")"; }
+chk same_but_identity "$TIERS/.codex/agents/frontier-agent.toml" "$TIERS/.codex/agents/heavy-agent.toml"
 # A tier nothing resolves still renders, but never silently: one warning per
 # tool and tier, however many agents carry it. A custom tier the manifest
 # overrides resolves quietly for that tool.
@@ -749,6 +757,113 @@ chknot grep -Fq "tier 'heavy'" "$OUT/tiers-unknown.txt"
     || { echo "FAIL: unknown-tier compact replay"; cat "$OUT/tiers-replay.txt"; fail=1; }
 chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-compact.txt"
 chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-replay.txt"
+
+echo "== effort is written once and rendered where a tool has a field =="
+# Decision 0015: the neutral level reaches Claude Code (the nearest lower level
+# it has) and Codex; the shared skills tree keeps it as written; every other
+# tool gets no effort key. An off-scale value warns, names its source and is
+# rendered as absent without failing the sync; an empty one is absent, silently.
+# fm_effort_keys <file> — the frontmatter lines whose key names any effort
+# (`effort`, `reasoningEffort`, ...); a body line is the author's text and stays.
+fm_effort_keys() {
+    awk 'NR == 1 && $0 != "---" { exit } /^---$/ { if (++n == 2) exit; next }
+        index($0, ":") && tolower(substr($0, 1, index($0, ":") - 1)) ~ /effort/' "$1"
+}
+no_effort_key() { [ -z "$(fm_effort_keys "$1")" ]; }
+tiers_agent() { # <name> <frontmatter line>...
+    local name="$1"
+    shift
+    { printf -- '---\nname: %s\ndescription: "Agent %s"\n' "$name" "$name"
+      [ "$#" -eq 0 ] || printf '%s\n' "$@"
+      printf -- '---\n\n# Agent\n\neffort: a body line keeps its text\n'; } > "$TIERS/intelligence/agents/$name.md"
+}
+tiers_skill() { # <name> <frontmatter line>...
+    local name="$1"
+    shift
+    mkdir -p "$TIERS/intelligence/skills/$name"
+    { printf -- '---\nname: %s\ndescription: "Skill %s"\n' "$name" "$name"
+      [ "$#" -eq 0 ] || printf '%s\n' "$@"
+      printf -- '---\n\n# Skill\n\neffort: a body line keeps its text\n'; } > "$TIERS/intelligence/skills/$name/SKILL.md"
+}
+tiers_agent effort-xhigh 'tier: light' 'effort: xhigh'
+tiers_agent effort-ultra 'effort: ultra'
+tiers_agent effort-quoted 'effort: "low"'
+tiers_agent effort-typo 'effort: hiigh'
+tiers_agent effort-case 'effort: High'
+tiers_agent effort-bare 'effort:'
+tiers_agent effort-empty 'effort: ""'
+# Only the first `effort:` counts, as for every other frontmatter key.
+tiers_agent effort-twice 'effort: medium' 'effort: ultra'
+printf -- '---\r\nname: effort-crlf\r\ndescription: "CRLF"\r\neffort: max\r\n---\r\n\r\n# Agent\r\n' \
+    > "$TIERS/intelligence/agents/effort-crlf.md"
+tiers_skill skill-ultra 'effort: ultra'
+tiers_skill skill-quoted 'effort: "high"'
+tiers_skill skill-typo 'effort: hiigh'
+tiers_skill skill-bare 'effort:'
+tiers_skill skill-empty 'effort: ""'
+tiers_skill skill-plain
+RC=0
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/effort-sync.txt" 2>&1) || RC=$?
+[ "$RC" -eq 0 ] || { echo "FAIL: effort sync exited $RC"; cat "$OUT/effort-sync.txt"; fail=1; }
+claude_effort() { chk grep -Fqx "effort: $2" "$TIERS/.claude/agents/$1.md"; }
+codex_effort() { chk grep -Fqx "model_reasoning_effort = \"$2\"" "$TIERS/.codex/agents/$1.toml"; }
+claude_effort effort-xhigh xhigh;   codex_effort effort-xhigh xhigh
+claude_effort effort-ultra max;     codex_effort effort-ultra ultra
+claude_effort effort-quoted low;    codex_effort effort-quoted low
+claude_effort effort-twice medium;  codex_effort effort-twice medium
+claude_effort effort-crlf max;      codex_effort effort-crlf max
+# Effort leaves the model alone.
+chk grep -Fqx "model: $(default_model claude light)" "$TIERS/.claude/agents/effort-xhigh.md"
+chk grep -Fqx "model = \"$(default_model codex light)\"" "$TIERS/.codex/agents/effort-xhigh.toml"
+chk eq "$(fm_effort_keys "$TIERS/.claude/agents/effort-twice.md")" "effort: medium"
+for agent in effort-typo effort-case effort-bare effort-empty; do
+    chk no_effort_key "$TIERS/.claude/agents/$agent.md"
+    chknot grep -q 'model_reasoning_effort' "$TIERS/.codex/agents/$agent.toml"
+done
+# Tools without a per-agent effort field never receive the key.
+for agent in effort-xhigh effort-ultra effort-quoted effort-typo effort-twice effort-crlf; do
+    for rendered in ".github/agents/$agent.agent.md" ".opencode/agents/$agent.md" \
+        ".agents/agents/$agent.md" ".cursor/agents/$agent.md"; do
+        chk no_effort_key "$TIERS/$rendered"
+    done
+done
+# The frontmatter is rewritten, never the body that documents it.
+chk grep -Fqx 'effort: a body line keeps its text' "$TIERS/.claude/agents/effort-typo.md"
+chk grep -Fqx 'effort: a body line keeps its text' "$TIERS/.cursor/agents/effort-xhigh.md"
+# Skills: Claude's level in .claude, the neutral value as written in the shared
+# tree, nothing where the tool has no field, and nothing for an off-scale or
+# empty value anywhere.
+chk grep -Fqx 'effort: max' "$TIERS/.claude/skills/skill-ultra/SKILL.md"
+chk grep -Fqx 'effort: ultra' "$TIERS/.agents/skills/skill-ultra/SKILL.md"
+chk grep -Fqx 'effort: "high"' "$TIERS/.claude/skills/skill-quoted/SKILL.md"
+chk grep -Fqx 'effort: "high"' "$TIERS/.agents/skills/skill-quoted/SKILL.md"
+for skill in skill-ultra skill-quoted skill-typo skill-bare skill-empty skill-plain; do
+    for tree in .github/skills .cursor/skills; do
+        chk no_effort_key "$TIERS/$tree/$skill/SKILL.md"
+    done
+done
+for skill in skill-typo skill-bare skill-empty skill-plain; do
+    for tree in .claude/skills .agents/skills; do
+        chk no_effort_key "$TIERS/$tree/$skill/SKILL.md"
+        chk grep -Fqx 'effort: a body line keeps its text' "$TIERS/$tree/$skill/SKILL.md"
+    done
+done
+# One warning per off-scale source, naming it and the value; none for empty.
+for source in agents/effort-typo.md:hiigh agents/effort-case.md:High skills/skill-typo/SKILL.md:hiigh; do
+    chk eq "$(grep -c "^WARNING: .*intelligence/${source%%:*}:[0-9]* effort \"${source##*:}\" is not one of low, medium, high, xhigh, max, ultra" "$OUT/effort-sync.txt")" 1
+done
+chknot grep -Eq 'WARN(ING)?: .*(effort-bare|effort-empty|skill-bare|skill-empty|effort-quoted|effort-twice|effort-crlf|skill-quoted)' "$OUT/effort-sync.txt"
+chk eq "$(grep -Ec 'WARN(ING)?: .*effort "' "$OUT/effort-sync.txt")" 3
+# `sync --compact`, which `init` runs, keeps only unindented WARNING: lines, so
+# the typo reaches it: on a full render, and on the unchanged run that replays it.
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact --force > "$OUT/effort-compact.txt" 2>&1) \
+    || { echo "FAIL: effort compact sync"; cat "$OUT/effort-compact.txt"; fail=1; }
+(cd "$TIERS" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact > "$OUT/effort-replay.txt" 2>&1) \
+    || { echo "FAIL: effort compact replay"; cat "$OUT/effort-replay.txt"; fail=1; }
+for report in effort-compact effort-replay; do
+    chk grep -q '^WARNING: .*intelligence/agents/effort-typo.md:[0-9]* effort "hiigh" is not one of' "$OUT/$report.txt"
+    chk grep -q '^WARNING: .*intelligence/skills/skill-typo/SKILL.md:[0-9]* effort "hiigh" is not one of' "$OUT/$report.txt"
+done
 
 echo "== skills only the owner invokes get Codex's policy at sync =="
 # The source states the intent once; Codex's own file is the engine's to write,
