@@ -100,6 +100,9 @@ sync_cursor_skills() {
 
     local src d skill_name
     local -a skill_dirs=()
+    # The inventory decides which skills render, symlinked ones included
+    # (decision 0017); the glob keeps this adapter's own listing order.
+    skill_source_inventory "$repo_root" "$config_file"
     load_yaml_list "$config_file" "skills"
     local list="$IS_YAML_LIST"
     while IFS= read -r src; do
@@ -109,6 +112,7 @@ sync_cursor_skills() {
         for d in "$dir"/*/; do
             [ -d "$d" ] || continue
             [ -f "$d/SKILL.md" ] || continue
+            skill_source_rendered "$d" || continue
             skill_dirs+=("$d")
         done
     done <<< "$list"

@@ -263,5 +263,45 @@ rm "$R/rules/always.md" "$R/rules/again.md" "$R/AGENTS.md"
 want="CONTEXT: always-on=0 bytes (0 rules); custom=$(bytes "$R/rules/scoped.md" "$R/agents/one.md" "$R/skills/a/SKILL.md" "$R/skills/b/SKILL.md") bytes (1 scoped rules, 1 agents, 2 skills); agents-md=0 bytes; agents-md-status=not-generated"
 chk eq "$(report_context_source_sizes "$R" "$R/intelligence.yaml")" "$want"
 
+echo "== skill_source_inventory: links inside the source render, loops end, failures stop =="
+# Decision 0017. Two directories linked into each other must copy once and stop;
+# a linked SKILL.md renders as a regular file; a link that cannot be resolved
+# stops the run instead of shortening the list. Probed, like every symlink case.
+K="$OUT/links"
+mkdir -p "$K/s/_shared/cyc-a" "$K/s/_shared/cyc-b" "$K/s/real" "$K/bin"
+printf 'sources:\n  skills:\n    - "s/"\n' > "$K/intelligence.yaml"
+if ln -s ../cyc-b "$K/s/_shared/cyc-a/x" 2>/dev/null && [ -L "$K/s/_shared/cyc-a/x" ]; then
+    ln -s ../cyc-a "$K/s/_shared/cyc-b/y"
+    printf -- '---\nname: cyc\n---\n' > "$K/s/_shared/cyc-a/SKILL.md"
+    printf 'B_MARKER\n' > "$K/s/_shared/cyc-b/b.txt"
+    ln -s _shared/cyc-a "$K/s/cyc"
+    printf -- '---\nname: real\ndescription: Real: colon\n---\n' > "$K/s/_shared/real.md"
+    ln -s ../_shared/real.md "$K/s/real/SKILL.md"
+    IS_SOURCE_FILES_MEMO=0 read_source_artifact_files "$K" "$K/intelligence.yaml" skills 2> "$K/warnings"
+    chk eq "${IS_SOURCE_FILES[*]}" "$K/s/cyc/SKILL.md $K/s/real/SKILL.md"
+    chk eq "$(cat "$K/warnings")" "WARNING: skill 'cyc' renders without x/y: s/_shared/cyc-b/y is a symlink to a directory that encloses it"
+    chk skill_source_rendered "$K/s//cyc/"
+    chk eval '! skill_source_rendered "$K/s/_shared"'
+    copy_skill_bundle_dirs "$K/out" "$K/s/cyc/" "$K/s/real" 2> "$K/copy-warnings"
+    chk eq "$(find "$K/out" -type l)" ""
+    chk eq "$(cat "$K/copy-warnings")" ""
+    chk grep -Fqx 'B_MARKER' "$K/out/cyc/x/b.txt"
+    chk eq "$(find "$K/out/cyc" | LC_ALL=C sort | sed "s#^$K/out/##" | tr '\n' ' ')" "cyc cyc/SKILL.md cyc/x cyc/x/b.txt "
+    chk grep -Fqx 'description: "Real: colon"' "$K/out/real/SKILL.md"
+    chk eq "$(find "$K/s" -type l | wc -l | tr -d ' ')" 4
+    # A readlink that fails, or answers with more lines than links, refuses.
+    for fake in 'exit 1' 'printf "a\nb\n"'; do
+        printf '#!/bin/sh\n%s\n' "$fake" > "$K/bin/readlink"
+        chmod +x "$K/bin/readlink"
+        rc=0
+        (PATH="$K/bin:$PATH"; IS_SOURCE_FILES_MEMO=0 read_source_artifact_files "$K" "$K/intelligence.yaml" skills) \
+            > /dev/null 2> "$K/refusal" || rc=$?
+        chk eq "$rc" 1
+        chk grep -Fq "cannot resolve the symlinks under '$K/s'" "$K/refusal"
+    done
+else
+    echo "  NOTE: this host cannot create a symlink — skill source links not exercised"
+fi
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

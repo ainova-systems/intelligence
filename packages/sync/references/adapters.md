@@ -157,6 +157,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `load_model_tiers(config, tool)` / `resolve_model_var(tier)` | Resolve the four standard tiers once, then map per file without subprocesses. |
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown and quote free-text frontmatter. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
+| `skill_source_rendered(skill_dir)` | Whether sync renders a skill directory an adapter listed with its own glob; a skill left out for its symlinks fails it. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
 | `finalize_output_files(file...)` / `finalize_copy_files(dest, src...)` | Batch forms: finalize in place, or copy-and-finalize into a directory, in one process. |
@@ -218,7 +219,9 @@ Skills follow the [Agent Skills standard](https://agentskills.io). Copy each ski
 copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
 ```
 
-Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, avoids materializing symlink targets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings.
+Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It never writes a symlink; how a link in a skills source renders is defined in [conventions](conventions.md#skill-body-and-resources).
+
+An adapter that lists a skills source with its own glob checks each directory with `skill_source_rendered`. A skill whose directory or `SKILL.md` is a link leaving its source is left out of every output, and sync has already warned about it once.
 
 Antigravity, Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
 

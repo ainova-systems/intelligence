@@ -439,9 +439,12 @@ mkdir "$TMP/external"
 printf external > "$TMP/external/file"
 if MSYS=winsymlinks:nativestrict ln -s "$TMP/external/file" "$PROJECT/intelligence/skills/demo/assets/link" 2>/dev/null && [ -L "$PROJECT/intelligence/skills/demo/assets/link" ]; then
     miss
+    check has "WARNING: skill 'demo' renders without assets/link"
     miss
     rm "$PROJECT/intelligence/skills/demo/assets/link"
-    miss
+    # The link never reached an output (decision 0017), so without it inputs
+    # and outputs are again exactly what the cache recorded.
+    hit
     rm -rf "$PROJECT/.intelligence/sync-cache"
     MSYS=winsymlinks:nativestrict ln -s "$TMP/external" "$PROJECT/.intelligence/sync-cache"
     miss

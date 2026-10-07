@@ -128,6 +128,9 @@ sync_copilot_skills() {
 
     local src d skill_name
     local -a skill_dirs=()
+    # The inventory decides which skills render, symlinked ones included
+    # (decision 0017); the glob keeps this adapter's own listing order.
+    skill_source_inventory "$repo_root" "$config_file"
     load_yaml_list "$config_file" "skills"
     local list="$IS_YAML_LIST"
     while IFS= read -r src; do
@@ -137,6 +140,7 @@ sync_copilot_skills() {
         for d in "$dir"/*/; do
             [ -d "$d" ] || continue
             [ -f "$d/SKILL.md" ] || continue
+            skill_source_rendered "$d" || continue
             skill_dirs+=("$d")
         done
     done <<< "$list"
@@ -224,7 +228,7 @@ sync_to_copilot() {
     # Clean generated content (preserve workflows, etc.)
     rm -rf "$output_dir/instructions" "$output_dir/prompts"
     if [ -d "$output_dir/skills" ]; then
-        find "$output_dir/skills" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+        find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec rm -rf {} +
     fi
     rm -rf "$output_dir/agents"
     mkdir -p "$output_dir" "$output_dir/skills" "$output_dir/agents"
