@@ -73,7 +73,7 @@ sources:
 
 A package's directory may also be named by the package instead of its store path: `@ainova-systems/sync/rules` names folder `rules` of the package `packages:` declares as `@ainova-systems/sync`, and `sync:rules` names it through the alias that package declares (`intelligence package alias @ainova-systems/sync sync`). Both render exactly as the store path, and both are installed package content like it: edit that content in its source repository. The CLI writes store paths and never rewrites a reference a person wrote; an `@scope/name/...` entry for a package `packages:` does not declare is an ordinary project path.
 
-Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
+Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: of two artifacts with one name, the later source's renders everywhere, `AGENTS.md` included, and the earlier one renders nowhere (see [Artifact names](#artifact-names-and-local-artifacts)). Package sources are wired before project sources so the project can override a package artifact deliberately.
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
 
@@ -164,6 +164,41 @@ Common skill verbs:
 
 The verb describes the outcome, not whether the skill implements the work or delegates to another command or skill.
 
+## Artifact names and local artifacts
+
+An artifact's name is its file name without a leading `.`, `.md` and a trailing `.local`; a skill's is its directory name without the leading `.` and the trailing `.local`. `backend.md`, `.backend.md` and `backend.local.md` are all the rule `backend`, `deploy.local/` is the skill `deploy`, and every generated copy carries the name: `.claude/rules/backend.md`, `.cursor/rules/backend.mdc`, `.claude/skills/deploy/`. A leading dot means nothing — a dotfile source renders like any other.
+
+Names stay unique. Across sources the later source's artifact renders and the earlier one does not, in `AGENTS.md` as in every tool's output; a skill a later source overrides is replaced whole, resources included. Sync refuses two artifacts with one name in one source directory (`backend.md` beside `.backend.md`), and a local and a non-local artifact with one name anywhere in the sources: a local file that overrode or yielded to a committed one would change what committed output holds.
+
+A **local** artifact is personal or machine-specific guidance — the OS, the shell, a local service, a personal habit — that only this clone loads: a rule or agent named `*.local.md`, or a skill directory named `*.local/`. `intelligence init` writes the matching patterns, for the project's content directory, into its managed `.gitignore` block, so Git and sync agree on which files are local:
+
+```gitignore
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
+```
+
+Sync renders a local artifact only into outputs Git ignores, and never into one it tracks: not `AGENTS.md`, not OpenCode's slash commands, not Copilot's output under `commit_output: true`. A clone without the file therefore renders the same committed files, and `intelligence sync --check` passes in CI. A local always-on rule reaches each tool through that tool's own always-on channel (see [Routing](#routing)), since `AGENTS.md` cannot carry it; OpenCode has none, and sync says so. `intelligence status --check` reports a missing pattern, and `intelligence init` restores it.
+
+A pattern never applies to a file Git already tracks, and a source outside the content directory has no pattern at all. `intelligence status --check` therefore names every file with a local name that Git tracks in a project-owned source: rename it to share it, or `git rm --cached` it to keep it on this machine.
+
+## Selecting adapters
+
+Every rule, agent and skill renders to every enabled adapter. Two frontmatter fields narrow that, for guidance that matters to one tool or should cost no other tool context:
+
+```yaml
+---
+targets: [claude, cursor]      # only these adapters; without it, every enabled one
+exclude_targets: [committed]   # remove these from that set
+---
+```
+
+Both take adapter ids — built-in or the project's own — and the group `committed`: every output path Git tracks, resolved per path from each adapter's contract. `AGENTS.md` always belongs to it, and so do OpenCode's slash commands and, under `commit_output: true`, Copilot's output; OpenCode's agents and the shared `.agents/skills/` do not. Write them in the list syntax `paths:` takes — a flow list `[a, b]` or a block list — and in `SKILL.md` for a skill. `targets: []` renders the artifact nowhere. Sync removes both fields from every generated copy.
+
+An id that names no adapter refuses the sync. An adapter that is not enabled is simply no target: enablement stays the manifest's decision. A local artifact excludes `committed` already, and one whose `targets` names a committed output — `agents`, `committed`, or an adapter all of whose output Git tracks — refuses the sync, because every other clone and CI render that output without it.
+
+Two paths are shared, not per tool, and a filter can withhold an artifact from a shared path but never from one of its readers. An artifact whose set contains `agents` goes into `AGENTS.md` and reaches every tool that reads it. A skill whose set contains any reader of `.agents/skills/` — Antigravity, Codex, Pi, OpenCode — lands there for all of them. Sync prints a `WARNING:` line when a shared path delivers an artifact to an enabled adapter outside its set, and when an adapter in its set can receive it through no channel. An artifact with neither field nor a `.local` name keeps the routing, and the warnings, it always had.
+
 ## Agent conventions
 
 ```yaml
@@ -246,8 +281,11 @@ Rule content in Markdown.
 |---|---|---|---|---|---|
 | Scoped | copied with `paths:` | `.mdc` with `globs:` | `.md` with `trigger: glob` and `globs:` | `.instructions.md` with `applyTo:` | listed in `AGENTS.md`; Pi also gets on-demand files and an extension |
 | Always-on | copied | omitted | omitted | omitted | inlined once into `AGENTS.md` |
+| Always-on, not in `AGENTS.md` | copied | `.mdc` with `alwaysApply: true` | `.md` with `trigger: always_on` | `.instructions.md` with `applyTo: "**"` | Codex: `AGENTS.override.md`; Pi: added to the system prompt by its extension; OpenCode: none |
 
 Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. OpenCode and Codex have no generated path-scoped rule channel; OpenCode users may configure `instructions:` globs themselves.
+
+An always-on rule `AGENTS.md` does not carry — a local one, or one whose set leaves `agents` out (see [Selecting adapters](#selecting-adapters)) — reaches each tool in its set through that tool's own channel instead, the last row. Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the file holds the whole `AGENTS.md` plus the rules only Codex receives; it is ignored, exists only while such a rule does, and one Intelligence did not generate is never touched. Antigravity's `trigger: always_on` belongs to the same undocumented key family as its `trigger: glob`. OpenCode reads instructions only from `AGENTS.md` or its committed `opencode.json`, so it can receive neither a local nor a tool-targeted always-on rule.
 
 Keep always-on rules small. Put narrow framework or component guidance behind `paths:` so unrelated tasks do not pay its context cost.
 
@@ -270,7 +308,7 @@ argument-hint: "<route-name>"
 4. Report the changed route and verification.
 ```
 
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes.
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes. `targets:` and `exclude_targets:` select the adapters that receive the skill and are removed from every copy ([Selecting adapters](#selecting-adapters)).
 
 `disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 
@@ -338,12 +376,12 @@ Every line enters a finite context budget. Prefer subtraction, consolidation and
 | Target | Rules | Skills | Agents |
 |---|---|---|---|
 | `agents` | Always-on inlined; scoped listed in `AGENTS.md` | Listed | Listed |
-| Antigravity | `AGENTS.md` plus scoped `.agents/rules/*.md` | `.agents/skills/` | `.agents/agents/*.md` |
+| Antigravity | `AGENTS.md` plus `.agents/rules/*.md` | `.agents/skills/` | `.agents/agents/*.md` |
 | Claude | `.claude/rules/` | `.claude/skills/` | `.claude/agents/` |
-| Cursor | scoped `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
-| Copilot | scoped `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
-| Codex | `AGENTS.md` only | `.agents/skills/` | `.codex/agents/*.toml` |
-| Pi | `AGENTS.md` plus scoped `.pi/intelligence-sync/rules/` | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` |
+| Cursor | `AGENTS.md` plus `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
+| Copilot | `AGENTS.md` plus `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
+| Codex | `AGENTS.md`, or `AGENTS.override.md` while a rule needs it | `.agents/skills/` | `.codex/agents/*.toml` |
+| Pi | `AGENTS.md` plus scoped `.pi/intelligence-sync/rules/` and its extension | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` |
 | OpenCode | `AGENTS.md` only | `.agents/skills/` plus slash commands | `.opencode/agents/*.md` |
 
 `AGENTS.md` is regenerated by the `agents` adapter. Its optional static header is `targets.agents.header` in `intelligence.yaml`; generated rule, agent and skill sections follow it. Commit `AGENTS.md` when it is the project's shared canonical context.
@@ -354,7 +392,12 @@ By default, commit the manifest, lock, project-owned content and `AGENTS.md`. Ig
 # CLI-managed package store
 .intelligence/
 
-# Local root instructions migrate into project rules; local preferences stay ignored
+# Local rules, agents and skills of the content directory stay on this machine
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
+
+# Root tool instructions migrate into project rules and stay ignored
 CLAUDE.md
 .cursorrules
 GEMINI.md
@@ -374,6 +417,7 @@ GEMINI.md
 .agents/rules/
 .agents/agents/
 .codex/agents/
+AGENTS.override.md
 
 # Generated Pi content
 .pi/intelligence-sync/
@@ -430,9 +474,10 @@ than inferring contents from Git status.
 move useful repository guidance from legacy root files such as `.cursorrules`
 and instruction-bearing `CLAUDE.md` out of their quarantined backup copies and
 into project-owned rules, then verify the generated tool output. Do not restore
-the original root monolith. Create a new root tool-specific file only when it
-contains genuinely local configuration that an adapter cannot represent; keep
-that exception gitignored rather than maintaining a second committed source.
+the original root monolith. Genuinely machine-local guidance becomes a local
+rule, agent or skill (see
+[Artifact names and local artifacts](#artifact-names-and-local-artifacts)), not
+a new root tool-specific file.
 
 Before the first render, `intelligence init` preserves existing AI prompt paths
 under `<content-dir>/_backup/`. Its `manifest.tsv` labels the snapshot
@@ -496,6 +541,7 @@ Callers capture the real code with `command || rc=$?`. Do not use `if ! command;
 | `intelligence.yaml` | Manifest and schema contract | Tracked |
 | `intelligence.lock` | Resolved package state | Tracked |
 | `<content-dir>/{rules,agents,skills,adapters}/` | Project source of truth | Tracked |
+| `<content-dir>/{rules,agents}/*.local.md`, `<content-dir>/skills/*.local/` | Local artifacts, this clone only | Ignored |
 | `.intelligence/` | Restorable package store | Ignored |
 | `AGENTS.md` | Generated canonical project context | Normally tracked |
 | Tool output directories | Generated native content | Built-in adapter-owned paths ignored; shared settings tracked |

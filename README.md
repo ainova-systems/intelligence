@@ -118,8 +118,9 @@ conventions](packages/sync/references/conventions.md#generated-output-and-versio
 `AGENTS.md` is the shared root instruction entry point. The learn skill proposes
 migrating still-valid guidance from backed-up legacy `.cursorrules` or
 instruction-bearing `CLAUDE.md` files into project-owned rules. It never
-restores the original root monolith; a small new local file is created only for
-separately approved machine-specific guidance.
+restores the original root monolith; separately approved machine-specific
+guidance becomes a local rule, `intelligence/rules/<name>.local.md`, which Git
+ignores and sync renders only into ignored tool output.
 
 Before the first sync can replace adapter-owned directories, `init` preserves
 existing AI instructions under the gitignored `intelligence/_backup/` (or the

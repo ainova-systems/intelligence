@@ -8,7 +8,9 @@
 #     natively, and the `agents` adapter inlines always-on rule content
 #     into AGENTS.md. We also do not generate .github/copilot-instructions.md
 #     because Copilot bug copilot-cli#489 makes AGENTS.md ignored when
-#     copilot-instructions.md is present.
+#     copilot-instructions.md is present. An always-on rule AGENTS.md does not
+#     carry — a local one, or one whose targets leave `agents` out — becomes
+#     an .instructions.md file with `applyTo: "**"` (decision 0021).
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
 #
@@ -100,8 +102,8 @@ copilot_paths_rows() {
     ' "$@"
 }
 
-# Sync rules to Copilot format. Only path-scoped rules are emitted —
-# always-on rules live in AGENTS.md (read by Copilot natively).
+# Sync rules to Copilot format. Path-scoped rules are emitted, and an always-on
+# rule only when AGENTS.md (read by Copilot natively) does not carry it.
 sync_copilot_rules() {
     local repo_root="$1"
     local config_file="$2"
@@ -112,35 +114,28 @@ sync_copilot_rules() {
 
     local scoped_count=0
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-
-    local -a scoped=()
-    if [ "${#files[@]}" -gt 0 ]; then
-        local path hp
-        while IFS=$'\x1f' read -r path hp; do
-            [ -n "$path" ] || continue
-            [ "$hp" -eq 0 ] && continue
-            scoped+=("$path")
-        done < <(frontmatter_index "paths#" "${files[@]}")
-    fi
+    local i always_count=0 spec="" report="" LS=$'\x1e'
+    local -a scoped=() scoped_names=()
+    output_rel_var "$repo_root" "$instructions_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules copilot "$IS_OUTPUT_REL/{}.instructions.md"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            scoped+=("${IS_SOURCE_FILES[i]}")
+            scoped_names+=("${IS_SOURCE_NAMES[i]}")
+        elif [ "${IS_SOURCE_IN_AGENTS[i]}" = 0 ]; then
+            # An always-on rule AGENTS.md does not carry applies everywhere.
+            spec+="${IS_SOURCE_FILES[i]}"$'\x1f'"$instructions_dir/${IS_SOURCE_NAMES[i]}.instructions.md"$'\x1f'"fence_nofm"$'\x1f'"0"$'\x1f'"none"$'\x1f'"${LS}---${LS}applyTo: \"**\"${LS}---${LS}"$'\x1f\n'
+            report+="  rule: ${IS_SOURCE_NAMES[i]}.instructions.md (always-on)"$'\n'
+            always_count=$((always_count + 1))
+        fi
+    done
 
     if [ "${#scoped[@]}" -gt 0 ]; then
-        local base paths_line spec="" report="" LS=$'\x1e'
+        local path base paths_line
+        i=0
         while IFS=$'\x1f' read -r path paths_line; do
-            [ -n "$path" ] || continue
-            base="${path##*/}"; base="${base%.md}"
+            base="${scoped_names[i]}"
+            i=$((i + 1))
 
             local header
             header="${LS}---"
@@ -152,12 +147,17 @@ sync_copilot_rules() {
             report+="  rule: $base.instructions.md (scoped)"$'\n'
             scoped_count=$((scoped_count + 1))
         done < <(copilot_paths_rows "${scoped[@]}")
-
+    fi
+    if [ -n "$spec" ]; then
         emit_wrapped_bodies "$spec"
         printf '%s' "$report"
     fi
 
-    echo "  rules: $scoped_count scoped"
+    if [ "$always_count" -gt 0 ]; then
+        echo "  rules: $scoped_count scoped, $always_count always-on"
+    else
+        echo "  rules: $scoped_count scoped"
+    fi
 }
 
 # Sync skills to Copilot format (SKILL.md in .github/skills/)
@@ -166,33 +166,23 @@ sync_copilot_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src d skill_name
+    local i name
     local -a skill_dirs=()
-    # The inventory decides which skills render, symlinked ones included
-    # (decision 0017); the glob keeps this adapter's own listing order.
-    skill_source_inventory "$repo_root" "$config_file"
-    load_yaml_list "$config_file" "skills"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for d in "$dir"/*/; do
-            [ -d "$d" ] || continue
-            [ -f "$d/SKILL.md" ] || continue
-            skill_source_rendered "$d" || continue
-            skill_dirs+=("$d")
-        done
-    done <<< "$list"
+    # The catalog's skills are the ones the inventory renders, symlinked ones
+    # included (decision 0017).
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" skills copilot "$IS_OUTPUT_REL/skills/{}"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
+    done
 
     local count=0
     if [ "${#skill_dirs[@]}" -gt 0 ]; then
         # Copilot has no effort field: the copy carries no `effort:`.
-        copy_skill_bundle_dirs_for copilot "$output_dir/skills" "${skill_dirs[@]}"
-        for d in "${skill_dirs[@]}"; do
-            skill_name="${d%/}"
+        copy_skill_bundle_dirs_named copilot "$output_dir/skills" "$IS_SOURCE_NAME_MAP" "${skill_dirs[@]}"
+        for name in "${IS_SOURCE_NAMES[@]}"; do
             count=$((count + 1))
-            echo "  skill: ${skill_name##*/}"
+            echo "  skill: $name"
         done
     fi
 
@@ -205,19 +195,13 @@ sync_copilot_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents copilot "$IS_OUTPUT_REL/agents/{}.agent.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#files[@]}" -gt 0 ]; then
@@ -225,8 +209,7 @@ sync_copilot_agents() {
 
         local path tier access description name tools_line spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path tier access description; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             resolve_model_var "$tier"
 
             # Build tools list based on access. Tool aliases per Copilot custom-agent

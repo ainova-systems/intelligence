@@ -684,5 +684,202 @@ else
     echo "  NOTE: this host cannot create a symlink — skill source links not exercised"
 fi
 
+echo "== source_artifact_name_var: the name rule and locality (decision 0021) =="
+while IFS=' ' read -r section entry name local; do
+    source_artifact_name_var "$section" "$entry"
+    eq "$IS_ART_NAME/$IS_ART_LOCAL" "$name/$local" \
+        || { echo "FAIL: $section $entry: got $IS_ART_NAME/$IS_ART_LOCAL want $name/$local"; fail=1; }
+done <<'EOF'
+rules team.md team 0
+rules .draft.md draft 0
+rules environment.local.md environment 1
+rules .environment.local.md environment 1
+rules .local.md local 1
+rules local.md local 0
+rules x.local.local.md x.local 1
+agents helper.local.md helper 1
+agents .helper.md helper 0
+skills deploy deploy 0
+skills deploy.local deploy 1
+skills .deploy deploy 0
+skills .local local 1
+skills notes.md notes.md 0
+EOF
+
+echo "== policy_pattern_covers: contract ignore patterns as Git reads them =="
+while IFS=' ' read -r pattern path want; do
+    got=0
+    policy_pattern_covers "$pattern" "$path" || got=1
+    eq "$got" "$want" || { echo "FAIL: $pattern covers $path: got $got want $want"; fail=1; }
+done <<'EOF'
+.claude/* .claude/rules/x.md 0
+.claude/* .claude 1
+.agents/skills/ .agents/skills/deploy 0
+.agents/skills/ .agents/skillset/x 1
+.codex/agents/ .codex/agents/helper.toml 0
+.pi/prompts/intelligence-agent-*.md .pi/prompts/intelligence-agent-helper.md 0
+.pi/prompts/intelligence-agent-*.md .pi/prompts/mine.md 1
+./.github/agents/ .github/agents/helper.agent.md 0
+CLAUDE.md CLAUDE.md 0
+.claude/settings.json .claude/settings.json 0
+EOF
+
+echo "== source catalog: overrides, refusals and local membership =="
+chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
+S="$OUT/catalog"
+mkdir -p "$S/a/rules" "$S/b/rules" "$S/b/agents" "$S/b/skills/deploy.local" "$S/b/skills/review"
+printf 'sources:\n  rules:\n    - "a/rules"\n    - "b/rules"\n  agents:\n    - "b/agents"\n  skills:\n    - "b/skills"\n' > "$S/intelligence.yaml"
+printf 'shared style\n' > "$S/a/rules/style.md"
+printf 'project style\n' > "$S/b/rules/style.md"
+printf -- '---\npaths:\n  - "src/**"\n---\n' > "$S/b/rules/.scoped.md"
+printf 'mine\n' > "$S/b/rules/me.local.md"
+printf -- '---\nname: x\n---\n' > "$S/b/agents/x.local.md"
+printf -- '---\nname: deploy\n---\n' > "$S/b/skills/deploy.local/SKILL.md"
+printf -- '---\nname: review\n---\n' > "$S/b/skills/review/SKILL.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml" 2> "$OUT/catalog.err"
+chk eq "$(cat "$OUT/catalog.err")" ""
+chk eq "$IS_CAT_NEED_COMMITTED" 1
+# A render that would need Git policy without the engine having read it stops.
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules claude ".claude/rules/{}.md") \
+    > /dev/null 2>&1 || rc=$?
+chk eq "$rc" 1
+# shellcheck disable=SC2034  # read by output_committed
+IS_COMMIT_POLICY=$'claude\tignore\t.claude/*\nclaude\tinclude\t.claude/settings.json\ncodex\tignore\t.codex/agents/\n'
+# shellcheck disable=SC2034
+IS_COMMIT_POLICY_SET=1
+# Sources in manifest order, entries in byte order; the later style wins.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules claude ".claude/rules/{}.md"
+chk eq "${IS_SOURCE_NAMES[*]}" "scoped me style"
+chk eq "${IS_SOURCE_FILES[*]}" "$S/b/rules/.scoped.md $S/b/rules/me.local.md $S/b/rules/style.md"
+chk eq "${IS_SOURCE_SCOPED[*]}" "1 0 0"
+chk eq "${IS_SOURCE_IN_AGENTS[*]}" "1 0 1"
+source_name_map_var "$IS_SOURCE_NAME_MAP" "$S/b/rules/me.local.md"
+chk eq "$IS_MAPPED_NAME" "me"
+# AGENTS.md is always committed; an output no contract ignores is too.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules agents "AGENTS.md"
+chk eq "${IS_SOURCE_NAMES[*]}" "scoped style"
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" agents opencode ".opencode/commands/{}.md"
+chk eq "${#IS_SOURCE_FILES[@]}" 0
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" agents codex ".codex/agents/{}.toml"
+chk eq "${IS_SOURCE_NAMES[*]}" "x"
+# One of several readers is enough; a skill is keyed by its directory.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" skills "opencode codex" ".codex/agents/{}"
+chk eq "${IS_SOURCE_NAMES[*]}" "deploy review"
+source_name_map_var "$IS_SOURCE_NAME_MAP" "$S/b/skills/deploy.local"
+chk eq "$IS_MAPPED_NAME" "deploy"
+copy_skill_bundle_dirs_named open "$OUT/catalog-out" "$IS_SOURCE_NAME_MAP" "$S/b/skills/deploy.local/" "$S/b/skills/review"
+chk test -f "$OUT/catalog-out/deploy/SKILL.md"
+chk test -f "$OUT/catalog-out/review/SKILL.md"
+chknot test -e "$OUT/catalog-out/deploy.local"
+finalize_copy_named "$OUT/catalog-out" $'\n'"$S/b/rules/me.local.md"$'\x1f'"me"$'\n' "$S/b/rules/me.local.md" "$S/b/rules/style.md"
+chk test -f "$OUT/catalog-out/me.md"
+chk test -f "$OUT/catalog-out/style.md"
+unset IS_COMMIT_POLICY IS_COMMIT_POLICY_SET
+# Two of one name in one directory, and a local beside a committed one,
+# refuse and name both files.
+printf 'dot style\n' > "$S/b/rules/.style.md"
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml") > /dev/null 2> "$OUT/catalog.err" || rc=$?
+chk eq "$rc" 1
+chk grep -Fq "b/rules/.style.md and b/rules/style.md are both the rule 'style' in one directory" "$OUT/catalog.err"
+rm "$S/b/rules/.style.md"
+printf 'local style\n' > "$S/b/rules/style.local.md"
+rm "$S/b/rules/style.md"
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml") > /dev/null 2> "$OUT/catalog.err" || rc=$?
+chk eq "$rc" 1
+chk grep -Fq "a/rules/style.md and b/rules/style.local.md are both the rule 'style', one local and one not" "$OUT/catalog.err"
+rm "$S/b/rules/style.local.md"
+# One directory listed twice is one artifact, not a conflict.
+printf 'sources:\n  rules:\n    - "a/rules"\n    - "a/rules/"\n' > "$S/twice.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_winners_var "$S" "$S/twice.yaml" rules
+chk eq "${#IS_SOURCE_FILES[@]}" 1
+
+echo "== source_frontmatter_scan: targets and exclude_targets in the list syntax paths: takes =="
+T="$OUT/targets"
+mkdir -p "$T"
+# <name> <frontmatter lines, \n-separated> <expected: has_t|t|has_x|x>
+tcase() {
+    printf -- '---\n%b\n---\ntargets: [body-is-not-frontmatter]\n' "$2" > "$T/$1.md"
+    printf '%s\n' "$1|$3" >> "$T/want"
+}
+: > "$T/want"
+tcase flow 'targets: [claude, cursor]' '1|claude cursor|0|'
+tcase quoted 'targets: ["claude", '"'"'codex'"'"']' '1|claude codex|0|'
+tcase block 'targets:\n  - claude\n  - "pi"\ndescription: x' '1|claude pi|0|'
+tcase empty 'targets: []' '1||0|'
+tcase null 'targets:\ndescription: x' '0||0|'
+tcase scalar 'targets: claude # only Claude' '1|claude|0|'
+tcase multiline 'targets: [claude,\n  cursor]\nexclude_targets: [committed]' '1|claude cursor|1|committed'
+tcase first 'exclude_targets: [pi]\nexclude_targets: [codex]' '0||1|pi'
+tcase indented 'meta:\n  targets: [claude]' '0||0|'
+printf -- '---\r\ntargets:\r\n  - codex\r\npaths:\r\n  - "src/**"\r\n---\r\n' > "$T/crlf.md"
+printf '%s\n' 'crlf|1|codex|0|' >> "$T/want"
+printf 'targets: [claude]\n' > "$T/nofm.md"
+printf '%s\n' 'nofm|0||0|' >> "$T/want"
+while IFS='|' read -r name has_t t has_x x; do
+    row="$(source_frontmatter_scan "" "$T/$name.md")"
+    IFS=$'\x1f' read -r _path _scoped got_ht got_t got_hx got_x <<< "$row"
+    eq "$got_ht|$got_t|$got_hx|$got_x" "$has_t|$t|$has_x|$x" \
+        || { echo "FAIL: targets scan $name: got [$got_ht|$got_t|$got_hx|$got_x] want [$has_t|$t|$has_x|$x]"; fail=1; }
+done < "$T/want"
+IFS=$'\x1f' read -r _path scoped _rest <<< "$(source_frontmatter_scan "" "$T/crlf.md")"
+chk eq "$scoped" 1
+
+echo "== rendered copies drop targets and exclude_targets, from the frontmatter only =="
+printf -- '---\ndescription: x\ntargets:\n  - claude\n  - cursor\nexclude_targets: [pi,\n  codex]\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]\n' > "$T/strip.md"
+finalize_copy_named "$OUT" "" "$T/strip.md"
+chk eq "$(cat "$OUT/strip.md")" "$(printf -- '---\ndescription: x\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]')"
+
+echo "== source catalog: targets, exclusions and the committed group =="
+G="$OUT/grouped"
+mkdir -p "$G/rules"
+printf 'sources:\n  rules:\n    - "rules"\n' > "$G/intelligence.yaml"
+printf -- '---\ntargets: [claude]\n---\n' > "$G/rules/only-claude.md"
+printf -- '---\nexclude_targets: [agents]\n---\n' > "$G/rules/not-agents.md"
+printf -- '---\ntargets: [committed]\n---\n' > "$G/rules/tracked.md"
+printf -- '---\nexclude_targets: [committed]\n---\n' > "$G/rules/ignored.md"
+printf -- '---\ntargets: []\n---\n' > "$G/rules/nowhere.md"
+printf 'plain\n' > "$G/rules/plain.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$G" "$G/intelligence.yaml"
+chk eq "$IS_CAT_NEED_COMMITTED" 1
+# shellcheck disable=SC2034  # read by output_committed
+IS_COMMIT_POLICY=$'claude\tignore\t.claude/*\nopencode\tignore\t.opencode/agents/\n'
+# shellcheck disable=SC2034
+IS_COMMIT_POLICY_SET=1
+names_for() {
+    IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$G" "$G/intelligence.yaml" rules "$1" "$2"
+    printf '%s' "${IS_SOURCE_NAMES[*]}"
+}
+chk eq "$(names_for claude '.claude/rules/{}.md')" "ignored not-agents only-claude plain"
+chk eq "$(names_for agents 'AGENTS.md')" "plain tracked"
+chk eq "$(names_for opencode '.opencode/commands/{}.md')" "not-agents plain tracked"
+chk eq "$(names_for opencode '.opencode/agents/{}.md')" "ignored not-agents plain"
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$G" "$G/intelligence.yaml" rules claude '.claude/rules/{}.md'
+chk eq "${IS_SOURCE_IN_AGENTS[*]}" "0 0 0 1"
+# An id no adapter has refuses; `committed` is always known.
+printf -- '---\ntargets: [cursr, committed]\n---\n' > "$G/rules/typo.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$G" "$G/intelligence.yaml"
+rc=0
+source_catalog_check_ids "$G" "agents claude cursor" 2> "$OUT/ids.err" || rc=$?
+chk eq "$rc" 1
+chk eq "$(cat "$OUT/ids.err")" "ERROR: rules/typo.md: targets names 'cursr', which is no adapter — use one of: agents, claude, cursor, or the group committed"
+rm "$G/rules/typo.md"
+# A local artifact may not name a committed output in its targets.
+printf -- '---\ntargets: [claude]\n---\n' > "$G/rules/fine.local.md"
+printf -- '---\ntargets: [agents]\n---\n' > "$G/rules/bad.local.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$G" "$G/intelligence.yaml"
+# shellcheck disable=SC2034  # read by source_catalog_check_local
+IS_ENABLED_ADAPTERS="agents claude"
+# shellcheck disable=SC2034
+IS_ADAPTER_CLAIMS=$'agents\towned\tAGENTS.md\nclaude\towned\t.claude/rules\n'
+rc=0
+source_catalog_check_local "$G" 2> "$OUT/local.err" || rc=$?
+chk eq "$rc" 1
+chk grep -Fq "rules/bad.local.md is local, but its targets name agents, whose output Git tracks" "$OUT/local.err"
+chknot grep -Fq "fine.local.md" "$OUT/local.err"
+unset IS_COMMIT_POLICY IS_COMMIT_POLICY_SET IS_ENABLED_ADAPTERS IS_ADAPTER_CLAIMS
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

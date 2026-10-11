@@ -48,13 +48,13 @@ The mistakes that actually happen, in order of frequency:
 
 ## Rules
 
-**Scope with `paths:`.** A rule without `paths:` is loaded into *every* session and inlined into `AGENTS.md` — the most expensive context real estate there is. Earn it. A rule that only matters when someone touches the frontend belongs scoped to the frontend.
+**Scope with `paths:`.** A rule without `paths:` is loaded into *every* session and inlined into `AGENTS.md` — the most expensive context real estate there is. Earn it. A rule that only matters when someone touches the frontend belongs scoped to the frontend. Guidance about one tool belongs to that tool: `targets: [claude]` keeps it out of every other tool's context. A rule whose targets leave `agents` out also leaves `AGENTS.md`, and sync names any tool that can then no longer receive it.
 
 **Lead with the positive default, then the invariant.** The model acts on the first instruction it reads, and it follows whatever is named — negation ("never do X") draws attention to X. Reserve absolute language (NEVER, MUST) for true must-nots: safety, security, output format. A judgement call written as a NEVER only teaches the model that NEVERs are negotiable.
 
 **Derive from the code, not from prose that already exists.** Every REQUIRED and every invariant must be backed by something observed in the repository. Documentation is a claim, not evidence — read the file.
 
-**Describe the repository, not a machine.** The OS, the shell, the editor, a local dev stack, personal tooling — these are environment facts. They belong in a personal, gitignored `CLAUDE.md`. A rule is committed and read by everyone, so a shell-specific command or an absolute local path in it is simply wrong for whoever is on another platform.
+**Describe the repository, not a machine.** The OS, the shell, the editor, a local dev stack, personal tooling — these are environment facts. They belong in a local rule, `<content-dir>/rules/<name>.local.md`: Git ignores it, and sync renders it only into outputs Git ignores. A rule is committed and read by everyone, so a shell-specific command or an absolute local path in it is simply wrong for whoever is on another platform.
 
 **Explain the why — but only a why you can back.** A reason the reader can check is what makes an instruction survive a judgement call. An invented reason is worse than none: it sounds like evidence.
 

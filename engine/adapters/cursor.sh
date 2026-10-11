@@ -4,10 +4,13 @@
 #
 # Rules:
 #   - Path-scoped (with `paths:`)  -> .cursor/rules/<name>.mdc with `globs:`
-#   - Always-on (no `paths:`)      -> SKIPPED here. Cursor reads AGENTS.md
-#     natively for project-level context, and the `agents` adapter inlines
-#     always-on rule content into AGENTS.md. Generating .mdc copies of the
-#     same rules would cause double-loading and burn the context window.
+#   - Always-on (no `paths:`)      -> SKIPPED here while AGENTS.md carries it.
+#     Cursor reads AGENTS.md natively for project-level context, and the
+#     `agents` adapter inlines always-on rule content into AGENTS.md.
+#     Generating .mdc copies of the same rules would cause double-loading and
+#     burn the context window. An always-on rule AGENTS.md does not carry — a
+#     local one, or one whose targets leave `agents` out — becomes
+#     .cursor/rules/<name>.mdc with `alwaysApply: true` (decision 0021).
 # Skills: copy skill directories in full (SKILL.md + bundled resources)
 # Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
 # Cursor has no per-agent or per-skill effort field (its effort is part of a
@@ -41,45 +44,55 @@ sync_cursor_rules() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local i always=""
+    local -a files=() names=() kinds=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules cursor "$IS_OUTPUT_REL/rules/{}.mdc"
+    # A scoped rule takes Cursor's own channel. An always-on rule does only
+    # when AGENTS.md, which Cursor reads, does not carry it: a local rule, or
+    # one whose targets leave `agents` out (decision 0021).
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            kinds+=(scoped)
+        elif [ "${IS_SOURCE_IN_AGENTS[i]}" = 0 ]; then
+            kinds+=(always-on)
+            always="$always${IS_SOURCE_FILES[i]}"$'\n'
+        else
+            continue
+        fi
+        files+=("${IS_SOURCE_FILES[i]}")
+        names+=("${IS_SOURCE_NAMES[i]}")
+    done
     [ "${#files[@]}" -gt 0 ] || return 0
 
-    # Skip always-on rules: AGENTS.md (canonical) carries them.
-    local path hp base
-    local -a scoped=()
-    while IFS=$'\x1f' read -r path hp; do
-        [ -n "$path" ] || continue
-        [ "$hp" -eq 0 ] && continue
-        scoped+=("$path")
-    done < <(frontmatter_index "paths#" "${files[@]}")
-    [ "${#scoped[@]}" -gt 0 ] || return 0
-
-    # Path-scoped rule -> Auto Attached (paths -> globs). The rewrite is
-    # anchored inside the frontmatter block: a body line may legitimately start
-    # with `paths:` (a rule documenting rule syntax does exactly that), and
-    # rewriting it would corrupt the text it teaches.
+    # Path-scoped rule -> Auto Attached (paths -> globs); always-on rule ->
+    # Always (`alwaysApply: true`), with a frontmatter block of its own when the
+    # source has none. The rewrite is anchored inside the frontmatter block: a
+    # body line may legitimately start with `paths:` (a rule documenting rule
+    # syntax does exactly that), and rewriting it would corrupt the text it
+    # teaches.
     is_fin_awk_vars
-    awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+    IS_MDC_ALWAYS="$always" IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+        BEGIN {
+            n = split(ENVIRON["IS_MDC_ALWAYS"], al, "\n")
+            for (k = 1; k <= n; k++) if (al[k] != "") ALWAYS[al[k]] = 1
+        }
         FNR == 1 {
             if (out != "") close(out)
-            nm = base_name(FILENAME)
-            sub(/\.md$/, ".mdc", nm)
-            out = dst "/" nm
+            out = dst "/" art_name(FILENAME) ".mdc"
             fm = 0
+            tgt_reset()
         }
         { sub(/\r$/, "") }
+        FNR == 1 && (FILENAME in ALWAYS) {
+            print fin_line("---") > out
+            print fin_line("alwaysApply: true") > out
+            if ($0 == "---") { fm = 1; next }
+            print fin_line("---") > out
+            fm = 2
+            print fin_line($0) > out
+            next
+        }
         FNR == 1 {
             if ($0 == "---") fm = 1
             print fin_line($0) > out
@@ -87,12 +100,16 @@ sync_cursor_rules() {
             next
         }
         fm == 1 && $0 == "---" { fm = 2; print fin_line($0) > out; next }
+        fm == 1 && tgt_drop($0) { next }
         fm == 1 { sub(/^paths:/, "globs:") }
         { print fin_line($0) > out }
-    ' "${scoped[@]}"
-    for f in "${scoped[@]}"; do
-        base="${f##*/}"; base="${base%.md}"
-        echo "  rule: $base.mdc (scoped)"
+    ' "${files[@]}"
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        # awk never reads a record from an empty source.
+        if [ "${kinds[i]}" = always-on ] && [ ! -s "${files[i]}" ]; then
+            printf -- '---\nalwaysApply: true\n---\n' > "$output_dir/rules/${names[i]}.mdc"
+        fi
+        echo "  rule: ${names[i]}.mdc (${kinds[i]})"
     done
 }
 
@@ -102,29 +119,19 @@ sync_cursor_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src d skill_name
+    local i name
     local -a skill_dirs=()
-    # The inventory decides which skills render, symlinked ones included
-    # (decision 0017); the glob keeps this adapter's own listing order.
-    skill_source_inventory "$repo_root" "$config_file"
-    load_yaml_list "$config_file" "skills"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for d in "$dir"/*/; do
-            [ -d "$d" ] || continue
-            [ -f "$d/SKILL.md" ] || continue
-            skill_source_rendered "$d" || continue
-            skill_dirs+=("$d")
-        done
-    done <<< "$list"
-    [ "${#skill_dirs[@]}" -gt 0 ] || return 0
-    copy_skill_bundle_dirs_for cursor "$output_dir/skills" "${skill_dirs[@]}"
-    for d in "${skill_dirs[@]}"; do
-        skill_name="${d%/}"
-        echo "  skill: ${skill_name##*/}"
+    # The catalog's skills are the ones the inventory renders, symlinked ones
+    # included (decision 0017).
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" skills cursor "$IS_OUTPUT_REL/skills/{}"
+    [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
+    done
+    copy_skill_bundle_dirs_named cursor "$output_dir/skills" "$IS_SOURCE_NAME_MAP" "${skill_dirs[@]}"
+    for name in "${IS_SOURCE_NAMES[@]}"; do
+        echo "  skill: $name"
     done
 }
 
@@ -134,37 +141,32 @@ sync_cursor_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-    [ "${#files[@]}" -gt 0 ] || return 0
+    local i
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents cursor "$IS_OUTPUT_REL/agents/{}.md"
+    [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
+    files=("${IS_SOURCE_FILES[@]}")
+    names=("${IS_SOURCE_NAMES[@]}")
+    local name_map="$IS_SOURCE_NAME_MAP"
 
     load_model_tiers "$config_file" "cursor"
 
     local path tier access spec="" report="" cursor_readonly
+    i=0
     while IFS=$'\x1f' read -r path tier access; do
-        [ -n "$path" ] || continue
         resolve_model_var "$tier"
         cursor_readonly=""
         [ "$access" = "readonly" ] && cursor_readonly="readonly: true"
         spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$cursor_readonly"$'\n'
-        report+="  agent: ${path##*/} (tier=$tier -> cursor)"$'\n'
+        report+="  agent: ${names[i]}.md (tier=$tier -> cursor)"$'\n'
+        i=$((i + 1))
     done < <(frontmatter_index "tier,access" "${files[@]}")
 
     # Always emit model: line (even when value matches Cursor's default)
     # so config is explicit and grep-able.
     is_fin_awk_vars
-    IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
+    IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
             US = sprintf("%c", 31)
             n = split(ENVIRON["IS_MAP_SPEC"], recs, "\n")
@@ -176,9 +178,10 @@ sync_cursor_agents() {
         }
         FNR == 1 {
             if (out != "") close(out)
-            out = dst "/" base_name(FILENAME)
+            out = dst "/" art_file(FILENAME, ".md")
             count = 0
             fm = 0
+            tgt_reset()
         }
         /^tier:/  { next }
         /^access:/ { next }
@@ -187,6 +190,7 @@ sync_cursor_agents() {
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
+        fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" { next }
         count == 2 && /^---$/ {
             print fin_line("model: " MODEL[FILENAME]) > out
@@ -194,8 +198,8 @@ sync_cursor_agents() {
         }
         { print fin_line($0) > out }
     ' "${files[@]}"
-    for f in "${files[@]}"; do
-        [ -s "$f" ] || : > "$output_dir/agents/${f##*/}"
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        [ -s "${files[i]}" ] || : > "$output_dir/agents/${names[i]}.md"
     done
     printf '%s' "$report"
 }

@@ -312,10 +312,26 @@ ensure_gitignore_header() {
     fi
 }
 
+# local_artifact_ignore_patterns <content-dir> — the patterns that make a rule,
+# agent or skill local (decision 0021): a file or skill directory with one of
+# these names never reaches committed output, and Git never commits it. The
+# engine recognizes the same names, so the two cannot disagree; `init` writes
+# them and `status --check` reports one missing.
+local_artifact_ignore_patterns() {
+    local dir="${1#./}"
+    while [ "${dir%/}" != "$dir" ]; do dir="${dir%/}"; done
+    printf '%s\n' "$dir/rules/*.local.md" "$dir/agents/*.local.md" "$dir/skills/*.local/"
+}
+
+# ensure_base_gitignore <root> <content-dir> — the package store and the local
+# artifact patterns of the project's content directory.
 ensure_base_gitignore() {
-    local root="$1"
+    local root="$1" content_dir="$2" line
     ensure_gitignore_header "$root"
     gitignore_add_line "$root" '.intelligence/'
+    while IFS= read -r line; do
+        gitignore_add_line "$root" "$line"
+    done < <(local_artifact_ignore_patterns "$content_dir")
 }
 
 ensure_target_gitignore() {
@@ -343,7 +359,7 @@ ensure_target_gitignore() {
 
 ensure_manifest_gitignore() {
     local root="$1" manifest="$2" target
-    ensure_base_gitignore "$root"
+    ensure_base_gitignore "$root" "$(manifest_intelligence_dir "$manifest")"
     while IFS= read -r target; do
         [ -n "$target" ] || continue
         if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
@@ -420,6 +436,7 @@ managed_gitignore_patterns() {
     local root="$1" manifest="$2" content_dir target output records kind value
     content_dir="$(manifest_intelligence_dir "$manifest")"
     printf '%s\n' '.intelligence/' "$content_dir/_backup/"
+    local_artifact_ignore_patterns "$content_dir"
     while IFS= read -r target; do
         [ -n "$target" ] || continue
         [ "$(is_target_enabled "$manifest" "$target")" = "1" ] || continue

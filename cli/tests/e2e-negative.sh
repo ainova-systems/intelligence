@@ -151,6 +151,9 @@ EOF
 printf '# Ctx\n\nproject context\n' > "$PROJ/intelligence/rules/context.md"
 cat > "$PROJ/.gitignore" <<'EOF'
 .intelligence/
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
 CLAUDE.md
 .claude/*
 !.claude/settings.json

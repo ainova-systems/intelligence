@@ -13,6 +13,11 @@
    Architecture, Build and test, Examples, and Patterns to recognize and replace.
    Keep reasons that guide judgment and reference real examples. An accepted
    user preference is identified as a preference, not a claim about existing code.
+5. Guidance that belongs to one machine or one person — the OS, the shell, a
+   local service, a personal habit — goes in a local rule,
+   `<content-dir>/rules/<name>.local.md`. Git ignores it, and sync renders it
+   only into outputs Git ignores, so it never reaches `AGENTS.md` or a teammate.
+   A local rule cannot share a name with a committed one.
 
 For a scoped rule:
 

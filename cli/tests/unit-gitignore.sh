@@ -214,7 +214,7 @@ COPILOT_HANDWRITTEN=(.github/workflows/ci.yml .github/PULL_REQUEST_TEMPLATE.md)
 echo "== Copilot output is ignored by default: its four directories, never .github/ =="
 D="$(fixture copilot)"
 copilot_manifest "$D" '  copilot: { enabled: true, output: ".github" }'
-ensure_base_gitignore "$D"
+ensure_base_gitignore "$D" intelligence
 ensure_target_gitignore "$D" "$D/intelligence.yaml" copilot
 for sub in "${COPILOT_DIRS[@]}"; do
     is ".github/$sub/ listed once" "1" "$(count_of "$D" ".github/$sub/")"
@@ -313,6 +313,27 @@ adapter_contract_unsafe() {
 }
 EOF
 chknot adapter_contract_records unsafe "$D/unsafe.sh" .unsafe
+
+echo "== local artifact patterns: the content directory's, written once (decision 0021) =="
+D="$(fixture local-artifacts)"
+printf 'project:\n  name: local\n  intelligence_dir: "Brain"\ntargets:\n  agents: { enabled: true, output: "AGENTS.md" }\n' > "$D/intelligence.yaml"
+is "patterns of a content dir given with a slash" \
+    "Brain/rules/*.local.md Brain/agents/*.local.md Brain/skills/*.local/" \
+    "$(local_artifact_ignore_patterns ./Brain/ | tr '\n' ' ' | sed 's/ $//')"
+ensure_manifest_gitignore "$D" "$D/intelligence.yaml"
+cp "$D/.gitignore" "$OUT/local.once"
+ensure_manifest_gitignore "$D" "$D/intelligence.yaml"
+chk cmp -s "$OUT/local.once" "$D/.gitignore"
+for pattern in 'Brain/rules/*.local.md' 'Brain/agents/*.local.md' 'Brain/skills/*.local/'; do
+    is "$pattern listed once" "1" "$(count_of "$D" "$pattern")"
+    chk grep -Fqx "$pattern" <(managed_gitignore_patterns "$D" "$D/intelligence.yaml")
+done
+for path in Brain/rules/me.local.md Brain/rules/.env.local.md Brain/agents/a.local.md Brain/skills/deploy.local/SKILL.md; do
+    chk git -C "$D" check-ignore -q --no-index "$path"
+done
+for path in Brain/rules/me.md Brain/rules/.draft.md Brain/skills/deploy/SKILL.md Brain/skills/x/y.local.md; do
+    chknot git -C "$D" check-ignore -q --no-index "$path"
+done
 
 [ "$fail" -eq 0 ] && echo "CLI-UNIT-GITIGNORE: ALL OK"
 exit "$fail"

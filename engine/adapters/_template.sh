@@ -30,9 +30,17 @@
 #   map_effort(tool, effort)            — the tool's level for a neutral effort; "" when none
 #   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly->restricted
 #   map_access_to_claude_disallowed(access) — readonly->"Write, Edit", full->""
-#   read_yaml_list(manifest, section)   — read a source list from intelligence.yaml,
-#                                         package references as their store paths
+#   source_artifacts_var(root, config, section, adapter, output)
+#                                       — the sources this adapter renders (below)
+#   finalize_copy_named(dir, map, file...) — copy and finalize files under their rendered names
+#   copy_skill_bundle_dirs_named(tool, dir, map, skill_dir...) — copy skills under their rendered names
 #   get_target_field(config, target, field) — read a target's config field
+#
+# Read sources through source_artifacts_var, never with a glob of your own: it
+# names each artifact (`.draft.md` is `draft`, `me.local.md` is `me`), renders
+# only the later of two same-named artifacts, and leaves a local artifact out of
+# every output path Git tracks (decision 0021). An adapter that globs sources
+# itself can write a teammate's local file into a committed output.
 
 # Project adapters are sourced by engine/sync.sh after the shared library is
 # loaded. Keep this template position-independent: after scaffolding it lives
@@ -61,13 +69,24 @@ adapter_contract_<name>() {
 #   - Copy as-is (like Claude)
 #   - Convert paths: to globs: (like Cursor)
 #   - Merge into single file (like Copilot)
+#
+# source_artifacts_var takes the repo-relative path an artifact lands at, `{}`
+# standing for its name, and fills IS_SOURCE_FILES (the source file, or a
+# skill's SKILL.md), IS_SOURCE_NAMES, IS_SOURCE_SCOPED (1 for a rule with
+# `paths:`), IS_SOURCE_IN_AGENTS (1 when AGENTS.md carries the artifact too)
+# and IS_SOURCE_NAME_MAP, the names finalize_copy_named and
+# copy_skill_bundle_dirs_named write under. It lists only the artifacts whose
+# `targets:` / `exclude_targets:` select this adapter; the shared helpers drop
+# both fields from every copy, and a frontmatter copied by hand must too.
 sync_<name>_rules() {
     local repo_root="$1"
     local config_file="$2"
     local output_dir="$3"
 
-    # TODO: Implement rule sync logic
-    echo "  rules: not implemented"
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules <name> "$IS_OUTPUT_REL/rules/{}.md"
+    # TODO: Render each of IS_SOURCE_FILES into $output_dir/rules/ under its IS_SOURCE_NAMES entry
+    echo "  rules: ${#IS_SOURCE_FILES[@]} found, not rendered"
 }
 
 # Sync skills for <agent-name>
@@ -76,8 +95,11 @@ sync_<name>_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    # TODO: Implement skill sync logic
-    echo "  skills: not implemented"
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" skills <name> "$IS_OUTPUT_REL/skills/{}"
+    # TODO: Copy each skill directory ("${IS_SOURCE_FILES[i]%/SKILL.md}") with
+    # copy_skill_bundle_dirs_named <name> "$output_dir/skills" "$IS_SOURCE_NAME_MAP" <dir>...
+    echo "  skills: ${#IS_SOURCE_FILES[@]} found, not rendered"
 }
 
 # Sync agents for <agent-name>
@@ -86,8 +108,10 @@ sync_<name>_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    # TODO: Implement agent sync logic
-    echo "  agents: not implemented"
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents <name> "$IS_OUTPUT_REL/agents/{}.md"
+    # TODO: Render each of IS_SOURCE_FILES into $output_dir/agents/ under its IS_SOURCE_NAMES entry
+    echo "  agents: ${#IS_SOURCE_FILES[@]} found, not rendered"
 }
 
 # Main entry point

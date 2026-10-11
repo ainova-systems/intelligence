@@ -60,15 +60,19 @@ agents_md_append_agents_table() {
     local rows=""
     local count=0
 
-    local -a files=()
-    read_source_artifact_files "$repo_root" "$config_file" "agents"
-    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
+    local -a files=() names=()
+    source_artifacts_var "$repo_root" "$config_file" agents agents "${output#"$repo_root"/}"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     if [ "${#files[@]}" -gt 0 ]; then
-        local path tier access desc name
+        local path tier access desc name i=0
+        # frontmatter_index prints one row per file, in argument order.
         while IFS=$'\x1f' read -r path tier access desc; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[i]}"
+            i=$((i + 1))
             repo_rel_link_var "$repo_root" "$path"
             if [ -n "$IS_REPO_REL" ]; then
                 rows+="| [$name]($IS_REPO_REL) | ${tier:--} | ${access:--} | ${desc:--} |"$'\n'
@@ -101,21 +105,24 @@ agents_md_append_skills_table() {
     local rows=""
     local count=0
 
-    local dirname
-    local -a skill_files=()
-    read_source_artifact_files "$repo_root" "$config_file" "skills"
-    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
+    local name
+    local -a skill_files=() names=()
+    source_artifacts_var "$repo_root" "$config_file" skills agents "${output#"$repo_root"/}"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        skill_files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     if [ "${#skill_files[@]}" -gt 0 ]; then
-        local path desc
+        local path desc i=0
         while IFS=$'\x1f' read -r path desc; do
-            [ -n "$path" ] || continue
-            dirname="${path%/SKILL.md}"; dirname="${dirname##*/}"
+            name="${names[i]}"
+            i=$((i + 1))
             repo_rel_link_var "$repo_root" "$path"
             if [ -n "$IS_REPO_REL" ]; then
-                rows+="| [$dirname]($IS_REPO_REL) | ${desc:--} |"$'\n'
+                rows+="| [$name]($IS_REPO_REL) | ${desc:--} |"$'\n'
             else
-                rows+="| $dirname | ${desc:--} |"$'\n'
+                rows+="| $name | ${desc:--} |"$'\n'
             fi
             count=$((count + 1))
         done < <(frontmatter_index "description" "${skill_files[@]}")
@@ -144,30 +151,25 @@ agents_md_append_rules_list() {
     local count=0
     local global_rule_files=()
 
-    local -a files=()
-    read_source_artifact_files "$repo_root" "$config_file" "rules"
-    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || files=("${IS_SOURCE_FILES[@]}")
-
-    if [ "${#files[@]}" -gt 0 ]; then
-        local path hp name scope
-        while IFS=$'\x1f' read -r path hp; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
-            scope="global"
-            if [ "$hp" != "0" ]; then
-                scope="scoped"
-            else
-                global_rule_files+=("$path")
-            fi
-            repo_rel_link_var "$repo_root" "$path"
-            if [ -n "$IS_REPO_REL" ]; then
-                lines+="- [$name]($IS_REPO_REL) ($scope)"$'\n'
-            else
-                lines+="- $name ($scope)"$'\n'
-            fi
-            count=$((count + 1))
-        done < <(frontmatter_index "paths#" "${files[@]}")
-    fi
+    local i path name scope
+    source_artifacts_var "$repo_root" "$config_file" rules agents "${output#"$repo_root"/}"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        path="${IS_SOURCE_FILES[i]}"
+        name="${IS_SOURCE_NAMES[i]}"
+        scope="global"
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            scope="scoped"
+        else
+            global_rule_files+=("$path")
+        fi
+        repo_rel_link_var "$repo_root" "$path"
+        if [ -n "$IS_REPO_REL" ]; then
+            lines+="- [$name]($IS_REPO_REL) ($scope)"$'\n'
+        else
+            lines+="- $name ($scope)"$'\n'
+        fi
+        count=$((count + 1))
+    done
 
     [ "$count" -eq 0 ] && return 0
 
@@ -196,17 +198,7 @@ agents_md_append_rules_list() {
             echo "<!-- Inlined from always-on rules in $content_rel/rules/ -->"
             echo ""
         } >> "$output"
-        # One awk inlines every global rule body, with a blank line after
-        # each — the same output the per-file passes produced.
-        awk '
-            FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
-            { sub(/\r$/, "") }
-            /^---$/ {
-                if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
-            }
-            past_fm || !in_fm { print }
-            END { print "" }
-        ' "${global_rule_files[@]}" >> "$output"
+        emit_rule_bodies "${global_rule_files[@]}" >> "$output"
         echo "  rules: ${#global_rule_files[@]} global rule(s) inlined"
     fi
 }

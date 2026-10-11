@@ -11,7 +11,11 @@
 #   - Always-on (no `paths:`) -> SKIPPED here. The CLI docs tell a project to
 #     "Create a GEMINI.md or AGENTS.md file at your workspace root", and the
 #     `agents` adapter inlines always-on rule content into AGENTS.md. Emitting
-#     copies under .agents/rules/ would double-load the same text.
+#     copies under .agents/rules/ would double-load the same text. An always-on
+#     rule AGENTS.md does not carry — a local one, or one whose targets leave
+#     `agents` out — becomes .agents/rules/<name>.md with `trigger: always_on`,
+#     the same key family as `trigger: glob` and just as undocumented
+#     (decision 0021).
 #   - Path-scoped (with `paths:`) -> .agents/rules/<name>.md carrying
 #     `trigger: glob` and `globs:`. NOT vendor-documented: the rules page names
 #     four activation modes in prose (manual, always on, model decision, glob
@@ -95,45 +99,46 @@ sync_antigravity_rules() {
     antigravity_rule_limit "$config_file" || return 1
     rule_limit="$IS_AG_RULE_LIMIT"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-
-    # Skip always-on rules: AGENTS.md (canonical) carries them.
-    local path hp base
-    local -a scoped=()
-    if [ "${#files[@]}" -gt 0 ]; then
-        while IFS=$'\x1f' read -r path hp; do
-            [ -n "$path" ] || continue
-            [ "$hp" -eq 0 ] && continue
-            scoped+=("$path")
-        done < <(frontmatter_index "paths#" "${files[@]}")
-    fi
-    if [ "${#scoped[@]}" -eq 0 ]; then
+    # Skip always-on rules AGENTS.md (canonical) carries; one it does not
+    # carry takes the always_on trigger instead (decision 0021).
+    local i always="" always_count=0
+    local -a files=() names=() kinds=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules antigravity "$IS_OUTPUT_REL/rules/{}.md"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            kinds+=(scoped)
+        elif [ "${IS_SOURCE_IN_AGENTS[i]}" = 0 ]; then
+            kinds+=(always-on)
+            always="$always${IS_SOURCE_FILES[i]}"$'\n'
+            always_count=$((always_count + 1))
+        else
+            continue
+        fi
+        files+=("${IS_SOURCE_FILES[i]}")
+        names+=("${IS_SOURCE_NAMES[i]}")
+    done
+    if [ "${#files[@]}" -eq 0 ]; then
         echo "  -> Rules: 0 scoped (AGENTS.md carries always-on)"
         return 0
     fi
 
-    # Path-scoped rule -> Glob activation (paths -> globs). The rewrite is
-    # anchored inside the frontmatter block: a body line may legitimately start
-    # with `paths:` (a rule documenting rule syntax does exactly that), and
-    # rewriting it would corrupt the text it teaches.
+    # Path-scoped rule -> Glob activation (paths -> globs); always-on rule ->
+    # `trigger: always_on`, with a frontmatter block of its own when the source
+    # has none. The rewrite is anchored inside the frontmatter block: a body
+    # line may legitimately start with `paths:` (a rule documenting rule
+    # syntax does exactly that), and rewriting it would corrupt the text it
+    # teaches.
     #
     # stdout carries nothing but the character-count overflow report, so the
     # limit check costs no extra process.
     local overflow
     is_fin_awk_vars
-    overflow="$(awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" -v limit="$rule_limit" "$IS_AWK_LIB"'
+    overflow="$(IS_AG_ALWAYS="$always" IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" -v limit="$rule_limit" "$IS_AWK_LIB"'
+        BEGIN {
+            n = split(ENVIRON["IS_AG_ALWAYS"], al, "\n")
+            for (k = 1; k <= n; k++) if (al[k] != "") ALWAYS[al[k]] = 1
+        }
         function emit(line,   rendered) {
             rendered = fin_line(line)
             print rendered > out
@@ -141,11 +146,21 @@ sync_antigravity_rules() {
         }
         FNR == 1 {
             if (out != "") close(out)
-            out = dst "/" base_name(FILENAME)
+            out = dst "/" art_file(FILENAME, ".md")
             chars[out] = 0
             fm = 0
+            tgt_reset()
         }
         { sub(/\r$/, "") }
+        FNR == 1 && (FILENAME in ALWAYS) {
+            emit("---")
+            emit("trigger: always_on")
+            if ($0 == "---") { fm = 1; next }
+            emit("---")
+            fm = 2
+            emit($0)
+            next
+        }
         FNR == 1 {
             if ($0 == "---") fm = 1
             emit($0)
@@ -153,6 +168,7 @@ sync_antigravity_rules() {
             next
         }
         fm == 1 && $0 == "---" { fm = 2; emit($0); next }
+        fm == 1 && tgt_drop($0) { next }
         fm == 1 { sub(/^paths:/, "globs:") }
         { emit($0) }
         END {
@@ -161,7 +177,7 @@ sync_antigravity_rules() {
                 for (f in chars)
                     if (chars[f] > limit) printf "%s\t%d\n", f, chars[f]
         }
-    ' "${scoped[@]}" | sort)"
+    ' "${files[@]}" | sort)"
 
     local over_file over_chars
     while IFS=$'\t' read -r over_file over_chars; do
@@ -169,11 +185,18 @@ sync_antigravity_rules() {
         echo "WARNING: Antigravity limits a rule file to $rule_limit characters: ${over_file#"$repo_root/"} renders $over_chars; split the rule, shorten it, set targets.antigravity.warn_rule_limit to the effective limit, or set it to false to disable this warning." >&2
     done <<< "$overflow"
 
-    for f in "${scoped[@]}"; do
-        base="${f##*/}"
-        echo "  rule: $base (scoped)"
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        # awk never reads a record from an empty source.
+        if [ "${kinds[i]}" = always-on ] && [ ! -s "${files[i]}" ]; then
+            printf -- '---\ntrigger: always_on\n---\n' > "$output_dir/rules/${names[i]}.md"
+        fi
+        echo "  rule: ${names[i]}.md (${kinds[i]})"
     done
-    echo "  -> Rules: ${#scoped[@]} scoped"
+    if [ "$always_count" -gt 0 ]; then
+        echo "  -> Rules: $(( ${#files[@]} - always_count )) scoped, $always_count always-on"
+    else
+        echo "  -> Rules: ${#files[@]} scoped"
+    fi
 }
 
 sync_antigravity_agents() {
@@ -181,19 +204,13 @@ sync_antigravity_agents() {
     local config_file="$2"
     local agents_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$agents_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents antigravity "$IS_OUTPUT_REL/{}.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#files[@]}" -gt 0 ]; then
@@ -201,8 +218,7 @@ sync_antigravity_agents() {
 
         local path tier access description name spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path tier access description; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             resolve_model_var "$tier"
 
             local header

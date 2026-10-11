@@ -59,9 +59,10 @@ mechanics; this skill supplies repository judgement.
    Treat backed-up legacy root instructions such as `.cursorrules` and an
    instruction-bearing `CLAUDE.md` as migration sources, not permanent parallel
    entry points. Move still-valid shared guidance into project-owned rules; do
-   not restore the original monolith. Only when approved machine-local guidance
-   remains, create a small new gitignored `CLAUDE.md` from that subset after
-   migration. `AGENTS.md` remains the shared root instruction entry point.
+   not restore the original monolith. Approved machine-local guidance becomes a
+   local rule, `<content-dir>/rules/<name>.local.md`, which Git ignores and sync
+   keeps out of committed output. `AGENTS.md` remains the shared root
+   instruction entry point.
 
    Review `.gitignore` and every existing `.vscodeignore`, `.npmignore`, and
    `.dockerignore` against the CLI-managed policy. Detect tracked files which
@@ -95,8 +96,9 @@ explains itself well.
     relevant generated `AGENTS.md`, Cursor rules, Claude rules, and any
     packaging/build file list affected by ignore policy. Verify quarantined
     legacy root entry points remain absent. If the user approved a genuinely
-    machine-local exception, create a concise new gitignored root file from only
-    that content; never copy the backed-up monolith back. Completion requires
+    machine-local exception, write only that content to a local rule
+    (`<content-dir>/rules/<name>.local.md`); never copy the backed-up monolith
+    back. Completion requires
     `IS_STATUS=ok`, a clean final check, and no `onboarding is pending` header
     after accepted migration.
 11. Report what was created, updated, removed, or deliberately kept. Remind the

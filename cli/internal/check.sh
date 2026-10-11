@@ -198,6 +198,14 @@ while IFS= read -r target; do
     ok "adapter $target contract v1"
 done < <(target_names "$manifest")
 
+# A local rule, agent or skill is one these patterns name (decision 0021): the
+# engine keeps it out of every committed output, and without the pattern Git
+# would still offer to commit the file itself.
+while IFS= read -r pattern; do
+    ignore_file_has_line "$IP_ROOT/.gitignore" "$pattern" \
+        || warn "local artifact Git policy is missing '$pattern' — run 'intelligence init'"
+done < <(local_artifact_ignore_patterns "$content_dir")
+
 # Lock orphans.
 if [ "$lock_valid" -eq 1 ] && [ -f "$lock" ]; then
     while IFS= read -r name; do
@@ -214,6 +222,7 @@ fi
 # is exactly why doctor names it). Each entry is judged by the directory the
 # engine renders it as, read through the same parser: a package reference by
 # its store path, one that resolves to nothing by why.
+local_specs=()
 for section in rules agents skills; do
     seen=$'\n'
     while IFS=$'\037' read -r src state dir alias holders; do
@@ -269,9 +278,39 @@ for section in rules agents skills; do
                 # authoring later needs no config edit.
                 *) ok "sources.$section '$src' — not created yet (optional)" ;;
             esac
+            continue
         fi
+        # A project-owned source is where a tracked file can carry a local
+        # name; store content is restorable state Git never tracks.
+        case "$dir" in
+            .intelligence/*) ;;
+            *)
+                if [ "$section" = skills ]; then
+                    local_specs+=(":(glob)${dir%/}/*.local/SKILL.md")
+                else
+                    local_specs+=(":(glob)${dir%/}/*.local.md")
+                fi
+                ;;
+        esac
     done < <(read_source_entries "$manifest" "$section")
 done
+
+# A name makes an artifact local (decision 0021), and .gitignore never applies
+# to a file Git already tracks: one committed before its name meant anything,
+# or added by hand, renders only into ignored output while every clone holds
+# it. Git and the engine would disagree about it, so it is named here.
+if [ "${#local_specs[@]}" -gt 0 ] \
+    && git -C "$IP_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if tracked_local="$(git -C "$IP_ROOT" -c core.quotePath=false ls-files -- "${local_specs[@]}")"; then
+        while IFS= read -r path; do
+            [ -n "$path" ] || continue
+            case "$path" in */SKILL.md) path="${path%/SKILL.md}/" ;; esac
+            warn "$path is tracked by Git, but its name makes it local: sync renders it only into ignored output — rename it to share it, or 'git rm --cached' it to keep it on this machine"
+        done <<< "$tracked_local"
+    else
+        warn "tracked local artifacts could not be listed — 'git ls-files' failed"
+    fi
+fi
 
 if [ "$problems" -eq 0 ]; then
     echo "all good."
