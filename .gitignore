@@ -25,3 +25,7 @@ GEMINI.md
 .agents/agents/
 !.claude/
 .antigravity.md
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
+AGENTS.override.md
