@@ -71,6 +71,24 @@ IS_AWK_LIB='
         return val
     }
     function base_name(p,   q, m) { m = split(p, q, "/"); return q[m] }
+    # The name a source renders under (decision 0021) comes from the source
+    # catalog, which hands a batch its `<path> US <name>` lines through
+    # ENVIRON["IS_NAME_MAP"]. A path the map does not hold keeps its own name.
+    BEGIN {
+        is_nm_n = split(ENVIRON["IS_NAME_MAP"], is_nm_rows, "\n")
+        for (is_nm_i = 1; is_nm_i <= is_nm_n; is_nm_i++) {
+            is_nm_p = index(is_nm_rows[is_nm_i], sprintf("%c", 31))
+            if (is_nm_p > 0) ART_NAME[substr(is_nm_rows[is_nm_i], 1, is_nm_p - 1)] = substr(is_nm_rows[is_nm_i], is_nm_p + 1)
+        }
+    }
+    # art_file(path, ext) — the output file name: the catalog name plus <ext>,
+    # or the source file name itself.
+    function art_file(p, ext) { return (p in ART_NAME) ? ART_NAME[p] ext : base_name(p) }
+    # art_name(path) — the catalog name, or the file name without `.md`.
+    function art_name(p,   b) {
+        if (p in ART_NAME) return ART_NAME[p]
+        b = base_name(p); sub(/\.md$/, "", b); return b
+    }
 '
 
 # is_fin_awk_vars — fill the global IS_FIN_V array with the -v bindings the
@@ -119,21 +137,49 @@ finalize_output_file() {
 finalize_copy_files() {
     local dst="$1"
     shift
+    finalize_copy_named "$dst" "" "$@"
+}
+
+# finalize_copy_named <dst_dir> <name-map> <src>... — finalize_copy_files with
+# each source written as <dst_dir>/<name>.md when <name-map> holds it: the
+# rendered names source_artifacts_var leaves in IS_SOURCE_NAME_MAP, so
+# `.draft.md` and `me.local.md` land as `draft.md` and `me.md`.
+finalize_copy_named() {
+    local dst="$1" map="$2" f
+    shift 2
     [ "$#" -gt 0 ] || return 0
-    local f
     # awk never reads a record from an empty source, so pre-create those to
     # keep the old cp behavior of producing an empty output file.
     for f in "$@"; do
-        [ -s "$f" ] || : > "$dst/${f##*/}"
+        [ -s "$f" ] && continue
+        if source_name_map_var "$map" "$f"; then
+            : > "$dst/$IS_MAPPED_NAME.md"
+        else
+            : > "$dst/${f##*/}"
+        fi
     done
     is_fin_awk_vars
-    awk "${IS_FIN_V[@]}" -v dst="$dst" "$IS_AWK_LIB"'
+    IS_NAME_MAP="$map" awk "${IS_FIN_V[@]}" -v dst="$dst" "$IS_AWK_LIB"'
         FNR == 1 {
             if (out_file != "") close(out_file)
-            out_file = dst "/" base_name(FILENAME)
+            out_file = dst "/" art_file(FILENAME, ".md")
         }
         { sub(/\r$/, ""); print fin_line($0) > out_file }
     ' "$@"
+}
+
+# source_name_map_var <name-map> <path> — set IS_MAPPED_NAME to the name the
+# map gives <path>; return 1 when it gives none. A map is "\n" followed by one
+# `<path> US <name>` line per source.
+source_name_map_var() {
+    local rest
+    IS_MAPPED_NAME=""
+    case "$1" in
+        *$'\n'"$2"$'\x1f'*) ;;
+        *) return 1 ;;
+    esac
+    rest="${1#*$'\n'"$2"$'\x1f'}"
+    IS_MAPPED_NAME="${rest%%$'\n'*}"
 }
 
 # frontmatter_index <keys-csv> <file>...
@@ -492,32 +538,59 @@ copy_skill_bundle_dirs() {
 copy_skill_bundle_dirs_for() {
     local effort_tool="$1" dest_root="$2"
     shift 2
+    copy_skill_bundle_dirs_named "$effort_tool" "$dest_root" "" "$@"
+}
+
+# copy_skill_bundle_dirs_named <tool> <dest_root> <name-map> <src_dir>... — the
+# batch form with each skill copied to <dest_root>/<name> when <name-map> holds
+# its directory: the rendered names source_artifacts_var leaves in
+# IS_SOURCE_NAME_MAP, so `deploy.local/` lands as `deploy/` and still matches
+# its own `name: deploy`. Only a skill whose name differs from its directory
+# costs a copy of its own.
+copy_skill_bundle_dirs_named() {
+    local effort_tool="$1" dest_root="$2" map="$3"
+    shift 3
     [ "$#" -gt 0 ] || return 0
-    local src dest linked=0
-    local -a srcs=()
+    local src from name dest i linked=0 renamed=0
+    local -a srcs=() names=()
     for src in "$@"; do
         src="${src%/}"
         srcs+=("$src")
+        name="${src##*/}"
+        if source_name_map_var "$map" "$src" && [ "$IS_MAPPED_NAME" != "$name" ]; then
+            name="$IS_MAPPED_NAME"
+            renamed=1
+        fi
+        names+=("$name")
         ! _ski_planned "$src" || linked=1
     done
     mkdir -p "$dest_root"
-    if [ "$linked" = 0 ]; then
+    if [ "$linked" = 0 ] && [ "$renamed" = 0 ]; then
         cp -R "${srcs[@]}" "$dest_root/"
     else
-        for src in "${srcs[@]}"; do
+        for ((i = 0; i < ${#srcs[@]}; i++)); do
+            src="${srcs[i]}"
+            from="$src"
             if _ski_planned "$src"; then
                 _skill_bundle_materialize "$src" || return 1
-                cp -R "$IS_SKI_STAGED" "$dest_root/" || return 1
-                rm -rf "${IS_SKI_STAGED%/*}"
-            else
-                cp -R "$src" "$dest_root/" || return 1
+                from="$IS_SKI_STAGED"
             fi
+            dest="$dest_root/${names[i]}"
+            if [ "${names[i]}" = "${src##*/}" ]; then
+                cp -R "$from" "$dest_root/" || return 1
+            elif [ -e "$dest" ]; then
+                # A second skill of one name merges file by file, as the
+                # batch copy of same-named directories does.
+                cp -R "$from/." "$dest/" || return 1
+            else
+                cp -R "$from" "$dest" || return 1
+            fi
+            [ "$from" = "$src" ] || rm -rf "${IS_SKI_STAGED%/*}"
         done
     fi
     _skill_bundles_reset
-    for src in "${srcs[@]}"; do
-        dest="$dest_root/${src##*/}"
-        _skill_bundle_note "$dest"
+    for name in "${names[@]}"; do
+        _skill_bundle_note "$dest_root/$name"
     done
     _skill_bundles_flush "$effort_tool"
 }
@@ -742,26 +815,27 @@ sync_open_skill_dirs() {
     fi
     mkdir -p "$output_dir"
 
-    local count=0 log="" d skill_file skill_name
+    local count=0 log="" i rel
     local -a skill_dirs=()
-    read_source_artifact_files "$repo_root" "$config_file" "skills"
+    # Every tool that reads this directory reads all of it, so a skill lands
+    # here when it is for any of them (decision 0021). The engine names the
+    # enabled readers from their contracts.
+    normalize_path_var "$output_dir"
+    rel="${IS_NORM_PATH#"$repo_root"/}"
+    source_artifacts_var "$repo_root" "$config_file" skills \
+        "${IS_OPEN_SKILLS_READERS-antigravity codex opencode pi}" "$rel/{}"
     # Guard on the count, then expand quoted: Bash 3.2 (macOS) errors on an
     # empty array under `set -u`, and quoting keeps a path with a space or a
     # glob character intact.
-    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
-        for skill_file in "${IS_SOURCE_FILES[@]}"; do
-            [ -n "$skill_file" ] || continue
-            d="${skill_file%/SKILL.md}"
-            skill_name="${d##*/}"
-            skill_dirs+=("$d/")
-            count=$((count + 1))
-            log+="  skill: $skill_name"$'\n'
-        done
-    fi
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
+        count=$((count + 1))
+        log+="  skill: ${IS_SOURCE_NAMES[i]}"$'\n'
+    done
     # copy_skill_bundle_dirs owns the frontmatter-quoting pass, so every
     # target gets it — not just this open-standard dir.
     if [ "$count" -gt 0 ]; then
-        copy_skill_bundle_dirs_for open "$output_dir" "${skill_dirs[@]}"
+        copy_skill_bundle_dirs_named open "$output_dir" "$IS_SOURCE_NAME_MAP" "${skill_dirs[@]}"
         open_skill_invocation_policies "$output_dir" || return 1
     fi
 
@@ -935,7 +1009,13 @@ enforce_authored_invocation_policies() {
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
     [ "$#" -gt 0 ] || return 0
-    awk -v levels="$IS_EFFORT_LEVELS" "$IS_AWK_LIB"'
+    awk -v levels="$IS_EFFORT_LEVELS" "$IS_AWK_LIB$_IS_AWK_LINT" "$@"
+}
+
+# The lint rules, shared with source_frontmatter_scan, which runs them in the
+# same pass that reads routing fields. Every rule may end with `next`, so a
+# program that joins them puts its own rules first.
+_IS_AWK_LINT='
         BEGIN {
             nl = split(levels, LV, " ")
             allowed = ""
@@ -990,8 +1070,7 @@ lint_frontmatter_files() {
                 printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
-    ' "$@"
-}
+'
 
 # lint_frontmatter <file> — single-file form for project adapters.
 lint_frontmatter() {
@@ -2149,9 +2228,11 @@ read_source_artifact_files() {
         [ -d "$dir" ] || continue
         # Command substitution, so the pipeline's status is the assignment's:
         # `find` or `sort` failing aborts here instead of yielding a short list.
+        # A link to a regular file is one too, read where it points, as the
+        # adapters' globs always read it; a dangling one is no artifact.
         case "$section" in
             rules|agents)
-                listing="$(find "$dir" -maxdepth 1 -type f -name '*.md' -print | LC_ALL=C sort)" || {
+                listing="$(find "$dir" -maxdepth 1 -name '*.md' \( -type f -o -type l \) -print | LC_ALL=C sort)" || {
                     echo "ERROR: cannot enumerate $section under '$dir' — refusing to render a partial list." >&2
                     exit 1
                 }
@@ -2162,7 +2243,7 @@ read_source_artifact_files() {
         # A here-string redirect keeps this loop in the current shell, so the
         # array it fills survives and any failure inside it is this shell's.
         while IFS= read -r f; do
-            [ -n "$f" ] || continue
+            [ -f "$f" ] || continue
             IS_SOURCE_FILES+=("$f")
             joined="$joined$f"$'\n'
         done <<< "$listing"
@@ -2171,6 +2252,289 @@ read_source_artifact_files() {
         printf -v "$list_var" '%s' "$joined"
         printf -v "$key_var" '%s' "$memo_key"
     fi
+}
+
+# --- The source catalog (decision 0021) --------------------------------------
+#
+# Every renderer — AGENTS.md, every built-in adapter, the adapter template —
+# reads sources through source_artifacts_var, so one place decides what an
+# artifact is called, which artifact of a name renders, and where it may go:
+#
+#   name      the entry without a leading `.`, `.md` and a trailing `.local`:
+#             `.environment.local.md` is the rule `environment`, `.draft.md`
+#             the rule `draft`, the skill directory `deploy.local/` the skill
+#             `deploy`. A leading dot means nothing.
+#   local     a rule or agent named `*.local.md`, a skill directory named
+#             `*.local` — exactly the patterns `init` writes to .gitignore, so
+#             Git and the engine never disagree. A local artifact never renders
+#             into an output Git tracks (`committed`).
+#   override  across sources the later artifact of a name renders. Two of one
+#             name in one directory, or a local and a non-local one anywhere,
+#             refuse the sync: either would change what committed output holds
+#             depending on which file a clone has.
+#
+# source_catalog_build fills, in the caller's shell and fail-closed like the
+# listing it reads, one row per source entry in listing order:
+#   IS_CAT_SEC IS_CAT_PATH IS_CAT_NAME IS_CAT_LOCAL IS_CAT_WIN IS_CAT_SCOPED
+# (section; the file, or a skill's SKILL.md; the rendered name; 1 when local;
+# 1 when no later source overrides it; 1 for a rule with `paths:`), IS_CAT_N,
+# and IS_CAT_NEED_COMMITTED, 1 when rendering has to know which outputs Git
+# tracks. With IS_SOURCE_FILES_MEMO=1 a second call replays the first.
+
+# source_artifact_name_var <section> <entry> — IS_ART_NAME and IS_ART_LOCAL for
+# one file (rules, agents) or skill directory (skills) name.
+source_artifact_name_var() {
+    local n="$2"
+    IS_ART_LOCAL=0
+    case "$1:$n" in
+        skills:*.local|rules:*.local.md|agents:*.local.md) IS_ART_LOCAL=1 ;;
+    esac
+    n="${n#.}"
+    [ "$1" = skills ] || n="${n%.md}"
+    case "$n" in *.local) n="${n%.local}" ;; esac
+    IS_ART_NAME="$n"
+}
+
+# shellcheck disable=SC2034  # IS_CAT_NEED_COMMITTED is read by engine/sync.sh
+source_catalog_build() {
+    local repo_root="$1" config_file="$2" lint="${3:-}" key section f entry dir name
+    local seen=$'\n' errors="" i n=0 prev rest rows path scoped kind
+    local -a files=()
+    key="$repo_root"$'\n'"$config_file"
+    if [ "${IS_SOURCE_FILES_MEMO:-0}" = 1 ] && [ "${IS_CAT_KEY:-}" = "$key" ]; then
+        return 0
+    fi
+    IS_CAT_KEY=""
+    IS_CAT_SEC=(); IS_CAT_PATH=(); IS_CAT_NAME=(); IS_CAT_LOCAL=()
+    IS_CAT_WIN=(); IS_CAT_SCOPED=()
+    IS_CAT_NEED_COMMITTED=0
+    for section in rules agents skills; do
+        read_source_artifact_files "$repo_root" "$config_file" "$section"
+        for f in "${IS_SOURCE_FILES[@]+"${IS_SOURCE_FILES[@]}"}"; do
+            if [ "$section" = skills ]; then
+                dir="${f%/SKILL.md}"
+                entry="${dir##*/}"
+                dir="${dir%/*}"
+                kind="skill"
+            else
+                entry="${f##*/}"
+                dir="${f%/*}"
+                kind="${section%s}"
+            fi
+            source_artifact_name_var "$section" "$entry"
+            name="$IS_ART_NAME"
+            IS_CAT_SEC[n]="$section"
+            IS_CAT_PATH[n]="$f"
+            IS_CAT_NAME[n]="$name"
+            IS_CAT_LOCAL[n]="$IS_ART_LOCAL"
+            IS_CAT_WIN[n]=1
+            IS_CAT_SCOPED[n]=0
+            [ "$IS_ART_LOCAL" = 0 ] || IS_CAT_NEED_COMMITTED=1
+            case "$seen" in
+                *$'\n'"$section/$name"$'\t'*)
+                    rest="${seen##*$'\n'"$section/$name"$'\t'}"
+                    prev="${rest%%$'\n'*}"
+                    rest="${IS_CAT_PATH[prev]}"
+                    [ "$section" != skills ] || rest="${rest%/SKILL.md}"
+                    if [ "${IS_CAT_PATH[prev]}" = "$f" ]; then
+                        # One directory listed twice: the same artifact.
+                        IS_CAT_WIN[prev]=0
+                    elif [ "${rest%/*}" = "$dir" ]; then
+                        errors+="ERROR: ${IS_CAT_PATH[prev]#"$repo_root"/} and ${f#"$repo_root"/} are both the $kind '$name' in one directory — rename or remove one"$'\n'
+                    elif [ "${IS_CAT_LOCAL[prev]}" != "$IS_ART_LOCAL" ]; then
+                        errors+="ERROR: ${IS_CAT_PATH[prev]#"$repo_root"/} and ${f#"$repo_root"/} are both the $kind '$name', one local and one not — a local artifact cannot override or yield to a committed one; rename one"$'\n'
+                    else
+                        IS_CAT_WIN[prev]=0
+                    fi
+                    ;;
+            esac
+            seen="$seen$section/$name"$'\t'"$n"$'\n'
+            files+=("$f")
+            n=$((n + 1))
+        done
+    done
+    IS_CAT_N="$n"
+    if [ -n "$errors" ]; then
+        printf '%s' "$errors" >&2
+        exit 1
+    fi
+    if [ "$n" -gt 0 ]; then
+        # One pass reads what routing needs from every source's frontmatter
+        # and, for the engine, lints it. Captured, not streamed: a short answer
+        # must stop the run, not route the files it lost as always-on.
+        rows="$(source_frontmatter_scan "$lint" "${files[@]}")" || {
+            echo "ERROR: cannot read the frontmatter of the sources — refusing to render a partial list." >&2
+            exit 1
+        }
+        i=0
+        while IFS=$'\x1f' read -r path scoped; do
+            [ "$i" -lt "$n" ] && [ "$path" = "${IS_CAT_PATH[i]}" ] || {
+                echo "ERROR: cannot read the frontmatter of the sources — refusing to render a partial list." >&2
+                exit 1
+            }
+            [ "${IS_CAT_SEC[i]}" != rules ] || [ "$scoped" = 0 ] || IS_CAT_SCOPED[i]=1
+            i=$((i + 1))
+        done <<< "$rows"
+        if [ "$i" -ne "$n" ]; then
+            echo "ERROR: cannot read the frontmatter of the sources — refusing to render a partial list." >&2
+            exit 1
+        fi
+    fi
+    [ "${IS_SOURCE_FILES_MEMO:-0}" != 1 ] || IS_CAT_KEY="$key"
+}
+
+# source_frontmatter_scan <lint> <file>... — one row per file in argument
+# order: the path and its `paths:` line count, \x1f-separated, read with
+# frontmatter_index's `paths#` semantics. With <lint> = lint the same pass runs
+# lint_frontmatter_files over every file, its warnings on stderr.
+source_frontmatter_scan() {
+    local do_lint=0
+    [ "$1" != lint ] || do_lint=1
+    shift
+    awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "$IS_AWK_LIB"'
+        BEGIN { SX_US = sprintf("%c", 31) }
+        function sx_store() { if (sx_cur != "") SXR[sx_cur] = sx_cur SX_US sx_paths }
+        FNR == 1 { sx_store(); sx_cur = FILENAME; sx_paths = 0; sx_fm = 0 }
+        {
+            sx_l = $0
+            sub(/\r$/, "", sx_l)
+            if (FNR == 1) sx_fm = (sx_l == "---")
+            else if (sx_fm == 1) {
+                if (sx_l == "---") sx_fm = 2
+                else if (index(sx_l, ":") && substr(sx_l, 1, index(sx_l, ":") - 1) == "paths") sx_paths++
+            }
+        }
+        END {
+            sx_store()
+            for (sx_i = 1; sx_i < ARGC; sx_i++)
+                print (ARGV[sx_i] in SXR) ? SXR[ARGV[sx_i]] : ARGV[sx_i] SX_US 0
+        }
+        !do_lint { next }
+    '"$_IS_AWK_LINT" "$@"
+}
+
+# The source catalog's committed check needs every enabled adapter's Git
+# policy, which only the engine reads (sync.sh: IS_COMMIT_POLICY, one
+# `adapter TAB kind TAB pattern` line per ignore and include record, and
+# IS_COMMIT_POLICY_SET=1). It reads it only when IS_CAT_NEED_COMMITTED says a
+# render depends on it, so a project without local artifacts never pays for
+# the manifest read the Copilot contract makes (decision 0020).
+#
+# output_committed <adapter> <repo-relative path> — true when Git tracks that
+# output: no `ignore` record of the adapter's contract covers it, or an
+# `include` record takes it back. AGENTS.md always belongs here.
+output_committed() {
+    local adapter="$1" path="$2" a kind pat ignored=0 included=0
+    [ "$adapter" != agents ] || return 0
+    if [ "${IS_COMMIT_POLICY_SET:-0}" != 1 ]; then
+        echo "ERROR: rendering a local artifact needs the Git policy of every enabled adapter; run it through the engine: intelligence sync" >&2
+        exit 1
+    fi
+    while IFS=$'\t' read -r a kind pat; do
+        [ "$a" = "$adapter" ] || continue
+        case "$kind" in
+            ignore) [ "$ignored" = 1 ] || ! policy_pattern_covers "$pat" "$path" || ignored=1 ;;
+            include) [ "$included" = 1 ] || ! policy_pattern_covers "$pat" "$path" || included=1 ;;
+        esac
+    done <<< "$IS_COMMIT_POLICY"
+    [ "$ignored" = 1 ] && [ "$included" = 0 ] && return 1
+    return 0
+}
+
+# policy_pattern_covers <ignore-pattern> <path> — whether a contract's ignore
+# or include pattern covers a repo-relative path or one of its parents: a
+# trailing `/` names a directory, `*` and `?` match as Git's do inside one.
+policy_pattern_covers() {
+    local pat="${1#./}" path="$2"
+    pat="${pat#/}"
+    case "$pat" in
+        */)
+            pat="${pat%/}"
+            case "$path" in "$pat"|"$pat"/*) return 0 ;; esac
+            return 1
+            ;;
+    esac
+    # shellcheck disable=SC2254  # the pattern is a glob on purpose
+    case "$path" in
+        $pat|$pat/*) return 0 ;;
+    esac
+    return 1
+}
+
+# _cat_member <index> <adapter> <repo-relative output path> — whether the
+# catalog row renders into that adapter's output at that path.
+_cat_member() {
+    if [ "${IS_CAT_LOCAL[$1]}" = 1 ]; then
+        ! output_committed "$2" "$3" || return 1
+    fi
+    return 0
+}
+
+# source_artifacts_var <repo_root> <config> <section> <adapters> <output>
+# — the artifacts of a section that render for one of <adapters> (space-
+# separated ids) into <output>, a repo-relative path in which `{}` stands for
+# the artifact's name (`.claude/rules/{}.md`, `.agents/skills/{}`). Fills, in
+# catalog order — sources in manifest order, entries in byte order:
+#   IS_SOURCE_FILES      the source file, or a skill's SKILL.md
+#   IS_SOURCE_NAMES      the rendered name
+#   IS_SOURCE_SCOPED     1 for a rule with `paths:`
+#   IS_SOURCE_IN_AGENTS  1 when AGENTS.md carries the artifact too
+#   IS_SOURCE_NAME_MAP   the name map finalize_copy_named and
+#                        copy_skill_bundle_dirs_named take (a skill keyed by
+#                        its directory)
+source_artifacts_var() {
+    local repo_root="$1" config_file="$2" section="$3" adapters="$4" output="$5"
+    local i a pre post path member key ph='{}'
+    source_catalog_build "$repo_root" "$config_file"
+    IS_SOURCE_FILES=(); IS_SOURCE_NAMES=(); IS_SOURCE_SCOPED=(); IS_SOURCE_IN_AGENTS=()
+    IS_SOURCE_NAME_MAP=$'\n'
+    case "$output" in
+        *"$ph"*) pre="${output%%"$ph"*}"; post="${output#*"$ph"}" ;;
+        *) pre="$output"; post="" ;;
+    esac
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_SEC[i]}" = "$section" ] && [ "${IS_CAT_WIN[i]}" = 1 ] || continue
+        if [ "${IS_CAT_LOCAL[i]}" = 1 ]; then
+            case "$output" in *"$ph"*) path="$pre${IS_CAT_NAME[i]}$post" ;; *) path="$output" ;; esac
+            member=0
+            for a in $adapters; do
+                if _cat_member "$i" "$a" "$path"; then member=1; break; fi
+            done
+            [ "$member" = 1 ] || continue
+            IS_SOURCE_IN_AGENTS+=(0)
+        else
+            IS_SOURCE_IN_AGENTS+=(1)
+        fi
+        IS_SOURCE_FILES+=("${IS_CAT_PATH[i]}")
+        IS_SOURCE_NAMES+=("${IS_CAT_NAME[i]}")
+        IS_SOURCE_SCOPED+=("${IS_CAT_SCOPED[i]}")
+        key="${IS_CAT_PATH[i]}"
+        [ "$section" != skills ] || key="${key%/SKILL.md}"
+        IS_SOURCE_NAME_MAP="$IS_SOURCE_NAME_MAP$key"$'\x1f'"${IS_CAT_NAME[i]}"$'\n'
+    done
+}
+
+# output_rel_var <repo_root> <absolute output path> — IS_OUTPUT_REL, the
+# output's repo-relative path spelled as contracts and source_artifacts_var
+# spell it.
+# shellcheck disable=SC2034  # IS_OUTPUT_REL is the return channel read by adapters
+output_rel_var() {
+    normalize_path_var "$2"
+    IS_OUTPUT_REL="${IS_NORM_PATH#"$1"/}"
+}
+
+# source_catalog_winners_var <repo_root> <config> <section> — every artifact of
+# a section that renders anywhere, whatever its outputs: IS_SOURCE_FILES and
+# IS_SOURCE_SCOPED, for the adapter-agnostic context report.
+source_catalog_winners_var() {
+    local i
+    source_catalog_build "$1" "$2"
+    IS_SOURCE_FILES=(); IS_SOURCE_SCOPED=()
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_SEC[i]}" = "$3" ] && [ "${IS_CAT_WIN[i]}" = 1 ] || continue
+        IS_SOURCE_FILES+=("${IS_CAT_PATH[i]}")
+        IS_SOURCE_SCOPED+=("${IS_CAT_SCOPED[i]}")
+    done
 }
 
 # Apply the agents adapter's lexical output rule without consulting filesystem
@@ -2242,26 +2606,23 @@ context_files_bytes() {
 report_context_source_sizes() {
     local repo_root="$1"
     local config_file="$2"
-    local f path has_paths
-    local -a rule_files=() always_on_rules=() scoped_rules=() agent_files=() skill_files=()
+    local i
+    local -a always_on_rules=() scoped_rules=() agent_files=() skill_files=()
 
-    read_source_artifact_files "$repo_root" "$config_file" "rules"
-    [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || rule_files=("${IS_SOURCE_FILES[@]}")
-    if [ "${#rule_files[@]}" -gt 0 ]; then
-        while IFS=$'\x1f' read -r path has_paths; do
-            [ -n "$path" ] || continue
-            if [ "$has_paths" = "0" ]; then
-                always_on_rules+=("$path")
-            else
-                scoped_rules+=("$path")
-            fi
-        done < <(frontmatter_index "paths#" "${rule_files[@]}")
-    fi
+    # What renders anywhere: an artifact a later source overrides is no context.
+    source_catalog_winners_var "$repo_root" "$config_file" "rules"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        if [ "${IS_SOURCE_SCOPED[i]}" = 0 ]; then
+            always_on_rules+=("${IS_SOURCE_FILES[i]}")
+        else
+            scoped_rules+=("${IS_SOURCE_FILES[i]}")
+        fi
+    done
 
-    read_source_artifact_files "$repo_root" "$config_file" "agents"
+    source_catalog_winners_var "$repo_root" "$config_file" "agents"
     [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || agent_files=("${IS_SOURCE_FILES[@]}")
 
-    read_source_artifact_files "$repo_root" "$config_file" "skills"
+    source_catalog_winners_var "$repo_root" "$config_file" "skills"
     [ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || skill_files=("${IS_SOURCE_FILES[@]}")
 
     local always_bytes=0 custom_bytes=0 agents_output agents_bytes=0 agents_status="disabled"

@@ -198,6 +198,14 @@ while IFS= read -r target; do
     ok "adapter $target contract v1"
 done < <(target_names "$manifest")
 
+# A local rule, agent or skill is one these patterns name (decision 0021): the
+# engine keeps it out of every committed output, and without the pattern Git
+# would still offer to commit the file itself.
+while IFS= read -r pattern; do
+    ignore_file_has_line "$IP_ROOT/.gitignore" "$pattern" \
+        || warn "local artifact Git policy is missing '$pattern' — run 'intelligence init'"
+done < <(local_artifact_ignore_patterns "$content_dir")
+
 # Lock orphans.
 if [ "$lock_valid" -eq 1 ] && [ -f "$lock" ]; then
     while IFS= read -r name; do

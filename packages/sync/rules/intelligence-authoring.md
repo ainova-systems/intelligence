@@ -54,7 +54,7 @@ The mistakes that actually happen, in order of frequency:
 
 **Derive from the code, not from prose that already exists.** Every REQUIRED and every invariant must be backed by something observed in the repository. Documentation is a claim, not evidence — read the file.
 
-**Describe the repository, not a machine.** The OS, the shell, the editor, a local dev stack, personal tooling — these are environment facts. They belong in a personal, gitignored `CLAUDE.md`. A rule is committed and read by everyone, so a shell-specific command or an absolute local path in it is simply wrong for whoever is on another platform.
+**Describe the repository, not a machine.** The OS, the shell, the editor, a local dev stack, personal tooling — these are environment facts. They belong in a local rule, `<content-dir>/rules/<name>.local.md`: Git ignores it, and sync renders it only into outputs Git ignores. A rule is committed and read by everyone, so a shell-specific command or an absolute local path in it is simply wrong for whoever is on another platform.
 
 **Explain the why — but only a why you can back.** A reason the reader can check is what makes an instruction survive a judgement call. An invented reason is worse than none: it sounds like evidence.
 

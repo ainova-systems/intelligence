@@ -88,32 +88,24 @@ sync_opencode_commands() {
         [ "${#generated[@]}" -gt 0 ] && rm -f "${generated[@]}"
     fi
 
-    local src d skill_name
-    local -a skill_mds=()
-    # The inventory decides which skills render, symlinked ones included
-    # (decision 0017); the glob keeps this adapter's own listing order.
-    skill_source_inventory "$repo_root" "$config_file"
-    load_yaml_list "$config_file" "skills"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for d in "$dir"/*/; do
-            [ -d "$d" ] || continue
-            [ -f "$d/SKILL.md" ] || continue
-            skill_source_rendered "$d" || continue
-            skill_mds+=("${d%/}/SKILL.md")
-        done
-    done <<< "$list"
+    local skill_name
+    local -a skill_mds=() names=()
+    # The catalog's skills are the ones the inventory renders, symlinked ones
+    # included (decision 0017). The commands directory is tracked, so a local
+    # skill gets no command.
+    output_rel_var "$repo_root" "$commands_dir"
+    source_artifacts_var "$repo_root" "$config_file" skills opencode "$IS_OUTPUT_REL/{}.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        skill_mds=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#skill_mds[@]}" -gt 0 ]; then
         local path description argument_hint out_file
         local -a out_files=()
         while IFS=$'\x1f' read -r path description argument_hint; do
-            [ -n "$path" ] || continue
-            skill_name="${path%/SKILL.md}"; skill_name="${skill_name##*/}"
+            skill_name="${names[count]}"
             out_file="$commands_dir/$skill_name.md"
             yaml_dq_escape_var "$description"
             {
@@ -151,19 +143,13 @@ sync_opencode_agents() {
     local agents_dir="$output_dir/agents"
     mkdir -p "$agents_dir"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$agents_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents opencode "$IS_OUTPUT_REL/{}.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#files[@]}" -gt 0 ]; then
@@ -171,8 +157,7 @@ sync_opencode_agents() {
 
         local path tier access description name edit_perm bash_perm spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path tier access description; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             resolve_model_var "$tier"
 
             # Map source `access:` to opencode permission keys.

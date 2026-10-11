@@ -684,5 +684,117 @@ else
     echo "  NOTE: this host cannot create a symlink — skill source links not exercised"
 fi
 
+echo "== source_artifact_name_var: the name rule and locality (decision 0021) =="
+while IFS=' ' read -r section entry name local; do
+    source_artifact_name_var "$section" "$entry"
+    eq "$IS_ART_NAME/$IS_ART_LOCAL" "$name/$local" \
+        || { echo "FAIL: $section $entry: got $IS_ART_NAME/$IS_ART_LOCAL want $name/$local"; fail=1; }
+done <<'EOF'
+rules team.md team 0
+rules .draft.md draft 0
+rules environment.local.md environment 1
+rules .environment.local.md environment 1
+rules .local.md local 1
+rules local.md local 0
+rules x.local.local.md x.local 1
+agents helper.local.md helper 1
+agents .helper.md helper 0
+skills deploy deploy 0
+skills deploy.local deploy 1
+skills .deploy deploy 0
+skills .local local 1
+skills notes.md notes.md 0
+EOF
+
+echo "== policy_pattern_covers: contract ignore patterns as Git reads them =="
+while IFS=' ' read -r pattern path want; do
+    got=0
+    policy_pattern_covers "$pattern" "$path" || got=1
+    eq "$got" "$want" || { echo "FAIL: $pattern covers $path: got $got want $want"; fail=1; }
+done <<'EOF'
+.claude/* .claude/rules/x.md 0
+.claude/* .claude 1
+.agents/skills/ .agents/skills/deploy 0
+.agents/skills/ .agents/skillset/x 1
+.codex/agents/ .codex/agents/helper.toml 0
+.pi/prompts/intelligence-agent-*.md .pi/prompts/intelligence-agent-helper.md 0
+.pi/prompts/intelligence-agent-*.md .pi/prompts/mine.md 1
+./.github/agents/ .github/agents/helper.agent.md 0
+CLAUDE.md CLAUDE.md 0
+.claude/settings.json .claude/settings.json 0
+EOF
+
+echo "== source catalog: overrides, refusals and local membership =="
+chknot() { if "$@" >/dev/null 2>&1; then echo "FAIL(not): $*"; fail=1; fi; }
+S="$OUT/catalog"
+mkdir -p "$S/a/rules" "$S/b/rules" "$S/b/agents" "$S/b/skills/deploy.local" "$S/b/skills/review"
+printf 'sources:\n  rules:\n    - "a/rules"\n    - "b/rules"\n  agents:\n    - "b/agents"\n  skills:\n    - "b/skills"\n' > "$S/intelligence.yaml"
+printf 'shared style\n' > "$S/a/rules/style.md"
+printf 'project style\n' > "$S/b/rules/style.md"
+printf -- '---\npaths:\n  - "src/**"\n---\n' > "$S/b/rules/.scoped.md"
+printf 'mine\n' > "$S/b/rules/me.local.md"
+printf -- '---\nname: x\n---\n' > "$S/b/agents/x.local.md"
+printf -- '---\nname: deploy\n---\n' > "$S/b/skills/deploy.local/SKILL.md"
+printf -- '---\nname: review\n---\n' > "$S/b/skills/review/SKILL.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml" 2> "$OUT/catalog.err"
+chk eq "$(cat "$OUT/catalog.err")" ""
+chk eq "$IS_CAT_NEED_COMMITTED" 1
+# A render that would need Git policy without the engine having read it stops.
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules claude ".claude/rules/{}.md") \
+    > /dev/null 2>&1 || rc=$?
+chk eq "$rc" 1
+# shellcheck disable=SC2034  # read by output_committed
+IS_COMMIT_POLICY=$'claude\tignore\t.claude/*\nclaude\tinclude\t.claude/settings.json\ncodex\tignore\t.codex/agents/\n'
+# shellcheck disable=SC2034
+IS_COMMIT_POLICY_SET=1
+# Sources in manifest order, entries in byte order; the later style wins.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules claude ".claude/rules/{}.md"
+chk eq "${IS_SOURCE_NAMES[*]}" "scoped me style"
+chk eq "${IS_SOURCE_FILES[*]}" "$S/b/rules/.scoped.md $S/b/rules/me.local.md $S/b/rules/style.md"
+chk eq "${IS_SOURCE_SCOPED[*]}" "1 0 0"
+chk eq "${IS_SOURCE_IN_AGENTS[*]}" "1 0 1"
+source_name_map_var "$IS_SOURCE_NAME_MAP" "$S/b/rules/me.local.md"
+chk eq "$IS_MAPPED_NAME" "me"
+# AGENTS.md is always committed; an output no contract ignores is too.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules agents "AGENTS.md"
+chk eq "${IS_SOURCE_NAMES[*]}" "scoped style"
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" agents opencode ".opencode/commands/{}.md"
+chk eq "${#IS_SOURCE_FILES[@]}" 0
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" agents codex ".codex/agents/{}.toml"
+chk eq "${IS_SOURCE_NAMES[*]}" "x"
+# One of several readers is enough; a skill is keyed by its directory.
+IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" skills "opencode codex" ".codex/agents/{}"
+chk eq "${IS_SOURCE_NAMES[*]}" "deploy review"
+source_name_map_var "$IS_SOURCE_NAME_MAP" "$S/b/skills/deploy.local"
+chk eq "$IS_MAPPED_NAME" "deploy"
+copy_skill_bundle_dirs_named open "$OUT/catalog-out" "$IS_SOURCE_NAME_MAP" "$S/b/skills/deploy.local/" "$S/b/skills/review"
+chk test -f "$OUT/catalog-out/deploy/SKILL.md"
+chk test -f "$OUT/catalog-out/review/SKILL.md"
+chknot test -e "$OUT/catalog-out/deploy.local"
+finalize_copy_named "$OUT/catalog-out" $'\n'"$S/b/rules/me.local.md"$'\x1f'"me"$'\n' "$S/b/rules/me.local.md" "$S/b/rules/style.md"
+chk test -f "$OUT/catalog-out/me.md"
+chk test -f "$OUT/catalog-out/style.md"
+unset IS_COMMIT_POLICY IS_COMMIT_POLICY_SET
+# Two of one name in one directory, and a local beside a committed one,
+# refuse and name both files.
+printf 'dot style\n' > "$S/b/rules/.style.md"
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml") > /dev/null 2> "$OUT/catalog.err" || rc=$?
+chk eq "$rc" 1
+chk grep -Fq "b/rules/.style.md and b/rules/style.md are both the rule 'style' in one directory" "$OUT/catalog.err"
+rm "$S/b/rules/.style.md"
+printf 'local style\n' > "$S/b/rules/style.local.md"
+rm "$S/b/rules/style.md"
+rc=0
+(IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml") > /dev/null 2> "$OUT/catalog.err" || rc=$?
+chk eq "$rc" 1
+chk grep -Fq "a/rules/style.md and b/rules/style.local.md are both the rule 'style', one local and one not" "$OUT/catalog.err"
+rm "$S/b/rules/style.local.md"
+# One directory listed twice is one artifact, not a conflict.
+printf 'sources:\n  rules:\n    - "a/rules"\n    - "a/rules/"\n' > "$S/twice.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_winners_var "$S" "$S/twice.yaml" rules
+chk eq "${#IS_SOURCE_FILES[@]}" 1
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

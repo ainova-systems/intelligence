@@ -47,7 +47,7 @@ Migrate meaning, not tool syntax:
 
 | Existing format | Project-owned destination |
 |---|---|
-| Root `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Copilot root instructions | Split verified guidance by topic into rules; keep local machine preferences in a gitignored root file only when no adapter representation exists |
+| Root `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Copilot root instructions | Split verified guidance by topic into rules; move machine-local preferences into local rules (`<content-dir>/rules/<name>.local.md`), which Git ignores and sync keeps out of committed output |
 | `.claude/rules/*.md` | Rule; preserve valid `paths:` |
 | `.cursor/rules/*.mdc` | Rule; rename `globs:` to `paths:` and remove `alwaysApply:` |
 | Claude/Cursor/Copilot agents, Codex `.codex/agents/*.toml` | Agent; map native model/readonly/tool fields back to `tier:` and `access:`, and a native effort level (`effort:`, `model_reasoning_effort`) back to `effort:` |
@@ -64,9 +64,9 @@ Obtain approval per `CREATE`, `UPDATE`, `REMOVE`, or `KEEP` proposal. Apply
 project-owned source changes first, then run `intelligence sync` and
 `intelligence status --check`. Inspect the enabled targets to prove the
 migrated guidance arrived and verify quarantined old root instructions remain
-absent. Create a new root tool file only from a separately approved, genuinely
-machine-local subset that has no adapter representation; never restore the
-original instruction monolith.
+absent. A separately approved, genuinely machine-local subset becomes a local
+rule, `<content-dir>/rules/<name>.local.md`, not a new root tool file; never
+restore the original instruction monolith.
 
 For every removed or renamed path, search all tracked files with `git ls-files`
 and report remaining references with file and line number. Apply an unambiguous

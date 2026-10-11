@@ -73,7 +73,7 @@ sources:
 
 A package's directory may also be named by the package instead of its store path: `@ainova-systems/sync/rules` names folder `rules` of the package `packages:` declares as `@ainova-systems/sync`, and `sync:rules` names it through the alias that package declares (`intelligence package alias @ainova-systems/sync sync`). Both render exactly as the store path, and both are installed package content like it: edit that content in its source repository. The CLI writes store paths and never rewrites a reference a person wrote; an `@scope/name/...` entry for a package `packages:` does not declare is an ordinary project path.
 
-Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: later files with the same artifact name overwrite earlier ones. Package sources are wired before project sources so the project can override a package artifact deliberately.
+Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: of two artifacts with one name, the later source's renders everywhere, `AGENTS.md` included, and the earlier one renders nowhere (see [Artifact names](#artifact-names-and-local-artifacts)). Package sources are wired before project sources so the project can override a package artifact deliberately.
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
 
@@ -163,6 +163,22 @@ Common skill verbs:
 | `remove-` | Remove an artifact safely |
 
 The verb describes the outcome, not whether the skill implements the work or delegates to another command or skill.
+
+## Artifact names and local artifacts
+
+An artifact's name is its file name without a leading `.`, `.md` and a trailing `.local`; a skill's is its directory name without the leading `.` and the trailing `.local`. `backend.md`, `.backend.md` and `backend.local.md` are all the rule `backend`, `deploy.local/` is the skill `deploy`, and every generated copy carries the name: `.claude/rules/backend.md`, `.cursor/rules/backend.mdc`, `.claude/skills/deploy/`. A leading dot means nothing — a dotfile source renders like any other.
+
+Names stay unique. Across sources the later source's artifact renders and the earlier one does not, in `AGENTS.md` as in every tool's output; a skill a later source overrides is replaced whole, resources included. Sync refuses two artifacts with one name in one source directory (`backend.md` beside `.backend.md`), and a local and a non-local artifact with one name anywhere in the sources: a local file that overrode or yielded to a committed one would change what committed output holds.
+
+A **local** artifact is personal or machine-specific guidance — the OS, the shell, a local service, a personal habit — that only this clone loads: a rule or agent named `*.local.md`, or a skill directory named `*.local/`. `intelligence init` writes the matching patterns, for the project's content directory, into its managed `.gitignore` block, so Git and sync agree on which files are local:
+
+```gitignore
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
+```
+
+Sync renders a local artifact only into outputs Git ignores, and never into one it tracks: not `AGENTS.md`, not OpenCode's slash commands, not Copilot's output under `commit_output: true`. A clone without the file therefore renders the same committed files, and `intelligence sync --check` passes in CI. A local always-on rule reaches Claude Code only, because every other tool reads always-on rules from `AGENTS.md`; local scoped rules, agents and skills reach every enabled tool. `intelligence status --check` reports a missing pattern, and `intelligence init` restores it.
 
 ## Agent conventions
 
@@ -354,7 +370,12 @@ By default, commit the manifest, lock, project-owned content and `AGENTS.md`. Ig
 # CLI-managed package store
 .intelligence/
 
-# Local root instructions migrate into project rules; local preferences stay ignored
+# Local rules, agents and skills of the content directory stay on this machine
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
+
+# Root tool instructions migrate into project rules and stay ignored
 CLAUDE.md
 .cursorrules
 GEMINI.md
@@ -430,9 +451,10 @@ than inferring contents from Git status.
 move useful repository guidance from legacy root files such as `.cursorrules`
 and instruction-bearing `CLAUDE.md` out of their quarantined backup copies and
 into project-owned rules, then verify the generated tool output. Do not restore
-the original root monolith. Create a new root tool-specific file only when it
-contains genuinely local configuration that an adapter cannot represent; keep
-that exception gitignored rather than maintaining a second committed source.
+the original root monolith. Genuinely machine-local guidance becomes a local
+rule, agent or skill (see
+[Artifact names and local artifacts](#artifact-names-and-local-artifacts)), not
+a new root tool-specific file.
 
 Before the first render, `intelligence init` preserves existing AI prompt paths
 under `<content-dir>/_backup/`. Its `manifest.tsv` labels the snapshot
@@ -496,6 +518,7 @@ Callers capture the real code with `command || rc=$?`. Do not use `if ! command;
 | `intelligence.yaml` | Manifest and schema contract | Tracked |
 | `intelligence.lock` | Resolved package state | Tracked |
 | `<content-dir>/{rules,agents,skills,adapters}/` | Project source of truth | Tracked |
+| `<content-dir>/{rules,agents}/*.local.md`, `<content-dir>/skills/*.local/` | Local artifacts, this clone only | Ignored |
 | `.intelligence/` | Restorable package store | Ignored |
 | `AGENTS.md` | Generated canonical project context | Normally tracked |
 | Tool output directories | Generated native content | Built-in adapter-owned paths ignored; shared settings tracked |

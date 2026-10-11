@@ -83,19 +83,13 @@ sync_codex_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents codex "$IS_OUTPUT_REL/{}.toml"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#files[@]}" -gt 0 ]; then
@@ -103,8 +97,7 @@ sync_codex_agents() {
 
         local path tier access description effort name sandbox spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path tier access description effort; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             resolve_model_var "$tier"
             map_effort_var codex "$effort"
             case "$access" in

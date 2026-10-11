@@ -46,6 +46,19 @@ then reaches the adapter as fewer files, which renders an incomplete output that
 reports `IS_STATUS=ok`. Assemble in the current shell and check every pipeline that
 feeds it.
 
+Every renderer — `AGENTS.md`, each built-in adapter, the adapter template — reads
+sources through `source_artifacts_var`, never a glob of its own (decision 0021).
+`source_catalog_build` settles, once per run and before any output is touched, what
+each artifact is called (no leading `.`, `.md` or trailing `.local`), which of two
+same-named artifacts renders (the later source's), and refuses two of one name in
+one directory or a local and a non-local one anywhere. A local artifact
+(`*.local.md`, a `*.local/` skill) reaches only an output path its adapter's
+contract ignores, so an adapter passes the real path it writes: one that globs
+sources itself, or names a path it does not write, can put a teammate's local file
+into a committed output. Only a catalog holding a local artifact makes the engine
+read contracts with the manifest; every other sync keeps decision 0020's
+ownership-only read.
+
 ## Rule routing
 
 Always-on rules are inlined once into `AGENTS.md`. Cursor, Copilot, Codex, Pi and
@@ -88,15 +101,14 @@ files live there. A full sync is transactional across every selected adapter pat
 A symlink in a skills source renders as the file or directory it points at while it
 stays inside that source, and is left out with a `WARNING:` line otherwise; no
 generated tree holds a link (decision 0017). `skill_source_inventory` settles every
-link once per run, and every skill tree takes its answer: `copy_skill_bundle` applies
-its plan, and an adapter that globs a skills source filters with
-`skill_source_rendered`.
+link once per run, and every skill tree takes its answer: the catalog lists only the
+skills it renders, and `copy_skill_bundle` applies its plan.
 
 A per-file loop never spawns a process per file: on Git Bash for Windows one fork
 costs tens of milliseconds, so per-file awk/cp/mv turned large projects into
 minutes of pure process creation. Batch the loop through the helpers built for
-this — `finalize_output_files`, `finalize_copy_files`, `frontmatter_index`,
-`emit_wrapped_bodies`, `copy_skill_bundle_dirs` / `copy_skill_bundle_dirs_for`,
+this — `finalize_output_files`, `finalize_copy_named`, `frontmatter_index`,
+`emit_wrapped_bodies`, `copy_skill_bundle_dirs_named` / `copy_skill_bundle_dirs_for`,
 `lint_frontmatter_files` — and read the manifest through `load_yaml_lists` /
 `load_yaml_list` / the targets cache so a section is parsed once per run. The
 single-file forms remain for cold paths and project adapters.
@@ -106,11 +118,11 @@ takes has a `_var` form that returns through a variable — `read_schema_version
 `engine_version_var`, `get_model_default_var`, `map_effort_var`,
 `agents_output_path_var`, `count_matching_files`, `load_model_tiers` — and callers
 there use it; the printing form wraps it, so there is still one parser.
-`read_source_artifact_files` runs its `find | sort` once per section and replays
-the answer to later callers while the engine sets `IS_SOURCE_FILES_MEMO`, which
-is safe only because no output may land in a source. Adapters that list sources
-with in-shell globs spawn nothing; moving them onto the helper would change their
-locale-ordered listing to byte order.
+`read_source_artifact_files` runs its `find | sort` once per section, and the
+catalog is built once from it, while the engine sets `IS_SOURCE_FILES_MEMO`; every
+later `source_artifacts_var` replays it without a process, which is safe only
+because no output may land in a source. The catalog's routing fields come from the
+same awk pass that lints every source.
 
 Built-in adapters render concurrently (decision 0011): the plan comes from the
 contract, so the contract has to tell the truth about order. Adapters whose

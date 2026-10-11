@@ -141,22 +141,23 @@ The engine has already loaded `engine/lib/common.sh` before it sources the adapt
 
 `sources.rules`, `sources.agents` and `sources.skills` contain repo-relative directory paths. Packages have already been resolved, fetched and pinned by the CLI, so package content appears as an ordinary path under `.intelligence/packages/`. The manifest may name a package's directory by the package's full name or alias instead; `read_yaml_list` and `load_yaml_list` hand an adapter the store path either way, and leave out a reference that names nothing, so an adapter reads every source the same way. Adapters never perform network access or parse `packages:`.
 
-Iterate a source section in manifest order:
+Read a section through the source catalog, never with a glob of your own. `AGENTS.md`, every built-in adapter and the template read it the same way (decision 0021):
 
 ```bash
-while IFS= read -r src; do
-    [ -n "$src" ] || continue
-    dir="$(resolve_source_dir "$repo_root" "$src")"
-    [ -d "$dir" ] || continue
-
-    for file in "$dir"/*.md; do
-        [ -f "$file" ] || continue
-        # transform file
-    done
-done < <(read_yaml_list "$config_file" "rules")
+output_rel_var "$repo_root" "$output_dir"
+source_artifacts_var "$repo_root" "$config_file" rules mytool "$IS_OUTPUT_REL/rules/{}.md"
+for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+    # IS_SOURCE_FILES[i] is the source, IS_SOURCE_NAMES[i] its rendered name,
+    # IS_SOURCE_SCOPED[i] is 1 for a rule with paths:
+    :
+done
 ```
 
-Later sources intentionally overwrite same-named artifacts from earlier sources. Package sources are wired before project sources, so project content can override a package artifact by name.
+The last argument is the repository-relative path an artifact lands at, `{}` standing for its name. The catalog lists sources in manifest order and each directory's entries in byte order, and settles three things before any adapter runs:
+
+- **Names.** An artifact is named by its file name without a leading `.`, `.md` and a trailing `.local`, a skill by its directory name without the leading `.` and `.local`: `.draft.md` renders as `draft`, `deploy.local/` as `deploy/`. Write each output under `IS_SOURCE_NAMES`, never under the source file name; `finalize_copy_named` and `copy_skill_bundle_dirs_named` take the `IS_SOURCE_NAME_MAP` the call leaves.
+- **Overrides.** Of two artifacts with one name, only the later source's is listed. Package sources are wired before project sources, so project content overrides a package artifact by name. Two of one name in one directory, or a local and a non-local one anywhere, refuse the sync before any adapter runs.
+- **Local artifacts.** A `*.local.md` rule or agent and a `*.local/` skill are listed only for an output path no `ignore` record of your contract covers — what Git tracks never holds one. That is why the path must be the real one: an adapter that globs sources itself, or names a path it does not write, can put a teammate's local file into a committed output.
 
 ## Shared functions
 
@@ -164,6 +165,10 @@ Use the engine library instead of copying parsers or file-handling logic.
 
 | Function | Purpose |
 |---|---|
+| `source_artifacts_var(root, config, section, adapters, output)` | The artifacts of a section that render for one of `adapters` at `output` (`{}` is the name): `IS_SOURCE_FILES`, `IS_SOURCE_NAMES`, `IS_SOURCE_SCOPED`, `IS_SOURCE_IN_AGENTS`, `IS_SOURCE_NAME_MAP`. |
+| `output_rel_var(root, output_dir)` | The output's repository-relative path in `IS_OUTPUT_REL`, as `source_artifacts_var` takes it. |
+| `finalize_copy_named(dest, map, src...)` | Copy-and-finalize every source into `dest` under its rendered name, in one process. |
+| `copy_skill_bundle_dirs_named(tool, dest_root, map, src...)` | `copy_skill_bundle_dirs_for` with each skill copied under its rendered name. |
 | `resolve_source_dir(repo_root, source)` | Resolve a manifest source to its local directory. |
 | `read_yaml_list(config, section)` | Stream entries from `sources.<section>`, package references as their store paths. |
 | `load_yaml_list(config, section)` | Same list into `IS_YAML_LIST`, cached — no subprocess on repeat reads. |
@@ -178,7 +183,6 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `copy_skill_bundle(src, dest)` | Copy `SKILL.md` and all resources safely, normalize Markdown, quote free-text frontmatter, and keep a valid `effort:` as written, as the shared skills tree does. |
 | `copy_skill_bundle_dirs(dest_root, src...)` | Batch form: copy every skill directory into `dest_root/<name>` with one copy and one finalize pass. |
 | `copy_skill_bundle_dirs_for(tool, dest_root, src...)` | The batch form for a tree one tool reads: `SKILL.md`'s `effort:` becomes that tool's level, or is removed when it has none. |
-| `skill_source_rendered(skill_dir)` | Whether sync renders a skill directory an adapter listed with its own glob; a skill left out for its symlinks fails it. |
 | `sync_open_skill_dirs(root, config, dest)` | Own and populate a shared Agent Skills directory such as `.agents/skills/`, deriving Codex's `agents/openai.yaml` for a skill with `disable-model-invocation: true`. |
 | `finalize_output_file(file)` | Expand layout tokens and normalize line endings; required for every emitted text file. |
 | `finalize_output_files(file...)` / `finalize_copy_files(dest, src...)` | Batch forms: finalize in place, or copy-and-finalize into a directory, in one process. |
@@ -242,7 +246,7 @@ copy_skill_bundle "$source_skill_dir" "$output_dir/skills/$skill_name"
 
 Do not use plain `cp` for skill bundles. `copy_skill_bundle` preserves non-Markdown assets, normalizes Markdown, expands layout tokens and quotes `description` and `argument-hint` where strict YAML readers require strings. It renders `effort:` as the shared tree does; a tree only one tool reads uses `copy_skill_bundle_dirs_for <tool>`, so the copy carries that tool's level or no effort at all. It never writes a symlink; how a link in a skills source renders is defined in [conventions](conventions.md#skill-body-and-resources).
 
-An adapter that lists a skills source with its own glob checks each directory with `skill_source_rendered`. A skill whose directory or `SKILL.md` is a link leaving its source is left out of every output, and sync has already warned about it once.
+`source_artifacts_var ... skills` lists only the skills sync renders: one whose directory or `SKILL.md` is a link leaving its source is left out of every output, and sync has already warned about it once. Copy them with `copy_skill_bundle_dirs_named` and the call's `IS_SOURCE_NAME_MAP`, so `deploy.local/` lands as `deploy/`.
 
 Antigravity, Codex, Pi and OpenCode share `.agents/skills/`. Any adapter writing that open-standard directory must call `sync_open_skill_dirs`; it is the single lifecycle owner for immediate skill subdirectories.
 
@@ -308,21 +312,16 @@ This example copies rules without frontmatter. A real adapter must decide how th
 #!/bin/bash
 
 sync_mytool_rules() {
-    local repo_root="$1" config_file="$2" output_dir="$3"
+    local repo_root="$1" config_file="$2" output_dir="$3" i out
     mkdir -p "$output_dir/rules"
 
-    while IFS= read -r src; do
-        [ -n "$src" ] || continue
-        local dir
-        dir="$(resolve_source_dir "$repo_root" "$src")"
-        [ -d "$dir" ] || continue
-
-        for file in "$dir"/*.md; do
-            [ -f "$file" ] || continue
-            strip_frontmatter "$file" > "$output_dir/rules/$(basename "$file")"
-            finalize_output_file "$output_dir/rules/$(basename "$file")"
-        done
-    done < <(read_yaml_list "$config_file" "rules")
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules mytool "$IS_OUTPUT_REL/rules/{}.md"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        out="$output_dir/rules/${IS_SOURCE_NAMES[i]}.md"
+        strip_frontmatter "${IS_SOURCE_FILES[i]}" > "$out"
+        finalize_output_file "$out"
+    done
 }
 
 adapter_contract_mytool() {
@@ -352,6 +351,7 @@ Verify:
 
 - native file names, frontmatter and model/permission mappings;
 - scoped and always-on routing without duplicated context;
+- a dotfile or `*.local.md` source renders under its name, and a local one only into outputs the contract ignores;
 - skill resources are present;
 - no literal layout tokens remain;
 - hand-authored siblings under the tool root survive;

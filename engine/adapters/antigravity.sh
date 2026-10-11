@@ -95,30 +95,16 @@ sync_antigravity_rules() {
     antigravity_rule_limit "$config_file" || return 1
     rule_limit="$IS_AG_RULE_LIMIT"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-
     # Skip always-on rules: AGENTS.md (canonical) carries them.
-    local path hp base
-    local -a scoped=()
-    if [ "${#files[@]}" -gt 0 ]; then
-        while IFS=$'\x1f' read -r path hp; do
-            [ -n "$path" ] || continue
-            [ "$hp" -eq 0 ] && continue
-            scoped+=("$path")
-        done < <(frontmatter_index "paths#" "${files[@]}")
-    fi
+    local i
+    local -a scoped=() scoped_names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules antigravity "$IS_OUTPUT_REL/rules/{}.md"
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        [ "${IS_SOURCE_SCOPED[i]}" = 1 ] || continue
+        scoped+=("${IS_SOURCE_FILES[i]}")
+        scoped_names+=("${IS_SOURCE_NAMES[i]}")
+    done
     if [ "${#scoped[@]}" -eq 0 ]; then
         echo "  -> Rules: 0 scoped (AGENTS.md carries always-on)"
         return 0
@@ -133,7 +119,7 @@ sync_antigravity_rules() {
     # limit check costs no extra process.
     local overflow
     is_fin_awk_vars
-    overflow="$(awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" -v limit="$rule_limit" "$IS_AWK_LIB"'
+    overflow="$(IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" -v limit="$rule_limit" "$IS_AWK_LIB"'
         function emit(line,   rendered) {
             rendered = fin_line(line)
             print rendered > out
@@ -141,7 +127,7 @@ sync_antigravity_rules() {
         }
         FNR == 1 {
             if (out != "") close(out)
-            out = dst "/" base_name(FILENAME)
+            out = dst "/" art_file(FILENAME, ".md")
             chars[out] = 0
             fm = 0
         }
@@ -169,9 +155,8 @@ sync_antigravity_rules() {
         echo "WARNING: Antigravity limits a rule file to $rule_limit characters: ${over_file#"$repo_root/"} renders $over_chars; split the rule, shorten it, set targets.antigravity.warn_rule_limit to the effective limit, or set it to false to disable this warning." >&2
     done <<< "$overflow"
 
-    for f in "${scoped[@]}"; do
-        base="${f##*/}"
-        echo "  rule: $base (scoped)"
+    for ((i = 0; i < ${#scoped_names[@]}; i++)); do
+        echo "  rule: ${scoped_names[i]}.md (scoped)"
     done
     echo "  -> Rules: ${#scoped[@]} scoped"
 }
@@ -181,19 +166,13 @@ sync_antigravity_agents() {
     local config_file="$2"
     local agents_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$agents_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents antigravity "$IS_OUTPUT_REL/{}.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     local count=0
     if [ "${#files[@]}" -gt 0 ]; then
@@ -201,8 +180,7 @@ sync_antigravity_agents() {
 
         local path tier access description name spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path tier access description; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             resolve_model_var "$tier"
 
             local header

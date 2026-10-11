@@ -115,40 +115,17 @@ done <<< "${IS_YL_UNRESOLVED:-}"
 
 
 # Sources stay read-only for the whole run (validate_output_path refuses an
-# output inside one), so read_source_artifact_files enumerates each section
-# once, in this shell, and its later callers — the agents adapter, the shared
-# skill directory, the context report — replay it. Adapters that list sources
-# with in-shell globs spawn nothing and keep their own, locale-ordered listing.
-# The skills pass also settles every symlink in a skills source and warns once
-# about each it leaves out (decision 0017).
+# output inside one), so the source catalog is built once, in this shell, and
+# every renderer replays it: AGENTS.md, every adapter, the shared skill
+# directory and the context report read sources through source_artifacts_var
+# (decision 0021). Building it names every artifact, settles which of a name
+# renders, refuses ambiguous names before any output is touched, settles every
+# symlink in a skills source (decision 0017), and lints the frontmatter of every
+# source — skills as the inventory renders them: SKILL.md behind a link inside
+# its source is linted, one that leaves its source is never read.
 # shellcheck disable=SC2034  # read by read_source_artifact_files in lib/common.sh
 IS_SOURCE_FILES_MEMO=1
-for section in rules agents skills; do
-    read_source_artifact_files "$REPO_ROOT" "$CONFIG_FILE" "$section"
-done
-
-# Lint frontmatter across all source files (rules, agents, skills).
-# Catches issues like unquoted colons that strict YAML consumers reject.
-# Skills are the rendered ones the pass above settled: SKILL.md behind a link
-# inside its source is linted, one that leaves its source is never read.
-LINT_FILES=()
-LINT_SKILLS=()
-[ "${#IS_SOURCE_FILES[@]}" -eq 0 ] || LINT_SKILLS=("${IS_SOURCE_FILES[@]}")
-for section in rules agents; do
-    load_yaml_list "$CONFIG_FILE" "$section"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        src_dir="$REPO_ROOT/$src"
-        [ -d "$src_dir" ] || continue
-        for f in "$src_dir"/*.md; do
-            [ -f "$f" ] && LINT_FILES+=("$f")
-        done
-    done <<< "$IS_YAML_LIST"
-done
-[ "${#LINT_SKILLS[@]}" -eq 0 ] || LINT_FILES+=("${LINT_SKILLS[@]}")
-if [ "${#LINT_FILES[@]}" -gt 0 ]; then
-    lint_frontmatter_files "${LINT_FILES[@]}"
-fi
+source_catalog_build "$REPO_ROOT" "$CONFIG_FILE" lint
 
 # Adapters come from two places, discovered by filename (minus `.sh`,
 # `_template` excluded):
@@ -377,6 +354,17 @@ note_agents_dependent() {
 }
 SELECTED_RECORDS=()
 RENDER_PARALLEL="$SYNC_PARALLEL"
+# What a source may render into depends on Git policy only when the catalog
+# holds a local artifact: then every contract is read with the manifest, which
+# may choose that policy (targets.copilot.commit_output), and its ignore and
+# include records become IS_COMMIT_POLICY. Every other sync reads ownership
+# alone, as decision 0020 keeps it (decision 0021).
+policy_manifest=""
+[ "$IS_CAT_NEED_COMMITTED" != 1 ] || policy_manifest="$CONFIG_FILE"
+IS_COMMIT_POLICY=""
+# The tools that read .agents/skills/, by their contracts: a skill lands there
+# when it is for any of them.
+IS_OPEN_SKILLS_READERS=""
 preflight_idx=0
 while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     adapter="${ADAPTERS[$preflight_idx]}"
@@ -387,13 +375,24 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     target_output_var "$CONFIG_FILE" "$adapter"
     output="$IS_TGT_OUTPUT"
     [ -n "$output" ] || output=".$adapter"
-    records="$(adapter_contract_records "$adapter" "$adapter_file" "$output")" || exit 1
+    records="$(adapter_contract_records "$adapter" "$adapter_file" "$output" "$policy_manifest")" || exit 1
 
     if ! adapter_claims_add_records "$adapter" "$records"; then
         echo "ERROR: $IS_ADAPTER_CLAIM_CONFLICT." >&2
         echo "       Give each adapter its own output: intelligence adapter list" >&2
         exit 1
     fi
+    while IFS=$'\t' read -r kind value; do
+        case "$kind" in
+            ignore|include) IS_COMMIT_POLICY="$IS_COMMIT_POLICY$adapter"$'\t'"$kind"$'\t'"$value"$'\n' ;;
+            owned|managed)
+                adapter_contract_rel_path "$value"
+                if [ "$IS_ADAPTER_REL_PATH" = ".agents/skills" ]; then
+                    IS_OPEN_SKILLS_READERS="$IS_OPEN_SKILLS_READERS${IS_OPEN_SKILLS_READERS:+ }$adapter"
+                fi
+                ;;
+        esac
+    done <<< "$records"
 
     if [ -n "$TARGET_FILTER" ] && [ "$adapter" != "$TARGET_FILTER" ]; then
         # Not selected: its claims are registered, its output is not touched.
@@ -428,6 +427,8 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
         esac
     done <<< "$records"
 done
+# shellcheck disable=SC2034  # read by output_committed in lib/common.sh
+[ -z "$policy_manifest" ] || IS_COMMIT_POLICY_SET=1
 
 # Every adapter that requires `agents` skips always-on rules because AGENTS.md
 # carries them — and each of those tools reads AGENTS.md at the workspace root

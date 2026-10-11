@@ -52,7 +52,8 @@ targets:
   agents: { enabled: true, output: "AGENTS.md" }
 EOF
 printf '# Ctx\n\nproject context\n' > "$PROJ/intelligence/rules/context.md"
-printf '.intelligence/\n' > "$PROJ/.gitignore"
+printf '%s\n' .intelligence/ 'intelligence/rules/*.local.md' 'intelligence/agents/*.local.md' \
+    'intelligence/skills/*.local/' > "$PROJ/.gitignore"
 git -C "$PROJ" init --quiet
 
 echo '== install the package at v1.0.0 =='

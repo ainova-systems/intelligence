@@ -111,6 +111,9 @@ MANIFEST
     printf '# Ctx\n\nCOMPAT_MARKER\n' > "$d/intelligence/rules/context.md"
     cat > "$d/.gitignore" <<'IGNORE'
 .intelligence/
+intelligence/rules/*.local.md
+intelligence/agents/*.local.md
+intelligence/skills/*.local/
 CLAUDE.md
 .claude/*
 !.claude/settings.json

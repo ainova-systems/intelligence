@@ -75,7 +75,10 @@ and toggling adapters and explains the generated-output version-control
 choices. Installing the starter package before learning lets repository
 analysis detect overlap with package-owned content. The CLI ignores restorable adapter-owned output while keeping
 `AGENTS.md`, hand-written `.github/` files, and shared tool settings trackable;
-`targets.copilot.commit_output: true` keeps Copilot's output tracked too. The exact patterns
+`targets.copilot.commit_output: true` keeps Copilot's output tracked too. It also
+ignores the local artifacts of the content directory — `<content-dir>/rules/*.local.md`,
+`<content-dir>/agents/*.local.md` and `<content-dir>/skills/*.local/` — which sync renders
+only into ignored output (decision 0021). The exact patterns
 are listed in the [artifact conventions](../packages/sync/references/conventions.md#generated-output-and-version-control).
 When `.vscodeignore`, `.npmignore`, or `.dockerignore` already exists, init
 also adds packaging exclusions for Intelligence development context and
@@ -104,6 +107,17 @@ For Intelligence projects, sync performs lifecycle preflight before rendering:
 
 A filtered adapter must be enabled explicitly; naming it does not bypass target
 state. Project adapters without a valid contract are refused before sync.
+
+Every renderer reads sources through one catalog (decision 0021). An artifact is
+named by its file or skill directory name without a leading `.`, `.md` and a
+trailing `.local`; of two with one name, the later source's renders everywhere,
+`AGENTS.md` included. Sync refuses, before any output is touched, two artifacts
+with one name in one directory and a local and a non-local artifact with one
+name anywhere. A local artifact (`*.local.md`, `*.local/`) renders only into
+outputs its adapter's contract ignores, so committed files are the same in every
+clone. Only a sync whose sources hold a local artifact reads the contracts with
+the manifest, which `targets.copilot.commit_output` needs; see the
+[artifact conventions](../packages/sync/references/conventions.md#artifact-names-and-local-artifacts).
 
 Built-in adapters render concurrently where their contracts allow it: adapters
 that share a managed directory run in order together, and an adapter that
@@ -232,7 +246,7 @@ It answers in one of two ways:
   the exact answer.
 - **By rendering.** Without a usable record — none yet, damaged, from an older
   CLI, or made by other code or in another environment (a different `PATH` is
-  enough) � the engine renders in a private project copy, compares every owned
+  enough) � the engine renders in a private project copy, compares every owned
   and managed path with its snapshot, and discards the copy. The live project's
   bytes, modification times and concurrent edits stay untouched. Names, entry
   kinds, link targets, bytes and executable bits count; nested generated links
@@ -426,7 +440,9 @@ that require trusted lock rows.
 manifest/lock divergence, missing package content, a package holding a commit
 other than the locked one or recording none, stale schema/content, invalid
 sources — a [package reference](#package-references) that names nothing
-included — or an alias that is malformed or that two packages declare. Each
+included — or an alias that is malformed or that two packages declare, and for
+a managed `.gitignore` pattern that is missing: an adapter's, or one of the three
+local artifact patterns of the content directory. Each
 package line reports the commit the store holds. Frozen store
 restoration verifies the locked commit SHA.
 

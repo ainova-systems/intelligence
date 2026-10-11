@@ -41,29 +41,16 @@ sync_cursor_rules() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-    [ "${#files[@]}" -gt 0 ] || return 0
-
+    local i
+    local -a scoped=() scoped_names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" rules cursor "$IS_OUTPUT_REL/rules/{}.mdc"
     # Skip always-on rules: AGENTS.md (canonical) carries them.
-    local path hp base
-    local -a scoped=()
-    while IFS=$'\x1f' read -r path hp; do
-        [ -n "$path" ] || continue
-        [ "$hp" -eq 0 ] && continue
-        scoped+=("$path")
-    done < <(frontmatter_index "paths#" "${files[@]}")
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        [ "${IS_SOURCE_SCOPED[i]}" = 1 ] || continue
+        scoped+=("${IS_SOURCE_FILES[i]}")
+        scoped_names+=("${IS_SOURCE_NAMES[i]}")
+    done
     [ "${#scoped[@]}" -gt 0 ] || return 0
 
     # Path-scoped rule -> Auto Attached (paths -> globs). The rewrite is
@@ -71,12 +58,10 @@ sync_cursor_rules() {
     # with `paths:` (a rule documenting rule syntax does exactly that), and
     # rewriting it would corrupt the text it teaches.
     is_fin_awk_vars
-    awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+    IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
         FNR == 1 {
             if (out != "") close(out)
-            nm = base_name(FILENAME)
-            sub(/\.md$/, ".mdc", nm)
-            out = dst "/" nm
+            out = dst "/" art_name(FILENAME) ".mdc"
             fm = 0
         }
         { sub(/\r$/, "") }
@@ -90,9 +75,8 @@ sync_cursor_rules() {
         fm == 1 { sub(/^paths:/, "globs:") }
         { print fin_line($0) > out }
     ' "${scoped[@]}"
-    for f in "${scoped[@]}"; do
-        base="${f##*/}"; base="${base%.md}"
-        echo "  rule: $base.mdc (scoped)"
+    for ((i = 0; i < ${#scoped_names[@]}; i++)); do
+        echo "  rule: ${scoped_names[i]}.mdc (scoped)"
     done
 }
 
@@ -102,29 +86,19 @@ sync_cursor_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src d skill_name
+    local i name
     local -a skill_dirs=()
-    # The inventory decides which skills render, symlinked ones included
-    # (decision 0017); the glob keeps this adapter's own listing order.
-    skill_source_inventory "$repo_root" "$config_file"
-    load_yaml_list "$config_file" "skills"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for d in "$dir"/*/; do
-            [ -d "$d" ] || continue
-            [ -f "$d/SKILL.md" ] || continue
-            skill_source_rendered "$d" || continue
-            skill_dirs+=("$d")
-        done
-    done <<< "$list"
-    [ "${#skill_dirs[@]}" -gt 0 ] || return 0
-    copy_skill_bundle_dirs_for cursor "$output_dir/skills" "${skill_dirs[@]}"
-    for d in "${skill_dirs[@]}"; do
-        skill_name="${d%/}"
-        echo "  skill: ${skill_name##*/}"
+    # The catalog's skills are the ones the inventory renders, symlinked ones
+    # included (decision 0017).
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" skills cursor "$IS_OUTPUT_REL/skills/{}"
+    [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+        skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
+    done
+    copy_skill_bundle_dirs_named cursor "$output_dir/skills" "$IS_SOURCE_NAME_MAP" "${skill_dirs[@]}"
+    for name in "${IS_SOURCE_NAMES[@]}"; do
+        echo "  skill: $name"
     done
 }
 
@@ -134,37 +108,32 @@ sync_cursor_agents() {
     local config_file="$2"
     local output_dir="$3"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-    [ "${#files[@]}" -gt 0 ] || return 0
+    local i
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$output_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents cursor "$IS_OUTPUT_REL/agents/{}.md"
+    [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
+    files=("${IS_SOURCE_FILES[@]}")
+    names=("${IS_SOURCE_NAMES[@]}")
+    local name_map="$IS_SOURCE_NAME_MAP"
 
     load_model_tiers "$config_file" "cursor"
 
     local path tier access spec="" report="" cursor_readonly
+    i=0
     while IFS=$'\x1f' read -r path tier access; do
-        [ -n "$path" ] || continue
         resolve_model_var "$tier"
         cursor_readonly=""
         [ "$access" = "readonly" ] && cursor_readonly="readonly: true"
         spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$cursor_readonly"$'\n'
-        report+="  agent: ${path##*/} (tier=$tier -> cursor)"$'\n'
+        report+="  agent: ${names[i]}.md (tier=$tier -> cursor)"$'\n'
+        i=$((i + 1))
     done < <(frontmatter_index "tier,access" "${files[@]}")
 
     # Always emit model: line (even when value matches Cursor's default)
     # so config is explicit and grep-able.
     is_fin_awk_vars
-    IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
+    IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
             US = sprintf("%c", 31)
             n = split(ENVIRON["IS_MAP_SPEC"], recs, "\n")
@@ -176,7 +145,7 @@ sync_cursor_agents() {
         }
         FNR == 1 {
             if (out != "") close(out)
-            out = dst "/" base_name(FILENAME)
+            out = dst "/" art_file(FILENAME, ".md")
             count = 0
             fm = 0
         }
@@ -194,8 +163,8 @@ sync_cursor_agents() {
         }
         { print fin_line($0) > out }
     ' "${files[@]}"
-    for f in "${files[@]}"; do
-        [ -s "$f" ] || : > "$output_dir/agents/${f##*/}"
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        [ -s "${files[i]}" ] || : > "$output_dir/agents/${names[i]}.md"
     done
     printf '%s' "$report"
 }

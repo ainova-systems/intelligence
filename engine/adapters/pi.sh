@@ -98,38 +98,28 @@ sync_pi_rules() {
 
     mkdir -p "$rules_root" "$(dirname "$extension_file")"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "rules"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
-
-    local -a scoped=()
-    if [ "${#files[@]}" -gt 0 ]; then
-        local path hp
-        while IFS=$'\x1f' read -r path hp; do
-            [ -n "$path" ] || continue
-            [ "$hp" -eq 0 ] && continue
-            scoped+=("$path")
-        done < <(frontmatter_index "paths#" "${files[@]}")
-    fi
+    local -a scoped=() scoped_names=()
+    local k=0
+    output_rel_var "$repo_root" "$rules_root"
+    source_artifacts_var "$repo_root" "$config_file" rules pi "$IS_OUTPUT_REL/{}.md"
+    while [ "$k" -lt "${#IS_SOURCE_FILES[@]}" ]; do
+        if [ "${IS_SOURCE_SCOPED[k]}" = 1 ]; then
+            scoped+=("${IS_SOURCE_FILES[k]}")
+            scoped_names+=("${IS_SOURCE_NAMES[k]}")
+        fi
+        k=$((k + 1))
+    done
 
     if [ "${#scoped[@]}" -gt 0 ]; then
-        finalize_copy_files "$rules_root" "${scoped[@]}"
+        finalize_copy_named "$rules_root" "$IS_SOURCE_NAME_MAP" "${scoped[@]}"
 
         local -a row_arr
         local base rel_rule_path patterns_js display sep display_sep pat i
+        k=0
         while IFS=$'\x1f' read -r -a row_arr; do
             [ "${#row_arr[@]}" -gt 0 ] || continue
-            base="${row_arr[0]##*/}"
+            base="${scoped_names[k]}.md"
+            k=$((k + 1))
             rel_rule_path="$output_rel/intelligence-sync/rules/$base"
             patterns_js=""
             display=""
@@ -223,25 +213,18 @@ sync_pi_agents() {
 
     mkdir -p "$prompts_dir"
 
-    local src f
-    local -a files=()
-    load_yaml_list "$config_file" "agents"
-    local list="$IS_YAML_LIST"
-    while IFS= read -r src; do
-        [ -z "$src" ] && continue
-        local dir="$repo_root/$src"
-        [ -d "$dir" ] || continue
-        for f in "$dir"/*.md; do
-            [ -f "$f" ] || continue
-            files+=("$f")
-        done
-    done <<< "$list"
+    local -a files=() names=()
+    output_rel_var "$repo_root" "$prompts_dir"
+    source_artifacts_var "$repo_root" "$config_file" agents pi "$IS_OUTPUT_REL/intelligence-agent-{}.md"
+    if [ "${#IS_SOURCE_FILES[@]}" -gt 0 ]; then
+        files=("${IS_SOURCE_FILES[@]}")
+        names=("${IS_SOURCE_NAMES[@]}")
+    fi
 
     if [ "${#files[@]}" -gt 0 ]; then
         local path desc access name template_desc spec="" report="" LS=$'\x1e'
         while IFS=$'\x1f' read -r path desc access; do
-            [ -n "$path" ] || continue
-            name="${path##*/}"; name="${name%.md}"
+            name="${names[count]}"
             repo_rel_link_var "$repo_root" "$path"
 
             template_desc="Use $name persona"

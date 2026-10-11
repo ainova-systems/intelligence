@@ -356,7 +356,8 @@ manifest="$root/intelligence.yaml"
 } > "$manifest"
 
 # The package store is restorable state, never committed — the npm model.
-ensure_base_gitignore "$root"
+# Local rules, agents and skills stay on this machine (decision 0021).
+ensure_base_gitignore "$root" "$content_dir"
 for target in $targets; do
     ensure_target_gitignore "$root" "$manifest" "$target"
 done

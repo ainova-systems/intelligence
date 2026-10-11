@@ -29,8 +29,10 @@ from the distributed sync package. Consumers retain the public CLI and adapter g
    Keep output within validated destinations and preserve hand-authored siblings.
 
 4. Update built-in discovery/defaults and dependency declarations where the engine
-   rules require them. Reuse batched source enumeration, finalization, skill-bundle,
-   and shared-output helpers from the closest built-in. Correct ignore policy in
+   rules require them. Read every source through `source_artifacts_var` with the
+   real output path, never a glob of the adapter's own, and write each output under
+   its rendered name; reuse the finalization, skill-bundle and shared-output
+   helpers from the closest built-in. Correct ignore policy in
    the contract rather than hand-editing generated policy. Resolve movable fixture
    paths from its manifest; implementation remains in source, never generated output.
 
