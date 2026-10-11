@@ -10,6 +10,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - Local rules, agents and skills: a `*.local.md` rule or agent and a `*.local/` skill directory in the content directory render only into outputs Git ignores, never into `AGENTS.md` or another tracked output, so every clone and CI render the same committed files; `.environment.local.md` renders as `environment` (decision 0021).
 - `intelligence init` writes `<content-dir>/rules/*.local.md`, `<content-dir>/agents/*.local.md` and `<content-dir>/skills/*.local/` into the managed `.gitignore` block, and `status --check` reports one missing.
+- `status --check` names a rule, agent or skill with a local name that Git tracks in any project-owned source: `.gitignore` never applies to a tracked file, so Git would share what sync renders only into ignored output.
 - `targets:` and `exclude_targets:` in a rule's, agent's or `SKILL.md`'s frontmatter select the adapters it renders for: adapter ids and the group `committed` (every output Git tracks), in the list syntax `paths:` takes. `targets: []` renders nowhere, an unknown id or a local artifact naming a committed output refuses the sync, and both fields are removed from every generated copy (decision 0021).
 - An always-on rule `AGENTS.md` does not carry — a local one, or one whose targets leave `agents` out — reaches each tool through its own channel: Cursor `.mdc` with `alwaysApply: true`, Copilot `.instructions.md` with `applyTo: "**"`, Antigravity `trigger: always_on`, Pi's rules extension, and Codex `AGENTS.override.md`, which holds all of `AGENTS.md` plus those rules, is ignored, and exists only while such a rule does (decision 0021).
 - Sync prints a `WARNING:` line when `AGENTS.md` or `.agents/skills/` delivers a local or targeted artifact to an enabled tool outside its targets, and when a tool in its targets has no channel for it — OpenCode for an always-on rule outside `AGENTS.md`.
@@ -30,6 +31,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Breaking
 
 - [ ] No source directory holds two artifacts whose names differ only by a leading `.` or a trailing `.local`, and no artifact name is both local and committed across the sources: `intelligence sync` succeeds.
+- [ ] No file Git tracks in a project source is a rule or agent named `*.local.md` or a skill directory named `*.local/`: such a file now renders only into ignored output and leaves `AGENTS.md`. Rename it to keep it shared, or `git rm --cached` it to keep it on one machine.
 - [ ] The CLI-managed block of `.gitignore` lists `<content-dir>/rules/*.local.md`, `<content-dir>/agents/*.local.md` and `<content-dir>/skills/*.local/`, and `AGENTS.override.md` when Codex is enabled — run `intelligence init` to apply it.
 - [ ] `intelligence status --check` exits 0.
 

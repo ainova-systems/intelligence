@@ -448,7 +448,9 @@ other than the locked one or recording none, stale schema/content, invalid
 sources — a [package reference](#package-references) that names nothing
 included — or an alias that is malformed or that two packages declare, and for
 a managed `.gitignore` pattern that is missing: an adapter's, or one of the three
-local artifact patterns of the content directory. Each
+local artifact patterns of the content directory; and for a file with a local
+name (`*.local.md`, a `*.local/` skill) that Git tracks in a project-owned
+source. Each
 package line reports the commit the store holds. Frozen store
 restoration verifies the locked commit SHA.
 

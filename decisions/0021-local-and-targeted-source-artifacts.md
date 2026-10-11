@@ -38,7 +38,10 @@ later source win.
    holds, so Git and the engine cannot disagree about which file is local:
    `init` writes `<content-dir>/rules/*.local.md`,
    `<content-dir>/agents/*.local.md` and `<content-dir>/skills/*.local/` to the
-   managed block, beside `.intelligence/`.
+   managed block, beside `.intelligence/`. A pattern never applies to a file
+   Git already tracks, and a source outside the content directory has none, so
+   `status --check` names every tracked file with a local name in a
+   project-owned source.
 2. **A name is the file name without a leading `.`, `.md` and a trailing
    `.local`.** `.environment.local.md` and `environment.local.md` are the local
    rule `environment`; `.local.md` is the local rule `local`; `.draft.md` is the

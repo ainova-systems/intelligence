@@ -90,6 +90,22 @@ for word in environment scoped helper deploy LOCAL_; do
 done
 is "work tree after sync" "" "$(git -C "$P" status --porcelain)"
 
+echo "== status --check names a tracked file with a local name =="
+# .gitignore never applies to a tracked file, so Git would share what the
+# engine renders as local.
+run "$P" status --check
+is "status --check with untracked local artifacts" 0 "$RC"
+git -C "$P" add -f intelligence/rules/.environment.local.md intelligence/skills/deploy.local
+run "$P" status --check
+is "status --check with tracked local artifacts" 1 "$RC"
+chk grep -Fq 'intelligence/rules/.environment.local.md is tracked by Git' "$LOG"
+chk grep -Fq 'intelligence/skills/deploy.local/ is tracked by Git' "$LOG"
+chknot grep -Fq 'notes.md is tracked' "$LOG"
+chknot grep -Fq 'scoped.local.md is tracked' "$LOG"
+git -C "$P" rm -q -r --cached intelligence/rules/.environment.local.md intelligence/skills/deploy.local
+run "$P" status --check
+is "status --check once they are untracked" 0 "$RC"
+
 echo "== local artifacts reach ignored outputs under their names =="
 for f in .claude/rules/environment.md .claude/rules/scoped.md .claude/agents/helper.md \
     .claude/skills/deploy/SKILL.md .claude/skills/deploy/references/notes.md .cursor/rules/scoped.mdc \
@@ -165,6 +181,17 @@ chk grep -Fq 'intelligence/rules/.environment.local.md' "$LOG"
 chk grep -Fq 'one local and one not' "$LOG"
 is "outputs after the cross-source refusal" "$before" "$(snapshot "$P")"
 rm "$P/shared/rules/environment.md"
+# A source outside the content directory has no ignore pattern, so a local
+# file there is the one Git offers to commit; once tracked it is named too.
+printf '# Mine\n' > "$P/shared/rules/mine.local.md"
+run "$P" status --check
+chknot grep -Fq 'mine.local.md is tracked' "$LOG"
+git -C "$P" add shared/rules/mine.local.md
+run "$P" status --check
+is "status --check with a tracked local rule in another source" 1 "$RC"
+chk grep -Fq 'shared/rules/mine.local.md is tracked by Git' "$LOG"
+git -C "$P" rm -q --cached shared/rules/mine.local.md
+rm "$P/shared/rules/mine.local.md"
 
 echo "== AGENTS.md applies source overrides: a same-named rule is listed once =="
 # Regression: AGENTS.md listed and inlined `style` once per source while every

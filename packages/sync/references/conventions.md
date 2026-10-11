@@ -180,6 +180,8 @@ intelligence/skills/*.local/
 
 Sync renders a local artifact only into outputs Git ignores, and never into one it tracks: not `AGENTS.md`, not OpenCode's slash commands, not Copilot's output under `commit_output: true`. A clone without the file therefore renders the same committed files, and `intelligence sync --check` passes in CI. A local always-on rule reaches each tool through that tool's own always-on channel (see [Routing](#routing)), since `AGENTS.md` cannot carry it; OpenCode has none, and sync says so. `intelligence status --check` reports a missing pattern, and `intelligence init` restores it.
 
+A pattern never applies to a file Git already tracks, and a source outside the content directory has no pattern at all. `intelligence status --check` therefore names every file with a local name that Git tracks in a project-owned source: rename it to share it, or `git rm --cached` it to keep it on this machine.
+
 ## Selecting adapters
 
 Every rule, agent and skill renders to every enabled adapter. Two frontmatter fields narrow that, for guidance that matters to one tool or should cost no other tool context:
