@@ -97,9 +97,10 @@ later source win.
 8. **One enumeration.** `AGENTS.md`, every built-in adapter and the adapter
    template read sources through one function that applies the name rule,
    overrides, locality and the target set; the per-adapter globs go.
-9. The work lands in two changes: local artifacts with `committed` and the
-   single enumeration (items 1–3, 5, 6, 8), then the fields, the new
-   always-on channels and the shared-path warnings (items 4 and 7).
+9. The work lands in one pull request, in two stages of commits: local
+   artifacts with `committed` and the single enumeration first (items 1–3, 5,
+   6, 8), then the fields, the new always-on channels and the shared-path
+   warnings (items 4 and 7).
 
 ## Consequences
 
