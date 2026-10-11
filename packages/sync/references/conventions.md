@@ -178,7 +178,24 @@ intelligence/agents/*.local.md
 intelligence/skills/*.local/
 ```
 
-Sync renders a local artifact only into outputs Git ignores, and never into one it tracks: not `AGENTS.md`, not OpenCode's slash commands, not Copilot's output under `commit_output: true`. A clone without the file therefore renders the same committed files, and `intelligence sync --check` passes in CI. A local always-on rule reaches Claude Code only, because every other tool reads always-on rules from `AGENTS.md`; local scoped rules, agents and skills reach every enabled tool. `intelligence status --check` reports a missing pattern, and `intelligence init` restores it.
+Sync renders a local artifact only into outputs Git ignores, and never into one it tracks: not `AGENTS.md`, not OpenCode's slash commands, not Copilot's output under `commit_output: true`. A clone without the file therefore renders the same committed files, and `intelligence sync --check` passes in CI. A local always-on rule reaches each tool through that tool's own always-on channel (see [Routing](#routing)), since `AGENTS.md` cannot carry it; OpenCode has none, and sync says so. `intelligence status --check` reports a missing pattern, and `intelligence init` restores it.
+
+## Selecting adapters
+
+Every rule, agent and skill renders to every enabled adapter. Two frontmatter fields narrow that, for guidance that matters to one tool or should cost no other tool context:
+
+```yaml
+---
+targets: [claude, cursor]      # only these adapters; without it, every enabled one
+exclude_targets: [committed]   # remove these from that set
+---
+```
+
+Both take adapter ids — built-in or the project's own — and the group `committed`: every output path Git tracks, resolved per path from each adapter's contract. `AGENTS.md` always belongs to it, and so do OpenCode's slash commands and, under `commit_output: true`, Copilot's output; OpenCode's agents and the shared `.agents/skills/` do not. Write them in the list syntax `paths:` takes — a flow list `[a, b]` or a block list — and in `SKILL.md` for a skill. `targets: []` renders the artifact nowhere. Sync removes both fields from every generated copy.
+
+An id that names no adapter refuses the sync. An adapter that is not enabled is simply no target: enablement stays the manifest's decision. A local artifact excludes `committed` already, and one whose `targets` names a committed output — `agents`, `committed`, or an adapter all of whose output Git tracks — refuses the sync, because every other clone and CI render that output without it.
+
+Two paths are shared, not per tool, and a filter can withhold an artifact from a shared path but never from one of its readers. An artifact whose set contains `agents` goes into `AGENTS.md` and reaches every tool that reads it. A skill whose set contains any reader of `.agents/skills/` — Antigravity, Codex, Pi, OpenCode — lands there for all of them. Sync prints a `WARNING:` line when a shared path delivers an artifact to an enabled adapter outside its set, and when an adapter in its set can receive it through no channel. An artifact with neither field nor a `.local` name keeps the routing, and the warnings, it always had.
 
 ## Agent conventions
 
@@ -262,8 +279,11 @@ Rule content in Markdown.
 |---|---|---|---|---|---|
 | Scoped | copied with `paths:` | `.mdc` with `globs:` | `.md` with `trigger: glob` and `globs:` | `.instructions.md` with `applyTo:` | listed in `AGENTS.md`; Pi also gets on-demand files and an extension |
 | Always-on | copied | omitted | omitted | omitted | inlined once into `AGENTS.md` |
+| Always-on, not in `AGENTS.md` | copied | `.mdc` with `alwaysApply: true` | `.md` with `trigger: always_on` | `.instructions.md` with `applyTo: "**"` | Codex: `AGENTS.override.md`; Pi: added to the system prompt by its extension; OpenCode: none |
 
 Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. OpenCode and Codex have no generated path-scoped rule channel; OpenCode users may configure `instructions:` globs themselves.
+
+An always-on rule `AGENTS.md` does not carry — a local one, or one whose set leaves `agents` out (see [Selecting adapters](#selecting-adapters)) — reaches each tool in its set through that tool's own channel instead, the last row. Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the file holds the whole `AGENTS.md` plus the rules only Codex receives; it is ignored, exists only while such a rule does, and one Intelligence did not generate is never touched. Antigravity's `trigger: always_on` belongs to the same undocumented key family as its `trigger: glob`. OpenCode reads instructions only from `AGENTS.md` or its committed `opencode.json`, so it can receive neither a local nor a tool-targeted always-on rule.
 
 Keep always-on rules small. Put narrow framework or component guidance behind `paths:` so unrelated tasks do not pay its context cost.
 
@@ -286,7 +306,7 @@ argument-hint: "<route-name>"
 4. Report the changed route and verification.
 ```
 
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes.
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes. `targets:` and `exclude_targets:` select the adapters that receive the skill and are removed from every copy ([Selecting adapters](#selecting-adapters)).
 
 `disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 
@@ -354,12 +374,12 @@ Every line enters a finite context budget. Prefer subtraction, consolidation and
 | Target | Rules | Skills | Agents |
 |---|---|---|---|
 | `agents` | Always-on inlined; scoped listed in `AGENTS.md` | Listed | Listed |
-| Antigravity | `AGENTS.md` plus scoped `.agents/rules/*.md` | `.agents/skills/` | `.agents/agents/*.md` |
+| Antigravity | `AGENTS.md` plus `.agents/rules/*.md` | `.agents/skills/` | `.agents/agents/*.md` |
 | Claude | `.claude/rules/` | `.claude/skills/` | `.claude/agents/` |
-| Cursor | scoped `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
-| Copilot | scoped `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
-| Codex | `AGENTS.md` only | `.agents/skills/` | `.codex/agents/*.toml` |
-| Pi | `AGENTS.md` plus scoped `.pi/intelligence-sync/rules/` | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` |
+| Cursor | `AGENTS.md` plus `.cursor/rules/*.mdc` | `.cursor/skills/` | `.cursor/agents/` |
+| Copilot | `AGENTS.md` plus `.github/instructions/*.instructions.md` | `.github/skills/` | `.github/agents/` |
+| Codex | `AGENTS.md`, or `AGENTS.override.md` while a rule needs it | `.agents/skills/` | `.codex/agents/*.toml` |
+| Pi | `AGENTS.md` plus scoped `.pi/intelligence-sync/rules/` and its extension | `.agents/skills/` | `.pi/prompts/intelligence-agent-*.md` |
 | OpenCode | `AGENTS.md` only | `.agents/skills/` plus slash commands | `.opencode/agents/*.md` |
 
 `AGENTS.md` is regenerated by the `agents` adapter. Its optional static header is `targets.agents.header` in `intelligence.yaml`; generated rule, agent and skill sections follow it. Commit `AGENTS.md` when it is the project's shared canonical context.
@@ -395,6 +415,7 @@ GEMINI.md
 .agents/rules/
 .agents/agents/
 .codex/agents/
+AGENTS.override.md
 
 # Generated Pi content
 .pi/intelligence-sync/

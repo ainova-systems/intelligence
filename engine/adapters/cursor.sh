@@ -4,10 +4,13 @@
 #
 # Rules:
 #   - Path-scoped (with `paths:`)  -> .cursor/rules/<name>.mdc with `globs:`
-#   - Always-on (no `paths:`)      -> SKIPPED here. Cursor reads AGENTS.md
-#     natively for project-level context, and the `agents` adapter inlines
-#     always-on rule content into AGENTS.md. Generating .mdc copies of the
-#     same rules would cause double-loading and burn the context window.
+#   - Always-on (no `paths:`)      -> SKIPPED here while AGENTS.md carries it.
+#     Cursor reads AGENTS.md natively for project-level context, and the
+#     `agents` adapter inlines always-on rule content into AGENTS.md.
+#     Generating .mdc copies of the same rules would cause double-loading and
+#     burn the context window. An always-on rule AGENTS.md does not carry — a
+#     local one, or one whose targets leave `agents` out — becomes
+#     .cursor/rules/<name>.mdc with `alwaysApply: true` (decision 0021).
 # Skills: copy skill directories in full (SKILL.md + bundled resources)
 # Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
 # Cursor has no per-agent or per-skill effort field (its effort is part of a
@@ -41,30 +44,55 @@ sync_cursor_rules() {
     local config_file="$2"
     local output_dir="$3"
 
-    local i
-    local -a scoped=() scoped_names=()
+    local i always=""
+    local -a files=() names=() kinds=()
     output_rel_var "$repo_root" "$output_dir"
     source_artifacts_var "$repo_root" "$config_file" rules cursor "$IS_OUTPUT_REL/rules/{}.mdc"
-    # Skip always-on rules: AGENTS.md (canonical) carries them.
+    # A scoped rule takes Cursor's own channel. An always-on rule does only
+    # when AGENTS.md, which Cursor reads, does not carry it: a local rule, or
+    # one whose targets leave `agents` out (decision 0021).
     for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
-        [ "${IS_SOURCE_SCOPED[i]}" = 1 ] || continue
-        scoped+=("${IS_SOURCE_FILES[i]}")
-        scoped_names+=("${IS_SOURCE_NAMES[i]}")
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            kinds+=(scoped)
+        elif [ "${IS_SOURCE_IN_AGENTS[i]}" = 0 ]; then
+            kinds+=(always-on)
+            always="$always${IS_SOURCE_FILES[i]}"$'\n'
+        else
+            continue
+        fi
+        files+=("${IS_SOURCE_FILES[i]}")
+        names+=("${IS_SOURCE_NAMES[i]}")
     done
-    [ "${#scoped[@]}" -gt 0 ] || return 0
+    [ "${#files[@]}" -gt 0 ] || return 0
 
-    # Path-scoped rule -> Auto Attached (paths -> globs). The rewrite is
-    # anchored inside the frontmatter block: a body line may legitimately start
-    # with `paths:` (a rule documenting rule syntax does exactly that), and
-    # rewriting it would corrupt the text it teaches.
+    # Path-scoped rule -> Auto Attached (paths -> globs); always-on rule ->
+    # Always (`alwaysApply: true`), with a frontmatter block of its own when the
+    # source has none. The rewrite is anchored inside the frontmatter block: a
+    # body line may legitimately start with `paths:` (a rule documenting rule
+    # syntax does exactly that), and rewriting it would corrupt the text it
+    # teaches.
     is_fin_awk_vars
-    IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+    IS_MDC_ALWAYS="$always" IS_NAME_MAP="$IS_SOURCE_NAME_MAP" awk "${IS_FIN_V[@]}" -v dst="$output_dir/rules" "$IS_AWK_LIB"'
+        BEGIN {
+            n = split(ENVIRON["IS_MDC_ALWAYS"], al, "\n")
+            for (k = 1; k <= n; k++) if (al[k] != "") ALWAYS[al[k]] = 1
+        }
         FNR == 1 {
             if (out != "") close(out)
             out = dst "/" art_name(FILENAME) ".mdc"
             fm = 0
+            tgt_reset()
         }
         { sub(/\r$/, "") }
+        FNR == 1 && (FILENAME in ALWAYS) {
+            print fin_line("---") > out
+            print fin_line("alwaysApply: true") > out
+            if ($0 == "---") { fm = 1; next }
+            print fin_line("---") > out
+            fm = 2
+            print fin_line($0) > out
+            next
+        }
         FNR == 1 {
             if ($0 == "---") fm = 1
             print fin_line($0) > out
@@ -72,11 +100,16 @@ sync_cursor_rules() {
             next
         }
         fm == 1 && $0 == "---" { fm = 2; print fin_line($0) > out; next }
+        fm == 1 && tgt_drop($0) { next }
         fm == 1 { sub(/^paths:/, "globs:") }
         { print fin_line($0) > out }
-    ' "${scoped[@]}"
-    for ((i = 0; i < ${#scoped_names[@]}; i++)); do
-        echo "  rule: ${scoped_names[i]}.mdc (scoped)"
+    ' "${files[@]}"
+    for ((i = 0; i < ${#files[@]}; i++)); do
+        # awk never reads a record from an empty source.
+        if [ "${kinds[i]}" = always-on ] && [ ! -s "${files[i]}" ]; then
+            printf -- '---\nalwaysApply: true\n---\n' > "$output_dir/rules/${names[i]}.mdc"
+        fi
+        echo "  rule: ${names[i]}.mdc (${kinds[i]})"
     done
 }
 
@@ -148,6 +181,7 @@ sync_cursor_agents() {
             out = dst "/" art_file(FILENAME, ".md")
             count = 0
             fm = 0
+            tgt_reset()
         }
         /^tier:/  { next }
         /^access:/ { next }
@@ -156,6 +190,7 @@ sync_cursor_agents() {
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
+        fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" { next }
         count == 2 && /^---$/ {
             print fin_line("model: " MODEL[FILENAME]) > out

@@ -121,12 +121,14 @@ sync_claude_agents() {
             count = 0
             fm = 0
             effort_seen = 0
+            tgt_reset()
         }
         /^tier:/  { next }
         /^access:/ { next }
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
+        fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" {
             if (!effort_seen++ && EFFORT[FILENAME] != "") print fin_line("effort: " EFFORT[FILENAME]) > out
             next

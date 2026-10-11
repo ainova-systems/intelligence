@@ -55,16 +55,22 @@ one directory or a local and a non-local one anywhere. A local artifact
 (`*.local.md`, a `*.local/` skill) reaches only an output path its adapter's
 contract ignores, so an adapter passes the real path it writes: one that globs
 sources itself, or names a path it does not write, can put a teammate's local file
-into a committed output. Only a catalog holding a local artifact makes the engine
-read contracts with the manifest; every other sync keeps decision 0020's
-ownership-only read.
+into a committed output. `targets:` and `exclude_targets:` narrow an artifact's
+adapters the same way, per path for the group `committed`; the engine refuses an
+unknown id and a local artifact naming a committed output, and warns about shared
+paths, before any adapter writes. Only a catalog holding a local artifact or
+naming `committed` makes the engine read contracts with the manifest; every other
+sync keeps decision 0020's ownership-only read.
 
 ## Rule routing
 
 Always-on rules are inlined once into `AGENTS.md`. Cursor, Copilot, Codex, Pi and
 OpenCode consume that file, so their adapters omit always-on rules from tool-specific
 channels; path-scoped rules use native channels where those exist. Claude Code does
-not consume `AGENTS.md`, so its adapter receives every rule.
+not consume `AGENTS.md`, so its adapter receives every rule. An always-on rule
+`AGENTS.md` does not carry (`IS_SOURCE_IN_AGENTS` is 0: local, or targeted away
+from `agents`) takes each tool's own always-on channel instead — Codex's is
+`AGENTS.override.md`, Pi's its rules extension, and OpenCode has none.
 
 The `agents` target is therefore required whenever an enabled target relies on
 `AGENTS.md`. Adding an adapter means updating that list in `engine/sync.sh` in the

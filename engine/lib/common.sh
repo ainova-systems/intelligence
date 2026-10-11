@@ -89,6 +89,28 @@ IS_AWK_LIB='
         if (p in ART_NAME) return ART_NAME[p]
         b = base_name(p); sub(/\.md$/, "", b); return b
     }
+    # tgt_drop(line) — whether a frontmatter line belongs to `targets:` or
+    # `exclude_targets:` (decision 0021), which select adapters and are
+    # removed from every rendered copy. Call tgt_reset() at the start of each
+    # file and tgt_drop() for each of its frontmatter lines in order: a block
+    # list, or a flow list spanning lines, goes with its key.
+    function tgt_reset() { tgt_cont = "" }
+    function tgt_drop(s,   v) {
+        if (tgt_cont == "block") {
+            if (s ~ /^[ \t]/ || s == "") return 1
+            tgt_cont = ""
+        } else if (tgt_cont == "flow") {
+            if (index(s, "]")) tgt_cont = ""
+            return 1
+        }
+        if (s !~ /^(targets|exclude_targets):/) return 0
+        v = substr(s, index(s, ":") + 1)
+        sub(/[ \t]+#.*$/, "", v)
+        gsub(/^[ \t]+|[ \t]+$/, "", v)
+        if (v == "") tgt_cont = "block"
+        else if (substr(v, 1, 1) == "[" && !index(v, "]")) tgt_cont = "flow"
+        return 1
+    }
 '
 
 # is_fin_awk_vars — fill the global IS_FIN_V array with the -v bindings the
@@ -163,8 +185,15 @@ finalize_copy_named() {
         FNR == 1 {
             if (out_file != "") close(out_file)
             out_file = dst "/" art_file(FILENAME, ".md")
+            tgt_reset()
         }
-        { sub(/\r$/, ""); print fin_line($0) > out_file }
+        { sub(/\r$/, "") }
+        FNR == 1 { cp_fm = ($0 == "---") }
+        FNR > 1 && cp_fm == 1 {
+            if ($0 == "---") cp_fm = 2
+            else if (tgt_drop($0)) next
+        }
+        { print fin_line($0) > out_file }
     ' "$@"
 }
 
@@ -438,6 +467,22 @@ emit_wrapped_bodies() {
             }
         }
     ' "${srcs[@]}"
+}
+
+# emit_rule_bodies <file>... — every rule's body without its frontmatter, in
+# one awk, a blank line after each: how AGENTS.md inlines always-on rules, and
+# how Codex's AGENTS.override.md adds the ones AGENTS.md does not carry.
+emit_rule_bodies() {
+    [ "$#" -gt 0 ] || return 0
+    awk '
+        FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
+        { sub(/\r$/, "") }
+        /^---$/ {
+            if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
+        }
+        past_fm || !in_fm { print }
+        END { print "" }
+    ' "$@"
 }
 
 # Copy a markdown file with frontmatter, ensuring free-text string fields are
@@ -740,12 +785,14 @@ _skill_bundles_flush() {
             out_file = FILENAME; line_n = 0
             state = (FILENAME in QUOTE) ? "before" : ""
             effort_seen = 0
+            tgt_reset()
         }
         { sub(/\r$/, "") }
         state == "before" {
             if (FNR == 1 && $0 == "---") state = "in_fm"
             else state = "after"
         }
+        state == "in_fm" && FNR > 1 && $0 != "---" && tgt_drop($0) { next }
         state == "in_fm" && FNR > 1 && substr($0, 1, 7) == "effort:" {
             if (effort_seen++) next
             val = fm_value_strip(substr($0, 8))
@@ -2272,14 +2319,22 @@ read_source_artifact_files() {
 #             name in one directory, or a local and a non-local one anywhere,
 #             refuse the sync: either would change what committed output holds
 #             depending on which file a clone has.
+#   targets   `targets:` lists the adapters an artifact is for, every enabled
+#             one without it; `exclude_targets:` removes adapters from that
+#             set. Both take adapter ids and the group `committed` — every
+#             output path Git tracks — and a local artifact excludes
+#             `committed` implicitly.
 #
 # source_catalog_build fills, in the caller's shell and fail-closed like the
 # listing it reads, one row per source entry in listing order:
 #   IS_CAT_SEC IS_CAT_PATH IS_CAT_NAME IS_CAT_LOCAL IS_CAT_WIN IS_CAT_SCOPED
+#   IS_CAT_HAS_T IS_CAT_T IS_CAT_HAS_X IS_CAT_X
 # (section; the file, or a skill's SKILL.md; the rendered name; 1 when local;
-# 1 when no later source overrides it; 1 for a rule with `paths:`), IS_CAT_N,
-# and IS_CAT_NEED_COMMITTED, 1 when rendering has to know which outputs Git
-# tracks. With IS_SOURCE_FILES_MEMO=1 a second call replays the first.
+# 1 when no later source overrides it; 1 for a rule with `paths:`; whether
+# `targets:` / `exclude_targets:` are set, and their ids, space-separated),
+# IS_CAT_N, and IS_CAT_NEED_COMMITTED, 1 when rendering has to know which
+# outputs Git tracks. With IS_SOURCE_FILES_MEMO=1 a second call replays the
+# first.
 
 # source_artifact_name_var <section> <entry> — IS_ART_NAME and IS_ART_LOCAL for
 # one file (rules, agents) or skill directory (skills) name.
@@ -2298,7 +2353,7 @@ source_artifact_name_var() {
 # shellcheck disable=SC2034  # IS_CAT_NEED_COMMITTED is read by engine/sync.sh
 source_catalog_build() {
     local repo_root="$1" config_file="$2" lint="${3:-}" key section f entry dir name
-    local seen=$'\n' errors="" i n=0 prev rest rows path scoped kind
+    local seen=$'\n' errors="" i n=0 prev rest rows path scoped kind has_t t has_x x
     local -a files=()
     key="$repo_root"$'\n'"$config_file"
     if [ "${IS_SOURCE_FILES_MEMO:-0}" = 1 ] && [ "${IS_CAT_KEY:-}" = "$key" ]; then
@@ -2307,6 +2362,7 @@ source_catalog_build() {
     IS_CAT_KEY=""
     IS_CAT_SEC=(); IS_CAT_PATH=(); IS_CAT_NAME=(); IS_CAT_LOCAL=()
     IS_CAT_WIN=(); IS_CAT_SCOPED=()
+    IS_CAT_HAS_T=(); IS_CAT_T=(); IS_CAT_HAS_X=(); IS_CAT_X=()
     IS_CAT_NEED_COMMITTED=0
     for section in rules agents skills; do
         read_source_artifact_files "$repo_root" "$config_file" "$section"
@@ -2329,6 +2385,7 @@ source_catalog_build() {
             IS_CAT_LOCAL[n]="$IS_ART_LOCAL"
             IS_CAT_WIN[n]=1
             IS_CAT_SCOPED[n]=0
+            IS_CAT_HAS_T[n]=0; IS_CAT_T[n]=""; IS_CAT_HAS_X[n]=0; IS_CAT_X[n]=""
             [ "$IS_ART_LOCAL" = 0 ] || IS_CAT_NEED_COMMITTED=1
             case "$seen" in
                 *$'\n'"$section/$name"$'\t'*)
@@ -2367,12 +2424,15 @@ source_catalog_build() {
             exit 1
         }
         i=0
-        while IFS=$'\x1f' read -r path scoped; do
+        while IFS=$'\x1f' read -r path scoped has_t t has_x x; do
             [ "$i" -lt "$n" ] && [ "$path" = "${IS_CAT_PATH[i]}" ] || {
                 echo "ERROR: cannot read the frontmatter of the sources — refusing to render a partial list." >&2
                 exit 1
             }
             [ "${IS_CAT_SEC[i]}" != rules ] || [ "$scoped" = 0 ] || IS_CAT_SCOPED[i]=1
+            IS_CAT_HAS_T[i]="$has_t"; IS_CAT_T[i]="$t"
+            IS_CAT_HAS_X[i]="$has_x"; IS_CAT_X[i]="$x"
+            case " $t $x " in *" committed "*) IS_CAT_NEED_COMMITTED=1 ;; esac
             i=$((i + 1))
         done <<< "$rows"
         if [ "$i" -ne "$n" ]; then
@@ -2384,30 +2444,101 @@ source_catalog_build() {
 }
 
 # source_frontmatter_scan <lint> <file>... — one row per file in argument
-# order: the path and its `paths:` line count, \x1f-separated, read with
-# frontmatter_index's `paths#` semantics. With <lint> = lint the same pass runs
-# lint_frontmatter_files over every file, its warnings on stderr.
+# order, \x1f-separated: the path; its `paths:` line count, read with
+# frontmatter_index's `paths#` semantics; then for `targets:` and for
+# `exclude_targets:` whether it is set and its ids, space-separated. Both take
+# the list syntax `paths:` takes — a block list or a flow list `[a, b]`, items
+# optionally quoted — and a bare value is a one-item list. The first
+# occurrence of a key wins, and a key with no value at all is not set
+# (`targets: []` is: it is the empty list). With <lint> = lint the same pass
+# runs lint_frontmatter_files over every file, its warnings on stderr.
 source_frontmatter_scan() {
     local do_lint=0
     [ "$1" != lint ] || do_lint=1
     shift
     awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
-        function sx_store() { if (sx_cur != "") SXR[sx_cur] = sx_cur SX_US sx_paths }
-        FNR == 1 { sx_store(); sx_cur = FILENAME; sx_paths = 0; sx_fm = 0 }
+        function sx_items(s, k,   parts, m, j, v, q) {
+            m = split(s, parts, ",")
+            for (j = 1; j <= m; j++) {
+                v = parts[j]
+                gsub(/^[ \t]+|[ \t]+$/, "", v)
+                q = substr(v, 1, 1)
+                if (length(v) >= 2 && (q == "\"" || q == "\047") && substr(v, length(v), 1) == q)
+                    v = substr(v, 2, length(v) - 2)
+                if (v == "") continue
+                sx_v[k] = (sx_v[k] == "") ? v : sx_v[k] " " v
+                sx_n[k]++
+            }
+        }
+        # The end of a block list: one without an item is a key with no value.
+        function sx_close() {
+            if (sx_mode == "block" && sx_n[sx_list] == 0) sx_has[sx_list] = 0
+            sx_list = ""; sx_mode = ""
+        }
+        function sx_line(l,   c, k, v) {
+            if (sx_mode == "flow") {
+                c = index(l, "]")
+                if (c) { sx_items(substr(l, 1, c - 1), sx_list); sx_list = ""; sx_mode = "" }
+                else sx_items(l, sx_list)
+                return
+            }
+            if (sx_mode == "block") {
+                if (l ~ /^[ \t]+-/) {
+                    v = l
+                    sub(/^[ \t]+-[ \t]*/, "", v)
+                    sub(/[ \t]+#.*$/, "", v)
+                    sx_items(v, sx_list)
+                    return
+                }
+                if (l ~ /^[ \t]*$/ || l ~ /^[ \t]+#/) return
+                sx_close()
+            }
+            c = index(l, ":")
+            if (!c) return
+            k = substr(l, 1, c - 1)
+            if (k == "paths") { sx_paths++; return }
+            if ((k != "targets" && k != "exclude_targets") || sx_seen[k]) return
+            sx_seen[k] = 1; sx_has[k] = 1
+            v = substr(l, c + 1)
+            sub(/[ \t]+#.*$/, "", v)
+            gsub(/^[ \t]+|[ \t]+$/, "", v)
+            if (v == "") { sx_list = k; sx_mode = "block"; return }
+            if (substr(v, 1, 1) == "[") {
+                v = substr(v, 2)
+                c = index(v, "]")
+                if (c) sx_items(substr(v, 1, c - 1), k)
+                else { sx_items(v, k); sx_list = k; sx_mode = "flow" }
+                return
+            }
+            sx_items(v, k)
+        }
+        function sx_store() {
+            if (sx_cur == "") return
+            sx_close()
+            SXR[sx_cur] = sx_cur SX_US sx_paths SX_US sx_has["targets"] SX_US sx_v["targets"] \
+                SX_US sx_has["exclude_targets"] SX_US sx_v["exclude_targets"]
+        }
+        FNR == 1 {
+            sx_store()
+            sx_cur = FILENAME; sx_paths = 0; sx_fm = 0; sx_list = ""; sx_mode = ""
+            sx_seen["targets"] = 0; sx_has["targets"] = 0; sx_v["targets"] = ""; sx_n["targets"] = 0
+            sx_seen["exclude_targets"] = 0; sx_has["exclude_targets"] = 0
+            sx_v["exclude_targets"] = ""; sx_n["exclude_targets"] = 0
+        }
         {
             sx_l = $0
             sub(/\r$/, "", sx_l)
             if (FNR == 1) sx_fm = (sx_l == "---")
             else if (sx_fm == 1) {
-                if (sx_l == "---") sx_fm = 2
-                else if (index(sx_l, ":") && substr(sx_l, 1, index(sx_l, ":") - 1) == "paths") sx_paths++
+                if (sx_l == "---") { sx_close(); sx_fm = 2 }
+                else sx_line(sx_l)
             }
         }
         END {
             sx_store()
             for (sx_i = 1; sx_i < ARGC; sx_i++)
-                print (ARGV[sx_i] in SXR) ? SXR[ARGV[sx_i]] : ARGV[sx_i] SX_US 0
+                print (ARGV[sx_i] in SXR) ? SXR[ARGV[sx_i]] : ARGV[sx_i] SX_US 0 SX_US 0 SX_US SX_US 0 SX_US
         }
         !do_lint { next }
     '"$_IS_AWK_LINT" "$@"
@@ -2462,12 +2593,35 @@ policy_pattern_covers() {
 }
 
 # _cat_member <index> <adapter> <repo-relative output path> — whether the
-# catalog row renders into that adapter's output at that path.
+# catalog row renders into that adapter's output at that path: its targets
+# name the adapter, or `committed` while Git tracks the path, or it has none;
+# its exclusions name neither; and a local row never reaches a tracked path.
 _cat_member() {
-    if [ "${IS_CAT_LOCAL[$1]}" = 1 ]; then
-        ! output_committed "$2" "$3" || return 1
+    local i="$1" a="$2" path="$3"
+    if [ "${IS_CAT_HAS_T[i]}" = 1 ]; then
+        case " ${IS_CAT_T[i]} " in
+            *" $a "*) ;;
+            *" committed "*) output_committed "$a" "$path" || return 1 ;;
+            *) return 1 ;;
+        esac
+    fi
+    if [ "${IS_CAT_HAS_X[i]}" = 1 ]; then
+        case " ${IS_CAT_X[i]} " in *" $a "*) return 1 ;; esac
+        case " ${IS_CAT_X[i]} " in
+            *" committed "*) ! output_committed "$a" "$path" || return 1 ;;
+        esac
+    fi
+    if [ "${IS_CAT_LOCAL[i]}" = 1 ]; then
+        ! output_committed "$a" "$path" || return 1
     fi
     return 0
+}
+
+# _cat_routed <index> — the row selects its adapters: a local artifact, or one
+# with `targets:` or `exclude_targets:`. Every other row renders everywhere,
+# with no question asked.
+_cat_routed() {
+    [ "${IS_CAT_LOCAL[$1]}" = 1 ] || [ "${IS_CAT_HAS_T[$1]}" = 1 ] || [ "${IS_CAT_HAS_X[$1]}" = 1 ]
 }
 
 # source_artifacts_var <repo_root> <config> <section> <adapters> <output>
@@ -2494,14 +2648,19 @@ source_artifacts_var() {
     esac
     for ((i = 0; i < IS_CAT_N; i++)); do
         [ "${IS_CAT_SEC[i]}" = "$section" ] && [ "${IS_CAT_WIN[i]}" = 1 ] || continue
-        if [ "${IS_CAT_LOCAL[i]}" = 1 ]; then
+        if _cat_routed "$i"; then
             case "$output" in *"$ph"*) path="$pre${IS_CAT_NAME[i]}$post" ;; *) path="$output" ;; esac
             member=0
             for a in $adapters; do
                 if _cat_member "$i" "$a" "$path"; then member=1; break; fi
             done
             [ "$member" = 1 ] || continue
-            IS_SOURCE_IN_AGENTS+=(0)
+            # AGENTS.md is always committed, so its path decides nothing.
+            if _cat_member "$i" agents AGENTS.md; then
+                IS_SOURCE_IN_AGENTS+=(1)
+            else
+                IS_SOURCE_IN_AGENTS+=(0)
+            fi
         else
             IS_SOURCE_IN_AGENTS+=(1)
         fi
@@ -2511,6 +2670,161 @@ source_artifacts_var() {
         key="${IS_CAT_PATH[i]}"
         [ "$section" != skills ] || key="${key%/SKILL.md}"
         IS_SOURCE_NAME_MAP="$IS_SOURCE_NAME_MAP$key"$'\x1f'"${IS_CAT_NAME[i]}"$'\n'
+    done
+}
+
+# The checks below run in the engine, after preflight read every enabled
+# contract: IS_ENABLED_ADAPTERS and IS_AGENTS_READERS (the enabled adapters,
+# and those that require `agents` and so read AGENTS.md), IS_OPEN_SKILLS_READERS
+# and IS_ADAPTER_CLAIMS (every enabled adapter's owned and managed paths).
+
+# source_catalog_check_ids <repo_root> <known adapter ids> — refuse a
+# `targets:` or `exclude_targets:` id that is neither an adapter, built-in or
+# the project's, nor `committed`. Every finding is printed before the refusal.
+source_catalog_check_ids() {
+    local repo_root="$1" known=" $2 committed " i id field ids bad=0
+    local -a list=()
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_WIN[i]}" = 1 ] || continue
+        for field in targets exclude_targets; do
+            if [ "$field" = targets ]; then
+                [ "${IS_CAT_HAS_T[i]}" = 1 ] || continue
+                ids="${IS_CAT_T[i]}"
+            else
+                [ "${IS_CAT_HAS_X[i]}" = 1 ] || continue
+                ids="${IS_CAT_X[i]}"
+            fi
+            read -r -a list <<< "$ids"
+            for id in "${list[@]+"${list[@]}"}"; do
+                case "$known" in *" $id "*) continue ;; esac
+                echo "ERROR: ${IS_CAT_PATH[i]#"$repo_root"/}: $field names '$id', which is no adapter — use one of: ${2// /, }, or the group committed" >&2
+                bad=1
+            done
+        done
+    done
+    return "$bad"
+}
+
+# _adapter_paths_var <adapter> — IS_AP_PATHS, the adapter's owned and managed
+# paths as preflight registered them.
+_adapter_paths_var() {
+    local a kind p
+    IS_AP_PATHS=()
+    while IFS=$'\t' read -r a kind p; do
+        if [ "$a" = "$1" ] && [ -n "$p" ]; then IS_AP_PATHS+=("$p"); fi
+    done <<< "${IS_ADAPTER_CLAIMS:-}"
+}
+
+# _cat_adapter_member <index> <adapter> — the row renders into any output of
+# the adapter: its set of adapters, read per path.
+_cat_adapter_member() {
+    local p
+    _adapter_paths_var "$2"
+    for p in "${IS_AP_PATHS[@]+"${IS_AP_PATHS[@]}"}"; do
+        if _cat_member "$1" "$2" "$p"; then return 0; fi
+    done
+    return 1
+}
+
+# source_catalog_check_local <repo_root> — refuse a local artifact whose
+# targets name a committed output: `committed` itself, `agents`, or an enabled
+# adapter all of whose paths Git tracks. The source exists in no other clone
+# and not in CI, which render that output without it.
+source_catalog_check_local() {
+    local repo_root="$1" i id p tracked bad=0
+    local -a list=()
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_WIN[i]}" = 1 ] && [ "${IS_CAT_LOCAL[i]}" = 1 ] && [ "${IS_CAT_HAS_T[i]}" = 1 ] || continue
+        read -r -a list <<< "${IS_CAT_T[i]}"
+        for id in "${list[@]+"${list[@]}"}"; do
+            tracked=0
+            case "$id" in
+                committed|agents) tracked=1 ;;
+                *)
+                    case " ${IS_ENABLED_ADAPTERS:-} " in *" $id "*) ;; *) continue ;; esac
+                    _adapter_paths_var "$id"
+                    [ "${#IS_AP_PATHS[@]}" -gt 0 ] || continue
+                    tracked=1
+                    for p in "${IS_AP_PATHS[@]}"; do
+                        if ! output_committed "$id" "$p"; then tracked=0; break; fi
+                    done
+                    ;;
+            esac
+            [ "$tracked" = 1 ] || continue
+            echo "ERROR: ${IS_CAT_PATH[i]#"$repo_root"/} is local, but its targets name $id, whose output Git tracks — a local artifact exists in no other clone, so it renders only into ignored output" >&2
+            bad=1
+        done
+    done
+    return "$bad"
+}
+
+# builtin_has_channel <adapter> <always|scoped|agent|skill> — whether a built-in
+# adapter has a channel of its own for that kind of artifact, AGENTS.md aside.
+# A project adapter's channels are its own business: it has one.
+builtin_has_channel() {
+    case "$1:$2" in
+        opencode:always|opencode:scoped|codex:scoped) return 1 ;;
+    esac
+    return 0
+}
+
+# source_catalog_warn <repo_root> — the WARNING: lines for an artifact that
+# selects its adapters (decision 0021): a shared path — AGENTS.md, or
+# .agents/skills/ — that delivers it to an enabled adapter outside its set, and
+# an adapter in its set that no channel reaches. An artifact with neither field
+# nor a `.local` name keeps the routing every sync had, and no new warning.
+source_catalog_warn() {
+    local repo_root="$1" i a rel kind in_agents outside unreach landed what
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_WIN[i]}" = 1 ] || continue
+        _cat_routed "$i" || continue
+        rel="${IS_CAT_PATH[i]#"$repo_root"/}"
+        case "${IS_CAT_SEC[i]}" in
+            rules) kind=always; [ "${IS_CAT_SCOPED[i]}" = 0 ] || kind=scoped ;;
+            agents) kind=agent ;;
+            *) kind=skill; rel="${rel%/SKILL.md}/" ;;
+        esac
+        in_agents=0
+        case " ${IS_ENABLED_ADAPTERS:-} " in
+            *" agents "*) if _cat_member "$i" agents AGENTS.md; then in_agents=1; fi ;;
+        esac
+        if [ "$in_agents" = 1 ]; then
+            outside=""
+            for a in ${IS_AGENTS_READERS:-}; do
+                _cat_adapter_member "$i" "$a" || outside="$outside${outside:+, }$a"
+            done
+            if [ -n "$outside" ]; then
+                echo "WARNING: $rel still reaches $outside through AGENTS.md, which they read, although its targets leave them out" >&2
+            fi
+        fi
+        if [ "$kind" = skill ]; then
+            landed=0
+            outside=""
+            for a in ${IS_OPEN_SKILLS_READERS:-}; do
+                if _cat_member "$i" "$a" ".agents/skills/${IS_CAT_NAME[i]}"; then
+                    landed=1
+                else
+                    outside="$outside${outside:+, }$a"
+                fi
+            done
+            if [ "$landed" = 1 ] && [ -n "$outside" ]; then
+                echo "WARNING: $rel still reaches $outside through .agents/skills/, which they read too, although its targets leave them out" >&2
+            fi
+        fi
+        unreach=""
+        for a in ${IS_ENABLED_ADAPTERS:-}; do
+            [ "$a" != agents ] || continue
+            _cat_adapter_member "$i" "$a" || continue
+            if [ "$in_agents" = 1 ]; then
+                case " ${IS_AGENTS_READERS:-} " in *" $a "*) continue ;; esac
+            fi
+            builtin_has_channel "$a" "$kind" || unreach="$unreach${unreach:+, }$a"
+        done
+        if [ -n "$unreach" ]; then
+            what="an always-on rule"
+            [ "$kind" != scoped ] || what="a scoped rule"
+            echo "WARNING: $rel cannot reach $unreach: no channel there carries $what outside AGENTS.md" >&2
+        fi
     done
 }
 

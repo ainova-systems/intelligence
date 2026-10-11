@@ -73,8 +73,11 @@ adapter_contract_<name>() {
 # source_artifacts_var takes the repo-relative path an artifact lands at, `{}`
 # standing for its name, and fills IS_SOURCE_FILES (the source file, or a
 # skill's SKILL.md), IS_SOURCE_NAMES, IS_SOURCE_SCOPED (1 for a rule with
-# `paths:`) and IS_SOURCE_NAME_MAP, the names finalize_copy_named and
-# copy_skill_bundle_dirs_named write under.
+# `paths:`), IS_SOURCE_IN_AGENTS (1 when AGENTS.md carries the artifact too)
+# and IS_SOURCE_NAME_MAP, the names finalize_copy_named and
+# copy_skill_bundle_dirs_named write under. It lists only the artifacts whose
+# `targets:` / `exclude_targets:` select this adapter; the shared helpers drop
+# both fields from every copy, and a frontmatter copied by hand must too.
 sync_<name>_rules() {
     local repo_root="$1"
     local config_file="$2"

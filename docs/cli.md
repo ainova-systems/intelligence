@@ -115,9 +115,15 @@ trailing `.local`; of two with one name, the later source's renders everywhere,
 with one name in one directory and a local and a non-local artifact with one
 name anywhere. A local artifact (`*.local.md`, `*.local/`) renders only into
 outputs its adapter's contract ignores, so committed files are the same in every
-clone. Only a sync whose sources hold a local artifact reads the contracts with
-the manifest, which `targets.copilot.commit_output` needs; see the
-[artifact conventions](../packages/sync/references/conventions.md#artifact-names-and-local-artifacts).
+clone. `targets:` and `exclude_targets:` in an artifact's frontmatter select the
+adapters it renders for; an id that names no adapter, and a local artifact whose
+targets name a committed output, refuse the sync before any output is touched,
+and a shared path (`AGENTS.md`, `.agents/skills/`) that still delivers an
+artifact beyond its targets is named in a `WARNING:` line. Only a sync whose
+sources hold a local artifact or name the group `committed` reads the contracts
+with the manifest, which `targets.copilot.commit_output` needs; see the
+[artifact conventions](../packages/sync/references/conventions.md#artifact-names-and-local-artifacts)
+and [selecting adapters](../packages/sync/references/conventions.md#selecting-adapters).
 
 Built-in adapters render concurrently where their contracts allow it: adapters
 that share a managed directory run in order together, and an adapter that

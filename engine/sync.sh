@@ -166,6 +166,11 @@ for adapters_dir in "$SCRIPT_DIR/adapters" "$INTELLIGENCE_DIR/adapters"; do
     done
 done
 
+# A `targets:` or `exclude_targets:` id must name an adapter this project has,
+# enabled or not, or the group `committed` (decision 0021). Refused here,
+# before anything is snapshotted or written.
+source_catalog_check_ids "$REPO_ROOT" "${ADAPTERS[*]}" || exit 1
+
 # Validate every selected adapter contract before any output is touched, then
 # snapshot the declared write-set. If a later adapter fails, the EXIT handler
 # restores all earlier adapter outputs so sync is atomic from the repository's
@@ -362,9 +367,12 @@ RENDER_PARALLEL="$SYNC_PARALLEL"
 policy_manifest=""
 [ "$IS_CAT_NEED_COMMITTED" != 1 ] || policy_manifest="$CONFIG_FILE"
 IS_COMMIT_POLICY=""
-# The tools that read .agents/skills/, by their contracts: a skill lands there
-# when it is for any of them.
+# The tools that read .agents/skills/ and AGENTS.md, by their contracts: a
+# skill lands in .agents/skills/ when it is for any of them, and a shared path
+# that delivers an artifact to a tool outside its targets is named.
 IS_OPEN_SKILLS_READERS=""
+IS_AGENTS_READERS=""
+IS_ENABLED_ADAPTERS=""
 preflight_idx=0
 while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     adapter="${ADAPTERS[$preflight_idx]}"
@@ -382,8 +390,10 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
         echo "       Give each adapter its own output: intelligence adapter list" >&2
         exit 1
     fi
+    IS_ENABLED_ADAPTERS="$IS_ENABLED_ADAPTERS${IS_ENABLED_ADAPTERS:+ }$adapter"
     while IFS=$'\t' read -r kind value; do
         case "$kind" in
+            requires) [ "$value" != agents ] || IS_AGENTS_READERS="$IS_AGENTS_READERS${IS_AGENTS_READERS:+ }$adapter" ;;
             ignore|include) IS_COMMIT_POLICY="$IS_COMMIT_POLICY$adapter"$'\t'"$kind"$'\t'"$value"$'\n' ;;
             owned|managed)
                 adapter_contract_rel_path "$value"
@@ -429,6 +439,11 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
 done
 # shellcheck disable=SC2034  # read by output_committed in lib/common.sh
 [ -z "$policy_manifest" ] || IS_COMMIT_POLICY_SET=1
+# A local artifact that names a committed output in its targets is refused
+# before any adapter writes; then every shared path that delivers an artifact
+# beyond its targets, and every target no channel reaches, is named once.
+source_catalog_check_local "$REPO_ROOT" || exit 1
+source_catalog_warn "$REPO_ROOT"
 
 # Every adapter that requires `agents` skips always-on rules because AGENTS.md
 # carries them — and each of those tools reads AGENTS.md at the workspace root

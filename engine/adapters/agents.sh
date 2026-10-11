@@ -198,17 +198,7 @@ agents_md_append_rules_list() {
             echo "<!-- Inlined from always-on rules in $content_rel/rules/ -->"
             echo ""
         } >> "$output"
-        # One awk inlines every global rule body, with a blank line after
-        # each — the same output the per-file passes produced.
-        awk '
-            FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
-            { sub(/\r$/, "") }
-            /^---$/ {
-                if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
-            }
-            past_fm || !in_fm { print }
-            END { print "" }
-        ' "${global_rule_files[@]}" >> "$output"
+        emit_rule_bodies "${global_rule_files[@]}" >> "$output"
         echo "  rules: ${#global_rule_files[@]} global rule(s) inlined"
     fi
 }

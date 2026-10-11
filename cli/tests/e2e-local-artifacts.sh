@@ -221,5 +221,134 @@ for pattern in 'Brain/rules/*.local.md' 'Brain/agents/*.local.md' 'Brain/skills/
 done
 chknot grep -Fq 'intelligence/rules/*.local.md' "$D/.gitignore"
 
+echo "== targeted artifacts: every always-on channel, and AGENTS.md left alone =="
+Q="$OUT/targeted"
+mkdir -p "$Q"
+git -C "$Q" init --quiet
+git -C "$Q" config user.email e2e@example.com
+git -C "$Q" config user.name e2e
+git -C "$Q" config core.autocrlf false
+run "$Q" init --bare --targets "$TARGETS"
+is "init of the targeted project" 0 "$RC"
+run "$Q" adapter enable antigravity
+is "enable antigravity" 0 "$RC"
+run "$Q" adapter enable pi
+is "enable pi" 0 "$RC"
+chk grep -Fqx 'AGENTS.override.md' "$Q/.gitignore"
+mkdir -p "$Q/intelligence/rules" "$Q/intelligence/agents" "$Q/intelligence/skills/ship"
+printf '# Team\n\nTEAM_BODY\n' > "$Q/intelligence/rules/team.md"
+run "$Q" sync
+commit_all "$Q" start
+printf -- '---\ntargets: [claude]\n---\n\nCLAUDE_ONLY_BODY\n' > "$Q/intelligence/rules/claude-only.md"
+printf -- '---\ntargets: [codex]\n---\n\nCODEX_ONLY_BODY\n' > "$Q/intelligence/rules/codex-only.md"
+printf -- '---\ndescription: "Tools"\nexclude_targets:\n  - agents\n---\n\nTOOLS_BODY "quoted" \\ back\n' > "$Q/intelligence/rules/tools.md"
+printf -- '---\ntargets: []\n---\n\nNOWHERE_BODY\n' > "$Q/intelligence/rules/nowhere.md"
+printf -- '---\nname: ship\ndescription: "Ship it"\ntargets: [codex]\n---\n\nSHIP_BODY\n' > "$Q/intelligence/skills/ship/SKILL.md"
+printf -- '---\nname: reviewer\ndescription: "Reviews"\ntier: standard\nexclude_targets: [copilot]\n---\n\nREVIEWER_BODY\n' > "$Q/intelligence/agents/reviewer.md"
+run "$Q" sync
+is "sync of targeted artifacts" 0 "$RC"
+for body in CLAUDE_ONLY_BODY CODEX_ONLY_BODY TOOLS_BODY NOWHERE_BODY SHIP_BODY; do
+    chknot grep -q "$body" "$Q/AGENTS.md"
+done
+chknot grep -q 'claude-only\|codex-only\|nowhere\|ship' "$Q/AGENTS.md"
+chk grep -Fq '[reviewer](intelligence/agents/reviewer.md)' "$Q/AGENTS.md"
+# targets: [claude] reaches Claude only, without the field.
+chk grep -q CLAUDE_ONLY_BODY "$Q/.claude/rules/claude-only.md"
+chknot grep -q '^targets:' "$Q/.claude/rules/claude-only.md"
+for f in .cursor/rules/claude-only.mdc .github/instructions/claude-only.instructions.md .agents/rules/claude-only.md; do
+    chknot test -e "$Q/$f"
+done
+# exclude_targets: [agents] reaches every tool through its own always-on channel.
+chk grep -q TOOLS_BODY "$Q/.claude/rules/tools.md"
+chknot grep -q '^exclude_targets:\|^  - agents' "$Q/.claude/rules/tools.md"
+chk grep -qx 'alwaysApply: true' "$Q/.cursor/rules/tools.mdc"
+chk grep -qx 'description: "Tools"' "$Q/.cursor/rules/tools.mdc"
+chk grep -qx 'applyTo: "\*\*"' "$Q/.github/instructions/tools.instructions.md"
+chk grep -qx 'trigger: always_on' "$Q/.agents/rules/tools.md"
+chk grep -Fq '{ name: "tools", body: "TOOLS_BODY \"quoted\" \\ back" }' "$Q/.pi/extensions/intelligence-sync-rules.ts"
+chk grep -Fq 'const projectRules' "$Q/.pi/extensions/intelligence-sync-rules.ts"
+chk grep -Fq "cannot reach opencode" "$LOG"
+# Codex reads AGENTS.override.md instead of AGENTS.md: all of it, plus its rules.
+chk test -f "$Q/AGENTS.override.md"
+is "override starts with AGENTS.md" "$(cat "$Q/AGENTS.md")" "$(head -n "$(grep -c '' "$Q/AGENTS.md")" "$Q/AGENTS.override.md")"
+chk grep -q CODEX_ONLY_BODY "$Q/AGENTS.override.md"
+chk grep -q TOOLS_BODY "$Q/AGENTS.override.md"
+chknot grep -q CLAUDE_ONLY_BODY "$Q/AGENTS.override.md"
+chk git -C "$Q" check-ignore -q --no-index AGENTS.override.md
+# targets: [] renders nowhere.
+is "files holding NOWHERE_BODY" "" "$(cd "$Q" && grep -rl NOWHERE_BODY AGENTS.md AGENTS.override.md .claude .cursor .codex .github .agents .opencode .pi 2>/dev/null)"
+# A skill for Codex lands in .agents/skills/, which three more tools read.
+chk test -f "$Q/.agents/skills/ship/SKILL.md"
+chknot grep -q '^targets:' "$Q/.agents/skills/ship/SKILL.md"
+for tree in .claude/skills .cursor/skills .github/skills; do
+    chknot test -e "$Q/$tree/ship"
+done
+chknot test -e "$Q/.opencode/commands/ship.md"
+chk grep -Fq 'WARNING: intelligence/skills/ship/ still reaches antigravity, opencode, pi through .agents/skills/' "$LOG"
+# exclude_targets: [copilot] keeps the agent out of Copilot's own channel.
+chknot test -e "$Q/.github/agents/reviewer.agent.md"
+chk test -f "$Q/.claude/agents/reviewer.md"
+chknot grep -q '^exclude_targets:' "$Q/.claude/agents/reviewer.md"
+chk test -f "$Q/.codex/agents/reviewer.toml"
+chk grep -Fq 'WARNING: intelligence/agents/reviewer.md still reaches copilot through AGENTS.md' "$LOG"
+# Only the reviewer agent, for AGENTS.md too, changed a tracked output.
+is "tracked outputs after targeted sync" " M AGENTS.md" "$(git -C "$Q" status --porcelain --untracked-files=no)"
+
+echo "== an untargeted project's Pi extension and outputs are unchanged by the fields' absence =="
+rm "$Q/intelligence/rules/codex-only.md" "$Q/intelligence/rules/tools.md"
+run "$Q" sync
+is "sync after removing the Codex rules" 0 "$RC"
+chknot test -e "$Q/AGENTS.override.md"
+chknot test -e "$Q/.pi/extensions/intelligence-sync-rules.ts"
+
+echo "== targets: [agents] with exclude_targets: [cursor] names cursor =="
+printf -- '---\ntargets: [agents]\nexclude_targets: [cursor]\n---\n\nAGENTS_ONLY_BODY\n' > "$Q/intelligence/rules/agents-only.md"
+run "$Q" sync
+is "sync of an AGENTS.md-only rule" 0 "$RC"
+chk grep -q AGENTS_ONLY_BODY "$Q/AGENTS.md"
+chknot test -e "$Q/.claude/rules/agents-only.md"
+chk grep -q 'WARNING: intelligence/rules/agents-only.md still reaches .*cursor.* through AGENTS.md' "$LOG"
+rm "$Q/intelligence/rules/agents-only.md"
+run "$Q" sync
+
+echo "== a hand-written AGENTS.override.md is never touched =="
+printf '# Mine\n' > "$Q/AGENTS.override.md"
+run "$Q" sync
+is "sync beside a hand-written override" 0 "$RC"
+is "hand-written override kept" "# Mine" "$(cat "$Q/AGENTS.override.md")"
+printf -- '---\ntargets: [codex]\n---\n\nCODEX_ONLY_BODY\n' > "$Q/intelligence/rules/codex-only.md"
+before="$(snapshot "$Q")"
+run "$Q" sync
+is "a Codex rule needing the hand-written path" 1 "$RC"
+chk grep -Fq 'AGENTS.override.md was not generated by intelligence-sync' "$LOG"
+is "hand-written override still kept" "# Mine" "$(cat "$Q/AGENTS.override.md")"
+is "outputs after the refusal" "$before" "$(snapshot "$Q")"
+rm "$Q/AGENTS.override.md" "$Q/intelligence/rules/codex-only.md"
+
+echo "== an unknown target, and a local artifact naming a committed output, refuse =="
+run "$Q" sync
+before="$(snapshot "$Q")"
+printf -- '---\ntargets: [cursr]\n---\n' > "$Q/intelligence/rules/typo.md"
+run "$Q" sync
+is "unknown target" 1 "$RC"
+chk grep -Fq "intelligence/rules/typo.md: targets names 'cursr', which is no adapter" "$LOG"
+is "outputs after the unknown target" "$before" "$(snapshot "$Q")"
+rm "$Q/intelligence/rules/typo.md"
+for id in agents committed; do
+    printf -- '---\ntargets: [%s]\n---\n' "$id" > "$Q/intelligence/rules/x.local.md"
+    run "$Q" sync
+    is "local rule with targets: [$id]" 1 "$RC"
+    chk grep -Fq "intelligence/rules/x.local.md is local, but its targets name $id, whose output Git tracks" "$LOG"
+    is "outputs after the local refusal ($id)" "$before" "$(snapshot "$Q")"
+done
+# A local rule may still narrow its set to an adapter whose output is ignored.
+printf -- '---\ntargets: [claude]\n---\n\nX_LOCAL_BODY\n' > "$Q/intelligence/rules/x.local.md"
+run "$Q" sync
+is "local rule with targets: [claude]" 0 "$RC"
+chk grep -q X_LOCAL_BODY "$Q/.claude/rules/x.md"
+chknot test -e "$Q/.cursor/rules/x.mdc"
+chknot test -e "$Q/AGENTS.override.md"
+rm "$Q/intelligence/rules/x.local.md"
+
 [ "$fail" -eq 0 ] && echo "E2E-LOCAL-ARTIFACTS: ALL OK"
 exit "$fail"

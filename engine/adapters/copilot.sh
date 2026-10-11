@@ -8,7 +8,9 @@
 #     natively, and the `agents` adapter inlines always-on rule content
 #     into AGENTS.md. We also do not generate .github/copilot-instructions.md
 #     because Copilot bug copilot-cli#489 makes AGENTS.md ignored when
-#     copilot-instructions.md is present.
+#     copilot-instructions.md is present. An always-on rule AGENTS.md does not
+#     carry — a local one, or one whose targets leave `agents` out — becomes
+#     an .instructions.md file with `applyTo: "**"` (decision 0021).
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
 #
@@ -100,8 +102,8 @@ copilot_paths_rows() {
     ' "$@"
 }
 
-# Sync rules to Copilot format. Only path-scoped rules are emitted —
-# always-on rules live in AGENTS.md (read by Copilot natively).
+# Sync rules to Copilot format. Path-scoped rules are emitted, and an always-on
+# rule only when AGENTS.md (read by Copilot natively) does not carry it.
 sync_copilot_rules() {
     local repo_root="$1"
     local config_file="$2"
@@ -112,18 +114,24 @@ sync_copilot_rules() {
 
     local scoped_count=0
 
-    local i
+    local i always_count=0 spec="" report="" LS=$'\x1e'
     local -a scoped=() scoped_names=()
     output_rel_var "$repo_root" "$instructions_dir"
     source_artifacts_var "$repo_root" "$config_file" rules copilot "$IS_OUTPUT_REL/{}.instructions.md"
     for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
-        [ "${IS_SOURCE_SCOPED[i]}" = 1 ] || continue
-        scoped+=("${IS_SOURCE_FILES[i]}")
-        scoped_names+=("${IS_SOURCE_NAMES[i]}")
+        if [ "${IS_SOURCE_SCOPED[i]}" = 1 ]; then
+            scoped+=("${IS_SOURCE_FILES[i]}")
+            scoped_names+=("${IS_SOURCE_NAMES[i]}")
+        elif [ "${IS_SOURCE_IN_AGENTS[i]}" = 0 ]; then
+            # An always-on rule AGENTS.md does not carry applies everywhere.
+            spec+="${IS_SOURCE_FILES[i]}"$'\x1f'"$instructions_dir/${IS_SOURCE_NAMES[i]}.instructions.md"$'\x1f'"fence_nofm"$'\x1f'"0"$'\x1f'"none"$'\x1f'"${LS}---${LS}applyTo: \"**\"${LS}---${LS}"$'\x1f\n'
+            report+="  rule: ${IS_SOURCE_NAMES[i]}.instructions.md (always-on)"$'\n'
+            always_count=$((always_count + 1))
+        fi
     done
 
     if [ "${#scoped[@]}" -gt 0 ]; then
-        local path base paths_line spec="" report="" LS=$'\x1e'
+        local path base paths_line
         i=0
         while IFS=$'\x1f' read -r path paths_line; do
             base="${scoped_names[i]}"
@@ -139,12 +147,17 @@ sync_copilot_rules() {
             report+="  rule: $base.instructions.md (scoped)"$'\n'
             scoped_count=$((scoped_count + 1))
         done < <(copilot_paths_rows "${scoped[@]}")
-
+    fi
+    if [ -n "$spec" ]; then
         emit_wrapped_bodies "$spec"
         printf '%s' "$report"
     fi
 
-    echo "  rules: $scoped_count scoped"
+    if [ "$always_count" -gt 0 ]; then
+        echo "  rules: $scoped_count scoped, $always_count always-on"
+    else
+        echo "  rules: $scoped_count scoped"
+    fi
 }
 
 # Sync skills to Copilot format (SKILL.md in .github/skills/)

@@ -153,11 +153,14 @@ for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
 done
 ```
 
-The last argument is the repository-relative path an artifact lands at, `{}` standing for its name. The catalog lists sources in manifest order and each directory's entries in byte order, and settles three things before any adapter runs:
+The last argument is the repository-relative path an artifact lands at, `{}` standing for its name. The catalog lists sources in manifest order and each directory's entries in byte order, and settles four things before any adapter runs:
 
 - **Names.** An artifact is named by its file name without a leading `.`, `.md` and a trailing `.local`, a skill by its directory name without the leading `.` and `.local`: `.draft.md` renders as `draft`, `deploy.local/` as `deploy/`. Write each output under `IS_SOURCE_NAMES`, never under the source file name; `finalize_copy_named` and `copy_skill_bundle_dirs_named` take the `IS_SOURCE_NAME_MAP` the call leaves.
 - **Overrides.** Of two artifacts with one name, only the later source's is listed. Package sources are wired before project sources, so project content overrides a package artifact by name. Two of one name in one directory, or a local and a non-local one anywhere, refuse the sync before any adapter runs.
 - **Local artifacts.** A `*.local.md` rule or agent and a `*.local/` skill are listed only for an output path no `ignore` record of your contract covers — what Git tracks never holds one. That is why the path must be the real one: an adapter that globs sources itself, or names a path it does not write, can put a teammate's local file into a committed output.
+- **Targets.** An artifact whose `targets:` leaves your adapter out, or whose `exclude_targets:` names it, is not listed for it; `committed` in either field is resolved against the path you pass ([Selecting adapters](conventions.md#selecting-adapters)). Your adapter's id is a valid target as soon as its file exists, and sync has removed both fields from every copy the shared helpers write; strip them from any frontmatter you copy yourself.
+
+`IS_SOURCE_IN_AGENTS` is 1 when `AGENTS.md` carries the artifact too. An adapter whose tool reads `AGENTS.md` renders an always-on rule only where it is 0: that is a local rule, or one whose targets leave `agents` out, and the tool's own always-on channel is the only way it arrives.
 
 ## Shared functions
 
@@ -200,18 +203,20 @@ Prefer the batched forms inside per-file loops: a process spawn costs tens of mi
 
 Rules without `paths:` are always-on. Rules with `paths:` are scoped.
 
-Intelligence routes always-on rules once through `AGENTS.md` for tools that consume it. An adapter for such a tool should not copy those rules again. If the tool has a native scoped-rule channel, transform `paths:` to the tool's equivalent.
+Intelligence routes always-on rules once through `AGENTS.md` for tools that consume it. An adapter for such a tool should not copy those rules again — except one `AGENTS.md` does not carry (`IS_SOURCE_IN_AGENTS` is 0), which reaches the tool only through its own always-on channel. If the tool has a native scoped-rule channel, transform `paths:` to the tool's equivalent.
 
-| Built-in | Always-on rules | Scoped rules |
-|---|---|---|
-| `agents` | Inline in `AGENTS.md` | List with links |
-| `antigravity` | Omit; reads `AGENTS.md` | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
-| `claude` | Copy | Copy with `paths:` preserved |
-| `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `globs:` |
-| `copilot` | Omit; reads `AGENTS.md` | `.instructions.md` with `applyTo:` |
-| `codex` | Omit; reads `AGENTS.md` | No native channel |
-| `pi` | Omit; reads `AGENTS.md` | Generated on-demand files and extension |
-| `opencode` | Omit; reads `AGENTS.md` | No native channel |
+| Built-in | Always-on rules | Always-on, not in `AGENTS.md` | Scoped rules |
+|---|---|---|---|
+| `agents` | Inline in `AGENTS.md` | — | List with links |
+| `antigravity` | Omit; reads `AGENTS.md` | `.agents/rules/*.md` with `trigger: always_on` | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
+| `claude` | Copy | Copy | Copy with `paths:` preserved |
+| `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `alwaysApply: true` | `.mdc` with `globs:` |
+| `copilot` | Omit; reads `AGENTS.md` | `.instructions.md` with `applyTo: "**"` | `.instructions.md` with `applyTo:` |
+| `codex` | Omit; reads `AGENTS.md` | `AGENTS.override.md`: all of `AGENTS.md` plus these rules | No native channel |
+| `pi` | Omit; reads `AGENTS.md` | Added to the system prompt by the generated extension | Generated on-demand files and extension |
+| `opencode` | Omit; reads `AGENTS.md` | No channel; sync warns | No native channel |
+
+Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the Codex adapter writes it — the whole rendered `AGENTS.md`, then the rules only Codex receives — while such a rule exists, and removes it when none does. Its contract manages and ignores the path; a file there that Intelligence did not generate is never touched, and a render that needs the path refuses until it is moved.
 
 If a new adapter relies on `AGENTS.md` for always-on rules, its target must require `agents`. Add that invariant to `engine/sync.sh` when contributing the adapter upstream.
 
@@ -371,6 +376,6 @@ For a built-in adapter, add the same assertions to the repository's smoke or lif
 | `claude` | `.claude/rules`, `.claude/agents`, `.claude/skills` |
 | `cursor` | `.cursor/rules`, `.cursor/agents`, `.cursor/skills` |
 | `copilot` | `.github/instructions`, `.github/agents`, `.github/skills` |
-| `codex` | `.codex/agents`, `.agents/skills` |
+| `codex` | `.codex/agents`, `.agents/skills`, marker-owned `AGENTS.override.md` |
 | `pi` | `.pi/intelligence-sync`, `.pi/extensions`, `.pi/prompts`, `.agents/skills` |
 | `opencode` | `.opencode/agents`, marker-owned `.opencode/commands`, `.agents/skills` |
