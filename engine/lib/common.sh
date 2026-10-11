@@ -1873,10 +1873,11 @@ warn_unsynced() {
 # encloses it. Generated output never holds a link, and nothing is ever copied
 # from outside the source (decision 0006). Every consumer takes that decision
 # from here, once per run: the skill list read_source_artifact_files returns,
-# the membership the glob-listing adapters check (skill_source_rendered), and
-# the plan copy_skill_bundle_dirs applies to its copy. A skill rendered from a
-# link is an ordinary skill from then on — quoting, token expansion, the
-# effort rendering and the Codex invocation policy all run on the output copy.
+# which the source catalog reads, the membership skill_source_rendered
+# answers, and the plan copy_skill_bundle_dirs applies to its copy. A skill
+# rendered from a link is an ordinary skill from then on — quoting, token
+# expansion, the effort rendering and the Codex invocation policy all run on
+# the output copy.
 #
 # skill_source_inventory <repo_root> <config_file> fills, in the caller's
 # shell and fail-closed like read_source_artifact_files:
@@ -1923,8 +1924,11 @@ skill_source_inventory() {
     [ "${IS_SOURCE_FILES_MEMO:-0}" != 1 ] || IS_SKI_KEY="$memo_key"
 }
 
-# skill_source_rendered <skill_dir> — the inventory renders this skill. For
-# adapters that list a skills source with their own glob.
+# skill_source_rendered <skill_dir> — the inventory renders this skill. No
+# built-in adapter calls it: they read skills through source_artifacts_var
+# (decision 0021). It stays for a project adapter written against earlier
+# releases that still lists a skills source with its own glob — that adapter
+# keeps skipping skills sync leaves out, but not local or targeted ones.
 skill_source_rendered() {
     _ski_key_var "$1"
     case "${IS_SKI_KEYS:-}" in
