@@ -9,9 +9,14 @@
 #
 #   bash cli/tests/verify.sh              gates the current diff can affect
 #   bash cli/tests/verify.sh all          every gate
-#   bash cli/tests/verify.sh lint         shellcheck over cli/ and engine/
+#   bash cli/tests/verify.sh lint         shellcheck over cli/ and engine/, plus
+#                                         the Claude Code plugin template
 #   bash cli/tests/verify.sh lint-cli     shellcheck over cli/ and npm/ scripts
-#   bash cli/tests/verify.sh lint-engine  shellcheck over engine/ only
+#   bash cli/tests/verify.sh lint-engine  shellcheck over engine/, then the
+#                                         Claude Code plugin template through
+#                                         `node --check` and `claude plugin
+#                                         validate` — each skipped, never
+#                                         passed, when its tool is absent
 #   bash cli/tests/verify.sh tests        the hermetic suites
 #
 # Suites take a repository root so CI can point them at its workspace; they
@@ -25,10 +30,13 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO"
 
-SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade unit-verify e2e-sources e2e-local-artifacts e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-sync-check e2e-concurrency e2e-sync-lock e2e-store-sha)
+SUITES=(unit-semver unit-manifest unit-engine unit-gitignore unit-release unit-fetch unit-upgrade unit-verify e2e-sources e2e-local-artifacts e2e-packages e2e-lifecycle e2e-negative e2e-lock-validation e2e-compat e2e-sync-cache e2e-sync-check e2e-concurrency e2e-sync-lock e2e-store-sha e2e-claude-plugin)
 
 failed=0
 skipped=()
+# Set by a gate that found nothing it could run, so `gate` lists it as skipped
+# instead of printing ok for a check that never happened.
+gate_skipped=""
 
 banner() { printf '\n=== %s ===\n' "$1"; }
 
@@ -47,6 +55,35 @@ lint_engine() {
     # parses as input redirection.
     find engine -name '*.sh' -not -path '*/adapters/_template.sh' \
         -print0 | xargs -0 shellcheck --severity=warning
+}
+
+# The Claude Code plugin the Claude adapter renders (decision 0022) is
+# JavaScript, which shellcheck never reads: `node --check` parses the hooks
+# module and `claude plugin validate` reads the template the way Claude Code
+# loads it. Neither tool is a prerequisite of this repository, so an absent one
+# is reported as skipped — a check that did not run never reads as passed —
+# and the gate itself is skipped when neither could run.
+PLUGIN_TEMPLATE=engine/adapters/claude-plugin
+lint_plugin() {
+    local rc=0 ran=0
+    if [ ! -d "$PLUGIN_TEMPLATE" ]; then
+        gate_skipped="no $PLUGIN_TEMPLATE/ in this tree"
+        return 0
+    fi
+    if command -v node >/dev/null 2>&1; then
+        ran=1
+        node --check "$PLUGIN_TEMPLATE/hooks/register.js" || rc=1
+    else
+        skipped+=("lint: claude plugin — node --check $PLUGIN_TEMPLATE/hooks/register.js: node is not on PATH")
+    fi
+    if command -v claude >/dev/null 2>&1; then
+        ran=1
+        claude plugin validate "$PLUGIN_TEMPLATE" || rc=1
+    else
+        skipped+=("lint: claude plugin — claude plugin validate $PLUGIN_TEMPLATE: claude is not on PATH")
+    fi
+    [ "$ran" -eq 1 ] || gate_skipped="neither node nor claude is on PATH"
+    return "$rc"
 }
 
 lint_cli() {
@@ -71,8 +108,14 @@ run_suites() {
 gate() {
     local label="$1" fn="$2"
     banner "$label"
+    gate_skipped=""
     if "$fn"; then
-        printf 'ok: %s\n' "$label"
+        if [ -n "$gate_skipped" ]; then
+            skipped+=("$label — $gate_skipped")
+            printf 'skipped: %s (%s)\n' "$label" "$gate_skipped"
+        else
+            printf 'ok: %s\n' "$label"
+        fi
     else
         printf 'FAILED: %s\n' "$label" >&2
         failed=1
@@ -100,12 +143,13 @@ changed_paths() {
 
 run_scope() {
     case "$1" in
-        lint)        gate "lint: engine" lint_engine; gate "lint: cli" lint_cli ;;
-        lint-engine) gate "lint: engine" lint_engine ;;
+        lint)        gate "lint: engine" lint_engine; gate "lint: claude plugin" lint_plugin; gate "lint: cli" lint_cli ;;
+        lint-engine) gate "lint: engine" lint_engine; gate "lint: claude plugin" lint_plugin ;;
         lint-cli)    gate "lint: cli" lint_cli ;;
         tests)       gate "tests: CLI suites" run_suites ;;
         all)
             gate "lint: engine" lint_engine
+            gate "lint: claude plugin" lint_plugin
             gate "lint: cli" lint_cli
             gate "tests: CLI suites" run_suites
             ;;
@@ -188,9 +232,9 @@ main() {
                 echo "git could not report the changed files — refusing to report success." >&2
                 return 1
             fi
-            # Shell sources decide the lint gate; anything the engine renders or
-            # the CLI resolves decides the suites.
-            if grep -Eq '^(cli|engine)/.*\.sh$|^npm/[^/]+\.sh$|^cli/intelligence$' <<< "$paths"; then
+            # Shell sources and the plugin template decide the lint gates;
+            # anything the engine renders or the CLI resolves decides the suites.
+            if grep -Eq '^(cli|engine)/.*\.sh$|^npm/[^/]+\.sh$|^cli/intelligence$|^engine/adapters/claude-plugin/' <<< "$paths"; then
                 want_lint=1
             fi
             if grep -Eq '^(cli|engine|packages/sync|examples|npm)/' <<< "$paths"; then

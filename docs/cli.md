@@ -125,6 +125,37 @@ with the manifest, which `targets.copilot.commit_output` needs; see the
 [artifact conventions](../packages/sync/references/conventions.md#artifact-names-and-local-artifacts)
 and [selecting adapters](../packages/sync/references/conventions.md#selecting-adapters).
 
+`targets.claude.plugin: true` makes the Claude adapter render a Claude Code
+plugin into `<output>/skills/intelligence/` (decision 0022): a
+`.claude-plugin/plugin.json` whose `version` is the engine version, a
+`hooks/hooks.json` naming the hooks module `hooks/register.js`, and a README.
+The module is a Claude Code *mod*: at session start and every five minutes it
+runs `intelligence sync --check` in the session's root without delaying the
+session, shows the verdict in the status line under the prompt, draws a `Sync
+now` button above the prompt when a sync is needed, and registers
+`/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
+re-checks, `check` re-checks, no argument prints the current status. It
+registers no tool and never submits a prompt. The field takes `true` or
+`false`; omission is `false`, and any other value refuses the sync before any
+output is touched. The directory sits inside `<output>/skills`, which the Claude
+contract owns, so it is ignored by Git, snapshotted and restored, compared by
+`sync --check` and removed by the next sync after the flag turns off. A source
+skill whose rendered name is `intelligence` collides with the plugin while the
+flag is on; sync refuses it and names the skill's source path and the field.
+
+The plugin needs the `intelligence` CLI on `PATH` (the status line says when it
+is missing) and Claude Code 2.1.287 or later, where mods are on by default;
+earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
+project plugin loads only in a folder the person has trusted, and a cloud or
+remote session that does not load project plugins shows nothing. A first
+`sync --check` with no record renders the project privately, which can take
+minutes on Windows/Git Bash; the mod waits two minutes for it and reports a
+longer one as a failed check until the next tick answers from the record it
+left. Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
+[create a mod](https://code.claude.com/docs/en/plugins/mods/create) and
+[troubleshoot a mod](https://code.claude.com/docs/en/plugins/mods/troubleshoot),
+read 2026-10-18.
+
 Built-in adapters render concurrently where their contracts allow it: adapters
 that share a managed directory run in order together, and an adapter that
 requires another starts after it. Each adapter's output still prints in list

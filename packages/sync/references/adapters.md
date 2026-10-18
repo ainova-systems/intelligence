@@ -129,6 +129,19 @@ Code ignore theirs, and never `.github/` itself. `targets.copilot.commit_output:
 true` keeps them tracked for Copilot on github.com; the setting is defined in
 [Generated output and version control](conventions.md#generated-output-and-version-control).
 
+The Claude adapter renders a Claude Code plugin into `<output>/skills/intelligence/`
+when `targets.claude.plugin` is `true` (decision 0022): a mod that checks
+`intelligence sync --check` at session start and every five minutes, shows the
+verdict under the prompt and runs sync from a button or `/intelligence sync`.
+The template is `engine/adapters/claude-plugin/`, copied with the engine version
+stamped into `plugin.json`. It lives inside the owned `skills` path, so it needs
+no contract record of its own; a source skill named `intelligence` collides with
+it and refuses the sync while the flag is on. Omission is `false`; any value but
+`true` or `false` refuses the sync. Claude Code loads a plugin from a project's
+`.claude/skills/<name>/` directory when the folder is trusted and the version is
+2.1.287 or later ([mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
+read 2026-10-18); it does not scan `.claude/plugins/`.
+
 The engine calls:
 
 ```text
@@ -373,7 +386,7 @@ For a built-in adapter, add the same assertions to the repository's smoke or lif
 |---|---|
 | `agents` | `AGENTS.md` |
 | `antigravity` | `.agents/rules`, `.agents/agents`, `.agents/skills` |
-| `claude` | `.claude/rules`, `.claude/agents`, `.claude/skills` |
+| `claude` | `.claude/rules`, `.claude/agents`, `.claude/skills` (with `plugin: true`, `.claude/skills/intelligence` is the Claude Code plugin) |
 | `cursor` | `.cursor/rules`, `.cursor/agents`, `.cursor/skills` |
 | `copilot` | `.github/instructions`, `.github/agents`, `.github/skills` |
 | `codex` | `.codex/agents`, `.agents/skills`, marker-owned `AGENTS.override.md` |
