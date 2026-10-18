@@ -66,6 +66,7 @@ lint_engine() {
 PLUGIN_TEMPLATE=engine/adapters/claude-plugin
 lint_plugin() {
     local rc=0 ran=0
+    local -a absent=()
     if [ ! -d "$PLUGIN_TEMPLATE" ]; then
         gate_skipped="no $PLUGIN_TEMPLATE/ in this tree"
         return 0
@@ -74,15 +75,21 @@ lint_plugin() {
         ran=1
         node --check "$PLUGIN_TEMPLATE/hooks/register.js" || rc=1
     else
-        skipped+=("lint: claude plugin — node --check $PLUGIN_TEMPLATE/hooks/register.js: node is not on PATH")
+        absent+=("lint: claude plugin — node --check $PLUGIN_TEMPLATE/hooks/register.js: node is not on PATH")
     fi
     if command -v claude >/dev/null 2>&1; then
         ran=1
         claude plugin validate "$PLUGIN_TEMPLATE" || rc=1
     else
-        skipped+=("lint: claude plugin — claude plugin validate $PLUGIN_TEMPLATE: claude is not on PATH")
+        absent+=("lint: claude plugin — claude plugin validate $PLUGIN_TEMPLATE: claude is not on PATH")
     fi
-    [ "$ran" -eq 1 ] || gate_skipped="neither node nor claude is on PATH"
+    # One cause, one line: a check that ran beside a missing one names the
+    # missing tool; a gate where nothing ran is skipped as a whole.
+    if [ "$ran" -eq 1 ]; then
+        [ "${#absent[@]}" -eq 0 ] || skipped+=("${absent[@]}")
+    else
+        gate_skipped="neither node nor claude is on PATH"
+    fi
     return "$rc"
 }
 
