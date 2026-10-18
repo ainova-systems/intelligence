@@ -182,6 +182,14 @@ for bad in yes 1 on enabled; do
     generated_digest > "$OUT/digest-after-refusal"
     chk cmp -s "$OUT/digest-before-refusal" "$OUT/digest-after-refusal"
 done
+# Sync's output carries the refusal like every engine error; --compact puts a
+# failed run's output on stderr.
+RC=0
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync --compact \
+    > "$OUT/refusal.stdout" 2> "$OUT/refusal.stderr") || RC=$?
+chk test "$RC" -ne 0
+chk grep -q 'ERROR: targets.claude.plugin must be true or false' "$OUT/refusal.stderr"
+chknot grep -q 'targets.claude.plugin' "$OUT/refusal.stdout"
 set_claude_target ', plugin: true'
 
 echo "== a source skill named like the plugin refuses the sync, naming both =="
