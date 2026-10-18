@@ -10,6 +10,5 @@ It is a Claude Code plugin whose hooks module (`hooks/register.js`) checks
 `intelligence sync --check` when a session starts and every five minutes,
 shows the result in the status line under the prompt, and runs
 `intelligence sync` from a `Sync now` button above the prompt or the
-`/intelligence sync` command. It needs the `intelligence` CLI on `PATH` and
-Claude Code 2.1.287 or later (earlier versions load it only with
-`CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`).
+`/intelligence sync` command. Its requirements and limits are defined in the
+[Intelligence CLI reference](https://github.com/ainova-systems/intelligence/blob/main/docs/cli.md#intelligence-sync).
