@@ -148,6 +148,11 @@ fi
 compact_output="$(mktemp -t intelligence-sync-XXXXXX)"
 trap 'rm -f "$compact_output"' EXIT
 rc=0
+# The one line that must not wait for the buffer: a wait for a check holding
+# the lock can last minutes (sync-lock.sh). Descriptor 9 keeps the real stderr.
+exec 9>&2
+# shellcheck disable=SC2034  # read by sync-lock.sh while the lock is taken
+IS_LOCK_NOTICE_FD=9
 (run_sync) > "$compact_output" 2>&1 || rc=$?
 if [ "$rc" -ne 0 ]; then
     cat "$compact_output" >&2

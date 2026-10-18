@@ -129,15 +129,18 @@ sync_lock_acquire() {
         took=0
         if mkdir "$lock" 2>/dev/null; then
             took=1
-        elif mkdir "$lock.takeover" 2>/dev/null; then
-            # Judge again under the takeover lock: another run may have taken
-            # it over since this one looked.
+        elif sync_lock_is_stale "$lock" && mkdir "$lock.takeover" 2>/dev/null; then
+            # The takeover lock is taken only for a lock that already looks
+            # stale: a command waiting for a live check must never hold it,
+            # since one interrupted mid-wait would leave it behind for good.
+            # Judge again under it: another run may have taken the lock over
+            # since this one looked.
             if sync_lock_is_stale "$lock"; then
                 rm -rf "$lock"
                 mkdir "$lock" 2>/dev/null && took=1
             fi
             rmdir "$lock.takeover"
-        elif [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+        elif [ -d "$lock.takeover" ] && [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
             # A takeover runs for milliseconds. Removing an abandoned one is itself
             # a check-then-delete race, so it is left to a person.
             die "a takeover of $lock was abandoned; if no intelligence command is running in this project, remove $lock.takeover"
@@ -162,7 +165,15 @@ sync_lock_acquire() {
             fi
             [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
             if [ "$told" = 0 ]; then
-                echo "waiting for intelligence sync --check to release $lock" >&2
+                # A caller that buffers this command's output (sync --compact)
+                # names a descriptor for the terminal, so a wait of minutes
+                # is never silent.
+                if [ -n "${IS_LOCK_NOTICE_FD:-}" ]; then
+                    { echo "waiting for intelligence sync --check to release $lock" >&"$IS_LOCK_NOTICE_FD"; } 2>/dev/null \
+                        || echo "waiting for intelligence sync --check to release $lock" >&2
+                else
+                    echo "waiting for intelligence sync --check to release $lock" >&2
+                fi
                 told=1
             fi
         elif ! sync_lock_read_owner "$lock"; then

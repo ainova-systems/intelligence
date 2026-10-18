@@ -153,13 +153,26 @@ OUTPUT="$(cd "$PROJECT" && bash "$CLI" adapter disable cursor 2>&1)" || RC=$?
 check test "$RC" -eq 0
 check test ! -e "$LOCK"
 
+# hold_lock <kind> — a live holder that is this test shell, written the way the
+# CLI writes one: the kind first, then the five-field owner. Kind `-` is a
+# writer, which marks nothing.
+hold_lock() {
+    mkdir -p "$LOCK"
+    [ "$1" = - ] || printf '%s\n' "$1" > "$LOCK/kind"
+    printf '%s %s %s %s %s\n' "$$" "${HOSTNAME:-unknown}" "${2:-$(date +%s)}" - "token.$RANDOM" > "$LOCK/owner"
+}
+
+# release_lock — release a held lock the way the CLI releases a check's.
+release_lock() {
+    rm -f "$LOCK/owner"
+    rm -rf "$LOCK"
+}
+
 echo '== a command waits for a check that holds the lock, then runs =='
 # sync --check writes nothing a person keeps; the status check a Claude Code
 # session runs every few minutes must never make the person's own sync fail.
-mkdir -p "$LOCK"
-printf 'check\n' > "$LOCK/kind"
-printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
-(sleep 2; rm -f "$LOCK/owner"; rm -rf "$LOCK") &
+hold_lock check
+(sleep 2; release_lock) &
 release=$!
 run --force
 wait "$release"
@@ -167,29 +180,58 @@ check test "$RC" -eq 0
 check has 'waiting for intelligence sync --check to release'
 check test ! -e "$LOCK"
 
+echo '== sync --compact says at once that it waits, on stderr =='
+# Its output is buffered until it ends; a wait of minutes must not be silent.
+hold_lock check
+(sleep 2; release_lock) &
+release=$!
+RC=0
+(cd "$PROJECT" && bash "$CLI" sync --force --compact > "$TMP/compact.out" 2> "$TMP/compact.err") || RC=$?
+wait "$release"
+check test "$RC" -eq 0
+check grep -q 'waiting for intelligence sync --check to release' "$TMP/compact.err"
+check grep -q '^IS_STATUS=ok' "$TMP/compact.out"
+
+echo '== a writer interrupted while it waits leaves no takeover lock behind =='
+# A takeover lock left by a killed waiter would refuse every later command
+# once it is a minute old, so a waiter for a live check never takes one.
+for _ in 1 2 3; do
+    hold_lock check
+    (cd "$PROJECT" && exec bash "$CLI" sync --force > "$TMP/killed-waiter.out" 2>&1) &
+    waiter=$!
+    waited=0
+    until grep -q 'waiting for' "$TMP/killed-waiter.out" 2>/dev/null || [ "$waited" -ge 600 ]; do
+        waited=$((waited + 1))
+        sleep 0.1
+    done
+    # Strike while a takeover lock exists, if the waiter ever makes one: a
+    # tight loop of builtins sees one that lives for milliseconds.
+    deadline=$((SECONDS + 3))
+    while [ "$SECONDS" -lt "$deadline" ] && [ ! -d "$LOCK.takeover" ]; do :; done
+    kill -TERM "$waiter" 2>/dev/null || true
+    wait "$waiter" 2>/dev/null || true
+    check test ! -e "$LOCK.takeover"
+    release_lock
+done
+
 echo '== a check refuses another check at once, so it never queues ahead of a writer =='
-mkdir -p "$LOCK"
-printf 'check\n' > "$LOCK/kind"
-printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+hold_lock check
 run --check
 check test "$RC" -ne 0
 check test "$RC" -ne 2
 check has 'another intelligence sync is running in this project'
 check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
-rm -rf "$LOCK"
+release_lock
 
 echo '== a writer waits for each check that holds the lock, not for the first one alone =='
 # Two checks in a row hold the lock for longer than the bound together, but
 # neither alone: the second starts its own count.
-mkdir -p "$LOCK"
-printf 'check\n' > "$LOCK/kind"
-printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+hold_lock check
 (
     sleep 3
-    printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(($(date +%s) + 100))" > "$LOCK/owner"
+    hold_lock check "$(($(date +%s) + 100))"
     sleep 3
-    rm -f "$LOCK/owner"
-    rm -rf "$LOCK"
+    release_lock
 ) &
 release=$!
 RC=0
@@ -199,26 +241,23 @@ check test "$RC" -eq 0
 check test ! -e "$LOCK"
 
 echo '== a check that outlives the wait is refused like any holder =='
-mkdir -p "$LOCK"
-printf 'check\n' > "$LOCK/kind"
-printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+hold_lock check
 RC=0
 OUTPUT="$(cd "$PROJECT" && INTELLIGENCE_SYNC_LOCK_CHECK_WAIT=1 bash "$CLI" sync --force 2>&1)" || RC=$?
 check test "$RC" -ne 0
 check has 'waiting for intelligence sync --check to release'
 check has 'another intelligence sync is running in this project'
 check test -f "$LOCK/owner"
-rm -rf "$LOCK"
+release_lock
 
 echo '== a check refuses a writing holder at once, without waiting =='
-mkdir -p "$LOCK"
-printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+hold_lock -
 run --check
 check test "$RC" -ne 0
 check test "$RC" -ne 2
 check has 'another intelligence sync is running in this project'
 check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
-rm -rf "$LOCK"
+release_lock
 
 echo '== each ownerless moment gets its own grace, however long the wait =='
 # A lock seen without an owner, then held by a check, then without an owner
@@ -227,8 +266,7 @@ echo '== each ownerless moment gets its own grace, however long the wait =='
 mkdir -p "$LOCK"
 (
     sleep 2
-    printf 'check\n' > "$LOCK/kind"
-    printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+    hold_lock check
     sleep 4
     rm -f "$LOCK/owner" "$LOCK/kind"
     sleep 2
