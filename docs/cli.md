@@ -135,10 +135,11 @@ session, shows the verdict in the status line under the prompt, draws a `Sync
 now` button above the prompt when a sync is needed, and registers
 `/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
 re-checks, `check` re-checks, no argument prints the current status. It
-registers no tool and never submits a prompt. The field takes `true` or
-`false`; omission or an empty value is `false`, as for every target field, and
-any other value refuses the sync before any output is touched. The directory sits inside `<output>/skills`, which the Claude
-contract owns, so it is ignored by Git, snapshotted and restored, compared by
+registers no tool and never submits a prompt. This section defines the field.
+It takes `true` or `false`; omission or an empty value is `false`, as for every
+target field, and any other value refuses the sync before any output is
+touched. The directory sits inside `<output>/skills`, which the Claude contract
+owns, so it is ignored by Git, snapshotted and restored, compared by
 `sync --check` and removed by the next sync after the flag turns off. A source
 skill whose rendered name is `intelligence`, in any letter case, collides with
 the plugin while the flag is on; sync refuses it and names the skill's source
