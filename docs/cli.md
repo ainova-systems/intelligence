@@ -148,17 +148,21 @@ skill whose rendered name is `intelligence`, in any letter case, collides with
 the plugin while the flag is on; sync refuses it and names the skill's source
 path and the field.
 
-The plugin needs the `intelligence` CLI on `PATH` (the status line says when it
-is missing) and Claude Code 2.1.287 or later, where mods are on by default;
+The plugin needs the `intelligence` CLI on `PATH` (its line says when it is
+missing, and asks for `intelligence upgrade` when the CLI there is older than
+the project, offering no sync, since that CLI would drop the plugin) and Claude
+Code 2.1.287 or later, where mods are on by default;
 earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
 project plugin loads only in a folder the person has trusted, and a cloud or
 remote session that does not load project plugins shows nothing. A first
 `sync --check` with no record renders the project privately, which can take
 minutes on Windows/Git Bash; the mod waits for it up to just under the
 five-minute interval and never starts a check while one of its own is pending;
-a check abandoned at that timeout can still finish beside the next one. While a check holds the project
-lock, a person's own `intelligence sync` waits for it instead of refusing; when
-another command holds the lock, the status line says so until the next tick.
+a check abandoned at that timeout can still finish beside the next one. While a
+check holds the project lock, a person's own `intelligence sync` waits for it
+instead of refusing. When another command holds the lock, the line keeps the
+last verdict and the check asks again after 15 seconds, then after longer
+pauses up to the five-minute interval.
 Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
 [create a mod](https://code.claude.com/docs/en/plugins/mods/create) and
 [troubleshoot a mod](https://code.claude.com/docs/en/plugins/mods/troubleshoot),

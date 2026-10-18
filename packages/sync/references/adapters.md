@@ -132,7 +132,8 @@ true` keeps them tracked for Copilot on github.com; the setting is defined in
 The Claude adapter renders a Claude Code plugin into `<output>/skills/intelligence/`
 when `targets.claude.plugin` is `true` (decision 0022): a mod that checks
 `intelligence sync --check` at session start and every five minutes, shows the
-verdict under the prompt and runs sync from a button or `/intelligence sync`.
+verdict in a line above the prompt and runs sync from a button there or
+`/intelligence sync`.
 The template is `engine/adapters/claude-plugin/`, copied with the engine version
 stamped into `plugin.json`. It lives inside the owned `skills` path, so it needs
 no contract record of its own. The field's values, the name collision it refuses

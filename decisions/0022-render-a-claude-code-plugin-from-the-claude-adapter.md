@@ -91,15 +91,16 @@ must never reach into it (decision 0001).
 
 - A project opts in with one manifest line and a sync; every developer with
   Claude Code 2.1.287 or later gets the status without installing anything.
-  The plugin needs the `intelligence` CLI on `PATH`; without it the status
-  line says so.
+  The plugin needs the `intelligence` CLI on `PATH`; without it, or with one
+  older than the project, its line says so.
 - A project-level plugin loads only in a trusted folder, and a cloud or
   remote session that does not load project plugins shows nothing. A cold
   `sync --check` renders the project in a private copy, which takes minutes on
   Git Bash; the mod waits for it up to just under the interval and never
   starts a check while one of its own is pending; a check abandoned at that
-  timeout can still finish beside the next one. When another command holds the lock, the check yields and the
-  status line says another command is running until the next tick.
+  timeout can still finish beside the next one. When another command holds
+  the lock, the check yields, the last verdict stays, and the check asks
+  again after pauses that grow from 15 seconds to the five-minute interval.
 - A command started while a check runs now pauses for it instead of failing
   at once. An older CLI does not write the mark, so its checks are still
   refused by every other command, as before.
