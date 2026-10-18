@@ -57,7 +57,8 @@ must never reach into it (decision 0001).
    `intelligence sync --check` in the session root without waiting for it,
    repeats every five minutes, and registers `/intelligence [sync|check]`. It
    shows the verdict in the status line under the prompt and, when a sync is
-   needed, failed or running, a band above the prompt with a `Sync now` button.
+   needed, failed or running, a band above the prompt; only a needed sync adds
+   a `Sync now` button to it.
    Sync runs `intelligence sync --compact` with a ten-minute timeout and
    re-checks. It registers no tool and never submits a prompt.
 5. The runner gains one gate for the template: `node --check` on the hooks
