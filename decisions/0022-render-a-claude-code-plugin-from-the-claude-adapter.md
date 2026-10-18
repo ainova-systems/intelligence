@@ -41,8 +41,9 @@ must never reach into it (decision 0001).
    `<output>/skills/intelligence/`: `.claude-plugin/plugin.json` (name
    `intelligence`, `version` = `engine/VERSION`), `hooks/hooks.json` naming
    `./register.js`, the hooks module and a README that says the directory is
-   generated. The field takes `true` or `false`; omission is `false`, and any
-   other value refuses the sync before anything is removed, naming the field.
+   generated. The field takes `true` or `false`; omission or an empty value is
+   `false`, and any other value refuses the sync before anything is removed,
+   naming the field.
 2. The template lives in the engine, `engine/adapters/claude-plugin/`, beside
    the adapter that renders it, and is copied byte for byte except for the
    version stamp and LF normalization. `npm/build.sh` already bundles all of

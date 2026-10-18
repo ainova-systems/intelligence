@@ -138,6 +138,12 @@ chk test "$RC" -eq 0
 chknot test -e "$PLUGIN"
 run_in "$PROJ" sync --check
 chk test "$RC" -eq 0
+# An empty value reads as omission, as it does for every target field.
+set_claude_target ', plugin: ""'
+run_in "$PROJ" sync
+chk test "$RC" -eq 0
+chknot test -e "$PLUGIN"
+set_claude_target ''
 
 echo "== any value but true or false refuses the sync and changes nothing =="
 set_claude_target ', plugin: true'

@@ -136,8 +136,8 @@ verdict under the prompt and runs sync from a button or `/intelligence sync`.
 The template is `engine/adapters/claude-plugin/`, copied with the engine version
 stamped into `plugin.json`. It lives inside the owned `skills` path, so it needs
 no contract record of its own; a source skill named `intelligence`, in any letter
-case, collides with it and refuses the sync while the flag is on. Omission is `false`; any value but
-`true` or `false` refuses the sync. Claude Code loads a plugin from a project's
+case, collides with it and refuses the sync while the flag is on. Omission or an
+empty value is `false`; any other value but `true` refuses the sync. Claude Code loads a plugin from a project's
 `.claude/skills/<name>/` directory when the folder is trusted and the version is
 2.1.287 or later ([mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
 read 2026-10-18); it does not scan `.claude/plugins/`.
