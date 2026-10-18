@@ -60,11 +60,12 @@ sync_lock_pgid() {
 }
 
 sync_lock_write_owner() {
+    # The kind goes first, before anything that costs time: whoever can read
+    # the owner can read the kind too.
+    [ -z "$SYNC_LOCK_KIND" ] || printf '%s\n' "$SYNC_LOCK_KIND" > "$1/kind"
     sync_lock_now
     sync_lock_pgid
     SYNC_LOCK_TOKEN="$$.$IS_NOW.$RANDOM$RANDOM"
-    # The kind goes first: whoever can read the owner can read the kind too.
-    [ -z "$SYNC_LOCK_KIND" ] || printf '%s\n' "$SYNC_LOCK_KIND" > "$1/kind"
     printf '%s %s %s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$IS_NOW" "${IS_PGID:--}" "$SYNC_LOCK_TOKEN" > "$1/owner"
 }
 
@@ -114,7 +115,7 @@ sync_lock_held_by_check() {
 # sync_lock_acquire <root> — take <root>/.intelligence/sync.lock, wait for a
 # check that holds it for up to SYNC_LOCK_CHECK_WAIT seconds, or refuse.
 sync_lock_acquire() {
-    local root="$1" lock="$1/.intelligence/sync.lock" took age="" started="$SECONDS" told=0
+    local root="$1" lock="$1/.intelligence/sync.lock" took age="" started="$SECONDS" told=0 ownerless=""
     # A process start costs tens of milliseconds on Git Bash: skip the usual case.
     [ -d "$root/.intelligence" ] || mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
     while :; do
@@ -139,10 +140,21 @@ sync_lock_acquire() {
             SYNC_LOCK_HELD="$lock"
             return 0
         fi
-        sync_lock_held_by_check "$lock" && [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
-        if [ "$told" = 0 ]; then
-            echo "waiting for intelligence sync --check to release $lock" >&2
-            told=1
+        if sync_lock_held_by_check "$lock"; then
+            [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
+            if [ "$told" = 0 ]; then
+                echo "waiting for intelligence sync --check to release $lock" >&2
+                told=1
+            fi
+        elif ! sync_lock_read_owner "$lock"; then
+            # No owner: a holder between its mkdir and its owner file, or one
+            # being released. Both last moments, so look again for a few
+            # seconds from the first sight before calling it a run that is
+            # still starting.
+            [ -n "$ownerless" ] || ownerless="$SECONDS"
+            [ $((SECONDS - ownerless)) -lt 3 ] || break
+        else
+            break
         fi
         sleep 1
     done
@@ -180,6 +192,11 @@ project_lock_hold() {
 sync_lock_release() {
     [ -n "$SYNC_LOCK_HELD" ] || return 0
     if sync_lock_read_owner "$SYNC_LOCK_HELD" && [ "$IS_LOCK_TOKEN" = "$SYNC_LOCK_TOKEN" ]; then
+        # A check's owner goes first: `rm -rf` alone could expose a moment with
+        # the owner still there and the kind gone, and a command waiting for
+        # the check would be refused in it. Without the owner, a waiter sees a
+        # check or a lock still starting, and waits either way.
+        [ ! -f "$SYNC_LOCK_HELD/kind" ] || rm -f "$SYNC_LOCK_HELD/owner"
         rm -rf "$SYNC_LOCK_HELD"
     fi
     SYNC_LOCK_HELD=""

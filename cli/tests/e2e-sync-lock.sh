@@ -159,7 +159,7 @@ echo '== a command waits for a check that holds the lock, then runs =='
 mkdir -p "$LOCK"
 printf 'check\n' > "$LOCK/kind"
 printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
-(sleep 2; rm -rf "$LOCK") &
+(sleep 2; rm -f "$LOCK/owner"; rm -rf "$LOCK") &
 release=$!
 run --force
 wait "$release"
@@ -171,7 +171,7 @@ echo '== a check waits for another check the same way =='
 mkdir -p "$LOCK"
 printf 'check\n' > "$LOCK/kind"
 printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
-(sleep 2; rm -rf "$LOCK") &
+(sleep 2; rm -f "$LOCK/owner"; rm -rf "$LOCK") &
 release=$!
 run --check
 wait "$release"
@@ -292,6 +292,25 @@ wait "$waiter"
 check test "$(cat "$TMP/check.rc")" -ne 1
 check test "$(cat "$TMP/waiter.rc")" = 0
 check grep -q '=== Slow ===' "$TMP/waiter.out"
+check test ! -e "$LOCK"
+# Nothing of a released check's lock stays behind.
+check test -z "$(find "$PROJECT/.intelligence" -maxdepth 1 -name 'sync.lock*' 2>/dev/null)"
+
+echo '== a sync that meets a running check never fails, round after round =='
+# The waiter polls once a second; a release that ever exposed the lock without
+# its kind would refuse it in one of these rounds.
+for _ in 1 2 3; do
+    rm -f "$TMP/slow-started" "$TMP/slow-release"
+    (cd "$PROJECT" && bash "$CLI" sync --check --force > /dev/null 2>&1) &
+    checker=$!
+    waited=0
+    until [ -e "$TMP/slow-started" ] || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+    RC=0
+    (sleep 1; : > "$TMP/slow-release") &
+    OUTPUT="$(cd "$PROJECT" && bash "$CLI" sync --force 2>&1)" || RC=$?
+    wait "$checker" || true
+    check test "$RC" -eq 0
+done
 check test ! -e "$LOCK"
 
 [ "$fail" -eq 0 ] && echo "== sync-lock: $checks checks passed =="
