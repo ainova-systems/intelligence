@@ -12,7 +12,8 @@
 // A cold `sync --check` renders the project in a private copy, which takes
 // minutes on Git Bash; a warm one answers from its record in seconds. The
 // timeout stays just under the interval, so a slow check is waited for rather
-// than reported as a failure, and the next tick never overlaps it.
+// than reported as a failure. A tick never starts a check while one of ours is
+// pending; one abandoned at the timeout can still finish beside the next.
 const CHECK_EVERY_MS = 300000
 const CHECK_TIMEOUT_MS = 290000
 // `$.process.run` allows ten minutes at most, which a full sync may need: it
@@ -148,12 +149,13 @@ async function runSync($) {
   state.busy = true
   show($)
   let outcome
+  let cwd = ''
   try {
     // A check of ours still running holds the project lock; the CLI would
     // wait for it too, but waiting here keeps its late answer from landing
     // after the sync's own.
     if (pendingCheck) await pendingCheck
-    const cwd = await $.session.root()
+    cwd = await $.session.root()
     const result = await $.process.run(['intelligence', 'sync', '--compact'], { cwd, timeoutMs: SYNC_TIMEOUT_MS })
     if (result.exitCode === 0) {
       outcome = 'sync finished'
@@ -162,7 +164,13 @@ async function runSync($) {
       outcome = 'sync failed: ' + reason
     }
   } catch (err) {
-    outcome = 'sync could not run: ' + errorMessage(err)
+    // A sync past its timeout, which includes waiting for a check, keeps
+    // running and holding the lock: it has not failed yet.
+    if (!/failed to start/i.test(errorMessage(err)) && (await lockHeld($, cwd))) {
+      outcome = 'sync is still running; the status updates when it ends'
+    } else {
+      outcome = 'sync could not run: ' + errorMessage(err)
+    }
   }
   state.busy = false
   $.ui.toast(outcome)

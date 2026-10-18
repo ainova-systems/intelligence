@@ -62,7 +62,10 @@ lint_engine() {
 # module and `claude plugin validate` reads the template the way Claude Code
 # loads it. Neither tool is a prerequisite of this repository, so an absent one
 # is reported as skipped — a check that did not run never reads as passed —
-# and the gate itself is skipped when neither could run.
+# and the gate itself is skipped when neither could run. CI's runners carry
+# node but not Claude Code, and a WSL run on Windows usually carries neither,
+# so `claude plugin validate` runs where Claude Code is installed:
+# INTELLIGENCE_VERIFY_NATIVE=1 bash cli/tests/verify.sh lint-engine.
 PLUGIN_TEMPLATE=engine/adapters/claude-plugin
 lint_plugin() {
     local rc=0 ran=0

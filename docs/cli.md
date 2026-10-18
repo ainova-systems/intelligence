@@ -151,7 +151,8 @@ project plugin loads only in a folder the person has trusted, and a cloud or
 remote session that does not load project plugins shows nothing. A first
 `sync --check` with no record renders the project privately, which can take
 minutes on Windows/Git Bash; the mod waits for it up to just under the
-five-minute interval, so ticks never overlap. While a check holds the project
+five-minute interval and never starts a check while one of its own is pending;
+a check abandoned at that timeout can still finish beside the next one. While a check holds the project
 lock, a person's own `intelligence sync` waits for it instead of refusing; when
 another command holds the lock, the status line says so until the next tick.
 Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
@@ -170,6 +171,11 @@ Normal sync announces its checks immediately and streams rendering progress as
 adapters finish. An unchanged run separates retained warnings from the result and ends
 with `Unchanged: no files needed updating`. Cached results still require reading
 source and output contents; the check is not a timestamp-only shortcut.
+
+Normal sync writes the engine's whole stream, its `ERROR:` lines included, to
+stdout: the CLI records that one stream for the next cache hit, and splitting it
+would lose the order of its lines. `--compact` prints a failed run's output on
+stderr; `--check` prints only its verdict on stdout and everything else on stderr.
 
 For built-in adapters, unchanged sync compares file contents and filesystem
 entries, including skill resources, generated outputs, manifest/lock, and the

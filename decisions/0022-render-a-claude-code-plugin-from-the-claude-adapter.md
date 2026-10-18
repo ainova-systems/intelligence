@@ -86,8 +86,9 @@ must never reach into it (decision 0001).
 - A project-level plugin loads only in a trusted folder, and a cloud or
   remote session that does not load project plugins shows nothing. A cold
   `sync --check` renders the project in a private copy, which takes minutes on
-  Git Bash; the mod waits for it up to just under the interval, so ticks never
-  overlap. When another command holds the lock, the check yields and the
+  Git Bash; the mod waits for it up to just under the interval and never
+  starts a check while one of its own is pending; a check abandoned at that
+  timeout can still finish beside the next one. When another command holds the lock, the check yields and the
   status line says another command is running until the next tick.
 - A command started while a check runs now pauses for it instead of failing
   at once. An older CLI does not write the mark, so its checks are still
