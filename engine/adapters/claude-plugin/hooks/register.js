@@ -19,7 +19,7 @@ const CHECK_TIMEOUT_MS = 290000
 // first waits for any check holding the project lock (decision 0022).
 const SYNC_TIMEOUT_MS = 600000
 // The CLI's refusal when another command holds the project lock.
-const LOCK_HELD = /another intelligence sync is (running|starting)/
+const LOCK_REFUSAL = /another intelligence sync is (running|starting)/
 
 // What the last check found. `status` is one of unknown, ok, stale, error,
 // missing-cli or elsewhere (another command held the project lock); `busy` is
@@ -39,6 +39,13 @@ function parseStatus(stdout) {
 function firstLine(text) {
   const line = (text || '').split(/\r?\n/).find((l) => l.trim() !== '')
   return line ? line.trim() : ''
+}
+
+// A failing CLI prints its progress before the reason, so the first line is
+// often a banner: prefer the line that says what went wrong.
+function reasonLine(text) {
+  const line = (text || '').split(/\r?\n/).find((l) => /^\s*ERROR:/.test(l))
+  return line ? line.trim().replace(/^ERROR:\s*/, '') : firstLine(text)
 }
 
 function errorMessage(err) {
@@ -70,7 +77,7 @@ function statusText() {
     case 'missing-cli':
       return 'CLI not found on PATH'
     case 'elsewhere':
-      return 'another intelligence command is running in this project' + at
+      return 'an intelligence command is still running in this project' + at
     case 'error':
       return 'check failed: ' + state.detail + at
     default:
@@ -96,16 +103,18 @@ async function check($) {
 
 async function runCheck($) {
   let result
+  let cwd = ''
   try {
     // The project root, not the shell's cwd: a session started in a
     // subdirectory still checks the project the plugin was rendered for.
-    const cwd = await $.session.root()
+    cwd = await $.session.root()
     result = await $.process.run(['intelligence', 'sync', '--check'], { cwd, timeoutMs: CHECK_TIMEOUT_MS })
   } catch (err) {
     // The call rejects when the program cannot start or outlives its
     // timeout; the result arrives whatever the exit code otherwise.
     const message = errorMessage(err)
     if (/failed to start/i.test(message)) setState('missing-cli', message)
+    else if (await lockHeld($, cwd)) setState('elsewhere', message)
     else setState('error', message)
     show($)
     return
@@ -117,9 +126,21 @@ async function runCheck($) {
   // check yields to it, and the next tick answers.
   if (result.exitCode === 0) setState('ok', parsed.detail)
   else if (result.exitCode === 2) setState('stale', parsed.detail || 'sync needed')
-  else if (LOCK_HELD.test(result.stderr || '')) setState('elsewhere', firstLine(result.stderr))
-  else setState('error', parsed.detail || firstLine(result.stderr) || 'exit ' + result.exitCode)
+  else if (LOCK_REFUSAL.test(result.stderr || '')) setState('elsewhere', reasonLine(result.stderr))
+  else setState('error', parsed.detail || reasonLine(result.stderr) || 'exit ' + result.exitCode)
   show($)
+}
+
+// A check cut off at its timeout behind another command, or still finishing
+// on its own, leaves the project lock in place: that is a command still
+// running, not a failed check. The process the timeout abandoned keeps running.
+async function lockHeld($, root) {
+  if (!root) return false
+  try {
+    return await $.fs.exists(root + '/.intelligence/sync.lock')
+  } catch {
+    return false
+  }
 }
 
 async function runSync($) {
@@ -137,7 +158,7 @@ async function runSync($) {
     if (result.exitCode === 0) {
       outcome = 'sync finished'
     } else {
-      const reason = firstLine(result.stderr) || parseStatus(result.stdout).detail || 'exit ' + result.exitCode
+      const reason = reasonLine(result.stderr) || parseStatus(result.stdout).detail || 'exit ' + result.exitCode
       outcome = 'sync failed: ' + reason
     }
   } catch (err) {
