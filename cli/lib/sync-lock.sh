@@ -15,18 +15,20 @@
 #
 # `sync --check` holds the lock too, because it may restore the package store
 # and compares a copy of the live outputs. It writes nothing a person keeps, so
-# a holder that is a check marks its lock with a `kind` file, and a command that
-# finds such a holder waits for it instead of refusing (decision 0022): a
-# status check that runs every few minutes must never make the person's own
-# sync fail. Only a writing holder is refused at once.
+# a holder that is a check marks its lock with a `kind` file, and a writing
+# command that finds such a holder waits for it instead of refusing (decision
+# 0022): a status check that runs every few minutes must never make the
+# person's own sync fail. A check never waits — it refuses any holder at once —
+# so it can never take the lock ahead of a writer that is waiting for it. A
+# writing holder is refused at once, as before.
 
 SYNC_LOCK_HELD=""
 SYNC_LOCK_TOKEN=""
 # What this process takes the lock for: "check" for `sync --check`, empty for
 # every writer. Set before the lock is taken.
 SYNC_LOCK_KIND=""
-# How long a command waits for a check that holds the lock, in seconds. Kept in
-# the environment only so the lock suite can exercise the bound quickly.
+# How long a writer waits for each check that holds the lock, in seconds. Kept
+# in the environment only so the lock suite can exercise the bound quickly.
 SYNC_LOCK_CHECK_WAIT="${INTELLIGENCE_SYNC_LOCK_CHECK_WAIT:-300}"
 
 sync_lock_now() {
@@ -108,14 +110,18 @@ sync_lock_is_stale() {
 # `sync --check`. A lock without the mark is a writer's, or an older CLI's.
 sync_lock_held_by_check() {
     local kind=""
-    [ -f "$1/kind" ] && IFS= read -r kind < "$1/kind" 2>/dev/null
+    # The group silences the redirection too: a kind released between the
+    # test and the read must not print a stray error a caller would show.
+    [ -f "$1/kind" ] && { IFS= read -r kind < "$1/kind"; } 2>/dev/null
     [ "$kind" = check ]
 }
 
-# sync_lock_acquire <root> — take <root>/.intelligence/sync.lock, wait for a
-# check that holds it for up to SYNC_LOCK_CHECK_WAIT seconds, or refuse.
+# sync_lock_acquire <root> — take <root>/.intelligence/sync.lock, or refuse.
+# A writer waits for each check that holds it for up to SYNC_LOCK_CHECK_WAIT
+# seconds; a check refuses at once.
 sync_lock_acquire() {
     local root="$1" lock="$1/.intelligence/sync.lock" took age="" started="$SECONDS" told=0 ownerless=""
+    local holder="" seen
     # A process start costs tens of milliseconds on Git Bash: skip the usual case.
     [ -d "$root/.intelligence" ] || mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
     while :; do
@@ -140,10 +146,19 @@ sync_lock_acquire() {
             SYNC_LOCK_HELD="$lock"
             return 0
         fi
-        if sync_lock_held_by_check "$lock"; then
+        if [ "$SYNC_LOCK_KIND" != check ] && sync_lock_held_by_check "$lock"; then
             # A later ownerless moment belongs to another holder's start or
             # release, and gets its own few seconds.
             ownerless=""
+            # The bound is per check: one that took the lock while this
+            # command waited starts its own count.
+            if sync_lock_read_owner "$lock"; then
+                seen="$IS_LOCK_PID $IS_LOCK_SINCE $IS_LOCK_TOKEN"
+                if [ "$seen" != "$holder" ]; then
+                    holder="$seen"
+                    started="$SECONDS"
+                fi
+            fi
             [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
             if [ "$told" = 0 ]; then
                 echo "waiting for intelligence sync --check to release $lock" >&2

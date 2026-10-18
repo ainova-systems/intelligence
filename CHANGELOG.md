@@ -13,7 +13,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ### Changed
 
-- A command that finds the project lock held by `intelligence sync --check` waits for the check to finish, up to five minutes, printing that it waits, instead of refusing at once; a check waits for another check the same way. A writing holder is still refused at once. Without this, the plugin's five-minute check would make a person's own `intelligence sync` fail whenever the two met (decision 0022).
+- A command that finds the project lock held by `intelligence sync --check` waits for the check to finish, up to five minutes for each check, printing that it waits, instead of refusing at once. A check never waits, so it cannot take the lock ahead of a waiting writer; a writing holder is still refused at once. Without this, the plugin's five-minute check would make a person's own `intelligence sync` fail whenever the two met (decision 0022).
 
 ## [0.21.0]
 

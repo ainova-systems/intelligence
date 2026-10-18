@@ -123,8 +123,9 @@ async function runCheck($) {
   const parsed = parseStatus(result.stdout)
   // Exit 0 is up to date and 2 is `out-of-date`, the only verdicts sync
   // --check gives; anything else is the CLI refusing to answer.
-  // A writer holding the project lock is someone's sync, not a fault: the
-  // check yields to it, and the next tick answers.
+  // Another holder of the project lock — someone's sync, or another
+  // session's check — is not a fault: a check refuses it at once rather than
+  // queue ahead of a waiting sync, and the next tick answers.
   if (result.exitCode === 0) setState('ok', parsed.detail)
   else if (result.exitCode === 2) setState('stale', parsed.detail || 'sync needed')
   else if (LOCK_REFUSAL.test(result.stderr || '')) setState('elsewhere', reasonLine(result.stderr))
@@ -236,7 +237,8 @@ export function register(on) {
         columnGap: 2,
         children: [
           Text({ color: 'yellow', children: ['intelligence: sync needed'] }),
-          Button({ key: 'sync', label: 'Sync now', hotkey: 's', onPress: () => runSync($) }),
+          // Plain, because only a plain button shows its hotkey in the terminal.
+          Button({ key: 'sync', label: 'Sync now', hotkey: 's', plain: true, onPress: () => runSync($) }),
         ],
       })
     }

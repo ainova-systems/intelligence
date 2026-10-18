@@ -73,10 +73,11 @@ must never reach into it (decision 0001).
    check that runs every five minutes would then make a person's own
    `intelligence sync`, `update` or package command fail whenever the two met.
    The check writes nothing a person keeps, so it marks its lock with a
-   `kind` file, and a command that finds a check holding the lock waits for
-   it, up to five minutes, saying so; two checks wait for each other the same
-   way. A writing holder is still refused at once, so the one-writer guarantee
-   is unchanged. The mod's own sync first waits for a check it started.
+   `kind` file, and a writing command that finds a check holding the lock
+   waits for it, up to five minutes for each check, saying so. A check never
+   waits: it refuses any holder at once, so it cannot queue ahead of a waiting
+   writer, and the mod shows that as another command running. A writing
+   holder is still refused at once, so the one-writer guarantee is unchanged. The mod's own sync first waits for a check it started.
 
 ## Consequences
 

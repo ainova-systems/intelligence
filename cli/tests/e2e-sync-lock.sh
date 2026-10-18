@@ -167,17 +167,35 @@ check test "$RC" -eq 0
 check has 'waiting for intelligence sync --check to release'
 check test ! -e "$LOCK"
 
-echo '== a check waits for another check the same way =='
+echo '== a check refuses another check at once, so it never queues ahead of a writer =='
 mkdir -p "$LOCK"
 printf 'check\n' > "$LOCK/kind"
 printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
-(sleep 2; rm -f "$LOCK/owner"; rm -rf "$LOCK") &
-release=$!
 run --check
+check test "$RC" -ne 0
+check test "$RC" -ne 2
+check has 'another intelligence sync is running in this project'
+check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
+rm -rf "$LOCK"
+
+echo '== a writer waits for each check that holds the lock, not for the first one alone =='
+# Two checks in a row hold the lock for longer than the bound together, but
+# neither alone: the second starts its own count.
+mkdir -p "$LOCK"
+printf 'check\n' > "$LOCK/kind"
+printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+(
+    sleep 3
+    printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(($(date +%s) + 100))" > "$LOCK/owner"
+    sleep 3
+    rm -f "$LOCK/owner"
+    rm -rf "$LOCK"
+) &
+release=$!
+RC=0
+OUTPUT="$(cd "$PROJECT" && INTELLIGENCE_SYNC_LOCK_CHECK_WAIT=4 bash "$CLI" sync --force 2>&1)" || RC=$?
 wait "$release"
 check test "$RC" -eq 0
-check has 'waiting for intelligence sync --check to release'
-check has 'IS_STATUS=ok'
 check test ! -e "$LOCK"
 
 echo '== a check that outlives the wait is refused like any holder =='
