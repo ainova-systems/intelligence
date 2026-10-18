@@ -58,9 +58,16 @@ must never reach into it (decision 0001).
 4. The mod informs the person and never Claude. At `session.start` it runs
    `intelligence sync --check` in the session root without waiting for it,
    repeats every five minutes, and registers `/intelligence [sync|check]`. It
-   shows the verdict in the status line under the prompt and, when a sync is
-   needed, failed or running, a band above the prompt; only a needed sync adds
-   a `Sync now` button to it.
+   shows the verdict in one line in the band above the prompt, where Claude
+   Code draws nothing of its own, turning like its spinner until a check or a
+   sync answers, with a `Sync now` button when a sync is needed, and nothing
+   while the project is up to date. It leaves Claude Code's footer alone. The
+   status line, which Claude Code marks with a warning sign, carries the text
+   only where no band draws (the VS Code extension). While
+   another command holds the project lock the last verdict stays and the
+   check asks again shortly; when the CLI on `PATH` is older than the project
+   the label asks for an upgrade and no sync is offered, since that CLI would
+   drop the plugin.
    Sync runs `intelligence sync --compact` with a ten-minute timeout and
    re-checks. It registers no tool and never submits a prompt.
 5. The runner gains one gate for the template: `node --check` on the hooks

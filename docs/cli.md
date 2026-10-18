@@ -131,8 +131,11 @@ plugin into `<output>/skills/intelligence/` (decision 0022): a
 `hooks/hooks.json` naming the hooks module `hooks/register.js`, and a README.
 The module is a Claude Code *mod*: at session start and every five minutes it
 runs `intelligence sync --check` in the session's root without delaying the
-session, shows the verdict in the status line under the prompt, draws a `Sync
-now` button above the prompt when a sync is needed, and registers
+session, shows the verdict in one line above the prompt while a check runs or
+something needs attention, with Claude Code's spinner while a check or a sync
+has not answered and a `Sync now` button when a sync is needed, shows nothing
+while the project is up to date (the VS Code extension, which draws no band,
+gets a status line instead), and registers
 `/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
 re-checks, `check` re-checks, no argument prints the current status. It
 registers no tool and never submits a prompt. This section defines the field.
