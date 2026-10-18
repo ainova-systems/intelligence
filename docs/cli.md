@@ -199,9 +199,10 @@ second writer refuses, naming the holder's process and host. `sync --check` hold
 the lock too, because it may restore the store and compares a copy of the
 outputs, but it marks the lock as a check: a writing command that finds a check
 holding it prints that it is waiting and waits up to five minutes for each such
-check before refusing. A check itself never waits: it refuses any holder at
-once, so it can never take the lock ahead of a writer that is waiting. A lock is
-taken over only when no process of its holder's process group remains on this machine — a
+check before refusing. A check itself never waits in line: it refuses any holder
+at once. One that arrives just as a lock is released can still take it first,
+and a waiting writer then waits for that check too. A lock is taken over only
+when no process of its holder's process group remains on this machine — a
 killed wrapper whose render still runs keeps it — or when it never got an owner
 and is older than a minute. An abandoned takeover is reported for a person to
 remove rather than recovered automatically.

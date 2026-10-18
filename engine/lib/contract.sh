@@ -118,12 +118,9 @@ engine_root_var() {
 # the file exists; it reads the file once per process.
 engine_version_var() {
     [ -z "${IS_ENGINE_VERSION_FOUND:-}" ] || return 0
-    local lib="${BASH_SOURCE[0]}" vf content=""
-    case "$lib" in
-        */*) lib="${lib%/*}" ;;
-        *) lib="." ;;
-    esac
-    vf="$lib/../VERSION"
+    local vf content=""
+    engine_root_var
+    vf="$IS_ENGINE_ROOT/VERSION"
     IS_ENGINE_VERSION=""
     IS_ENGINE_VERSION_FOUND=0
     [ -f "$vf" ] || return 0

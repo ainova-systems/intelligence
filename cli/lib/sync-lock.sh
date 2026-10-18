@@ -18,9 +18,10 @@
 # a holder that is a check marks its lock with a `kind` file, and a writing
 # command that finds such a holder waits for it instead of refusing (decision
 # 0022): a status check that runs every few minutes must never make the
-# person's own sync fail. A check never waits — it refuses any holder at once —
-# so it can never take the lock ahead of a writer that is waiting for it. A
-# writing holder is refused at once, as before.
+# person's own sync fail. A check never waits in line — it refuses any holder
+# at once — so it is never queued behind a writer; one that arrives as a lock is
+# released can still take it first, and the waiting writer's bound then starts
+# again for that check. A writing holder is refused at once, as before.
 
 SYNC_LOCK_HELD=""
 SYNC_LOCK_TOKEN=""

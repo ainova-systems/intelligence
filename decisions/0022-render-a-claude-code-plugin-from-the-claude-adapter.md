@@ -77,7 +77,8 @@ must never reach into it (decision 0001).
    waits for it, up to five minutes for each check, saying so. A check never
    waits: it refuses any holder at once, so it cannot queue ahead of a waiting
    writer, and the mod shows that as another command running. A writing
-   holder is still refused at once, so the one-writer guarantee is unchanged. The mod's own sync first waits for a check it started.
+   holder is still refused at once, so the one-writer guarantee is unchanged.
+   The mod's own sync first waits for a check it started.
 
 ## Consequences
 
