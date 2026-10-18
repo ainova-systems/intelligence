@@ -141,6 +141,9 @@ sync_lock_acquire() {
             return 0
         fi
         if sync_lock_held_by_check "$lock"; then
+            # A later ownerless moment belongs to another holder's start or
+            # release, and gets its own few seconds.
+            ownerless=""
             [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
             if [ "$told" = 0 ]; then
                 echo "waiting for intelligence sync --check to release $lock" >&2

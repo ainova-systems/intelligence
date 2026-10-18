@@ -202,6 +202,26 @@ check has 'another intelligence sync is running in this project'
 check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
 rm -rf "$LOCK"
 
+echo '== each ownerless moment gets its own grace, however long the wait =='
+# A lock seen without an owner, then held by a check, then without an owner
+# again as that check is released: the second moment is not the first one
+# grown old, so the command still gets the lock.
+mkdir -p "$LOCK"
+(
+    sleep 2
+    printf 'check\n' > "$LOCK/kind"
+    printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+    sleep 4
+    rm -f "$LOCK/owner" "$LOCK/kind"
+    sleep 2
+    rm -rf "$LOCK"
+) &
+release=$!
+run --force
+wait "$release"
+check test "$RC" -eq 0
+check test ! -e "$LOCK"
+
 echo '== a failed render releases the lock =='
 cp "$PROJECT/intelligence.yaml" "$TMP/manifest-good"
 awk '$0 == "    output: .claude" { print "    output: \".\""; next } { print }' "$TMP/manifest-good" > "$PROJECT/intelligence.yaml"
