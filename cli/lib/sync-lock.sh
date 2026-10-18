@@ -12,9 +12,22 @@
 # join instead of refusing, and a holder that died can be told from one whose
 # writers still run. Taking over a dead holder's lock happens under a second
 # lock, so two runs that judged the same lock stale cannot both take it.
+#
+# `sync --check` holds the lock too, because it may restore the package store
+# and compares a copy of the live outputs. It writes nothing a person keeps, so
+# a holder that is a check marks its lock with a `kind` file, and a command that
+# finds such a holder waits for it instead of refusing (decision 0022): a
+# status check that runs every few minutes must never make the person's own
+# sync fail. Only a writing holder is refused at once.
 
 SYNC_LOCK_HELD=""
 SYNC_LOCK_TOKEN=""
+# What this process takes the lock for: "check" for `sync --check`, empty for
+# every writer. Set before the lock is taken.
+SYNC_LOCK_KIND=""
+# How long a command waits for a check that holds the lock, in seconds. Kept in
+# the environment only so the lock suite can exercise the bound quickly.
+SYNC_LOCK_CHECK_WAIT="${INTELLIGENCE_SYNC_LOCK_CHECK_WAIT:-300}"
 
 sync_lock_now() {
     if [ -n "${EPOCHSECONDS:-}" ]; then
@@ -50,6 +63,8 @@ sync_lock_write_owner() {
     sync_lock_now
     sync_lock_pgid
     SYNC_LOCK_TOKEN="$$.$IS_NOW.$RANDOM$RANDOM"
+    # The kind goes first: whoever can read the owner can read the kind too.
+    [ -z "$SYNC_LOCK_KIND" ] || printf '%s\n' "$SYNC_LOCK_KIND" > "$1/kind"
     printf '%s %s %s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$IS_NOW" "${IS_PGID:--}" "$SYNC_LOCK_TOKEN" > "$1/owner"
 }
 
@@ -88,31 +103,49 @@ sync_lock_is_stale() {
     [ -d "$1" ] && [ -n "$(find "$1" -maxdepth 0 -mmin +1 2>/dev/null)" ]
 }
 
-# sync_lock_acquire <root> — take <root>/.intelligence/sync.lock or refuse.
+# sync_lock_held_by_check <lock> — true when the holder marked its lock as a
+# `sync --check`. A lock without the mark is a writer's, or an older CLI's.
+sync_lock_held_by_check() {
+    local kind=""
+    [ -f "$1/kind" ] && IFS= read -r kind < "$1/kind" 2>/dev/null
+    [ "$kind" = check ]
+}
+
+# sync_lock_acquire <root> — take <root>/.intelligence/sync.lock, wait for a
+# check that holds it for up to SYNC_LOCK_CHECK_WAIT seconds, or refuse.
 sync_lock_acquire() {
-    local root="$1" lock="$1/.intelligence/sync.lock" took=0 age=""
+    local root="$1" lock="$1/.intelligence/sync.lock" took age="" started="$SECONDS" told=0
     # A process start costs tens of milliseconds on Git Bash: skip the usual case.
     [ -d "$root/.intelligence" ] || mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
-    if mkdir "$lock" 2>/dev/null; then
-        took=1
-    elif mkdir "$lock.takeover" 2>/dev/null; then
-        # Judge again under the takeover lock: another run may have taken
-        # it over since this one looked.
-        if sync_lock_is_stale "$lock"; then
-            rm -rf "$lock"
-            mkdir "$lock" 2>/dev/null && took=1
+    while :; do
+        took=0
+        if mkdir "$lock" 2>/dev/null; then
+            took=1
+        elif mkdir "$lock.takeover" 2>/dev/null; then
+            # Judge again under the takeover lock: another run may have taken
+            # it over since this one looked.
+            if sync_lock_is_stale "$lock"; then
+                rm -rf "$lock"
+                mkdir "$lock" 2>/dev/null && took=1
+            fi
+            rmdir "$lock.takeover"
+        elif [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+            # A takeover runs for milliseconds. Removing an abandoned one is itself
+            # a check-then-delete race, so it is left to a person.
+            die "a takeover of $lock was abandoned; if no intelligence command is running in this project, remove $lock.takeover"
         fi
-        rmdir "$lock.takeover"
-    elif [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
-        # A takeover runs for milliseconds. Removing an abandoned one is itself
-        # a check-then-delete race, so it is left to a person.
-        die "a takeover of $lock was abandoned; if no intelligence command is running in this project, remove $lock.takeover"
-    fi
-    if [ "$took" = 1 ]; then
-        sync_lock_write_owner "$lock" || { rm -rf "$lock"; die "cannot write $lock/owner"; }
-        SYNC_LOCK_HELD="$lock"
-        return 0
-    fi
+        if [ "$took" = 1 ]; then
+            sync_lock_write_owner "$lock" || { rm -rf "$lock"; die "cannot write $lock/owner"; }
+            SYNC_LOCK_HELD="$lock"
+            return 0
+        fi
+        sync_lock_held_by_check "$lock" && [ $((SECONDS - started)) -lt "$SYNC_LOCK_CHECK_WAIT" ] || break
+        if [ "$told" = 0 ]; then
+            echo "waiting for intelligence sync --check to release $lock" >&2
+            told=1
+        fi
+        sleep 1
+    done
     if sync_lock_read_owner "$lock"; then
         sync_lock_now
         case "$IS_LOCK_SINCE" in ''|*[!0-9]*) ;; *) age=", for $((IS_NOW - IS_LOCK_SINCE))s" ;; esac

@@ -106,6 +106,10 @@ run_check() {
             die "no intelligence project found here - run 'intelligence init'"
             ;;
     esac
+    # A check marks the lock it holds, so a sync started meanwhile waits for
+    # it instead of refusing (sync-lock.sh).
+    # shellcheck disable=SC2034  # read by sync-lock.sh when the lock is taken
+    SYNC_LOCK_KIND=check
     hold_project
     project_preflight "$IP_ROOT" || return $?
     if project_needs_upgrade "$IP_ROOT"; then

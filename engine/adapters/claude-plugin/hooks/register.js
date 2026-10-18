@@ -10,14 +10,20 @@
 // and never submits a prompt: it informs the person, never Claude.
 
 // A cold `sync --check` renders the project in a private copy, which takes
-// minutes on Git Bash; a warm one answers from its record in seconds.
+// minutes on Git Bash; a warm one answers from its record in seconds. The
+// timeout stays just under the interval, so a slow check is waited for rather
+// than reported as a failure, and the next tick never overlaps it.
 const CHECK_EVERY_MS = 300000
-const CHECK_TIMEOUT_MS = 120000
-// `$.process.run` allows ten minutes at most, which a full sync may need.
+const CHECK_TIMEOUT_MS = 290000
+// `$.process.run` allows ten minutes at most, which a full sync may need: it
+// first waits for any check holding the project lock (decision 0022).
 const SYNC_TIMEOUT_MS = 600000
+// The CLI's refusal when another command holds the project lock.
+const LOCK_HELD = /another intelligence sync is (running|starting)/
 
-// What the last check found. `status` is one of unknown, ok, stale, error or
-// missing-cli; `busy` is true while a sync started from here is running.
+// What the last check found. `status` is one of unknown, ok, stale, error,
+// missing-cli or elsewhere (another command held the project lock); `busy` is
+// true while a sync started from here is running.
 const state = { status: 'unknown', detail: '', checkedAt: null, busy: false }
 // A check already in flight answers the next caller too, so a timer tick and
 // a /intelligence check never run two CLI processes side by side.
@@ -63,6 +69,8 @@ function statusText() {
       return 'sync needed — run /intelligence sync' + at
     case 'missing-cli':
       return 'CLI not found on PATH'
+    case 'elsewhere':
+      return 'another intelligence command is running in this project' + at
     case 'error':
       return 'check failed: ' + state.detail + at
     default:
@@ -105,8 +113,11 @@ async function runCheck($) {
   const parsed = parseStatus(result.stdout)
   // Exit 0 is up to date and 2 is `out-of-date`, the only verdicts sync
   // --check gives; anything else is the CLI refusing to answer.
+  // A writer holding the project lock is someone's sync, not a fault: the
+  // check yields to it, and the next tick answers.
   if (result.exitCode === 0) setState('ok', parsed.detail)
   else if (result.exitCode === 2) setState('stale', parsed.detail || 'sync needed')
+  else if (LOCK_HELD.test(result.stderr || '')) setState('elsewhere', firstLine(result.stderr))
   else setState('error', parsed.detail || firstLine(result.stderr) || 'exit ' + result.exitCode)
   show($)
 }
@@ -117,6 +128,10 @@ async function runSync($) {
   show($)
   let outcome
   try {
+    // A check of ours still running holds the project lock; the CLI would
+    // wait for it too, but waiting here keeps its late answer from landing
+    // after the sync's own.
+    if (pendingCheck) await pendingCheck
     const cwd = await $.session.root()
     const result = await $.process.run(['intelligence', 'sync', '--compact'], { cwd, timeoutMs: SYNC_TIMEOUT_MS })
     if (result.exitCode === 0) {

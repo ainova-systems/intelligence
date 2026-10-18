@@ -149,9 +149,11 @@ earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
 project plugin loads only in a folder the person has trusted, and a cloud or
 remote session that does not load project plugins shows nothing. A first
 `sync --check` with no record renders the project privately, which can take
-minutes on Windows/Git Bash; the mod waits two minutes for it and reports a
-longer one as a failed check until the next tick answers from the record it
-left. Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
+minutes on Windows/Git Bash; the mod waits for it up to just under the
+five-minute interval, so ticks never overlap. While a check holds the project
+lock, a person's own `intelligence sync` waits for it instead of refusing; when
+another command holds the lock, the status line says so until the next tick.
+Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
 [create a mod](https://code.claude.com/docs/en/plugins/mods/create) and
 [troubleshoot a mod](https://code.claude.com/docs/en/plugins/mods/troubleshoot),
 read 2026-10-18.
@@ -186,7 +188,11 @@ the configured sources. It can be combined with a target and `--compact`.
 One command writes a project at a time. `sync`, `update`, package add, remove and
 update, adapter enable, disable and removal, alignment and store restore hold
 `.intelligence/sync.lock` while they write, and the commands they run join it. A
-second writer refuses, naming the holder's process and host. A lock is taken over
+second writer refuses, naming the holder's process and host. `sync --check` holds
+the lock too, because it may restore the store and compares a copy of the
+outputs, but it marks the lock as a check: a command that finds a check holding
+it prints that it is waiting and waits up to five minutes before refusing, and a
+check waits the same way for another check. A lock is taken over
 only when no process of its holder's process group remains on this machine — a
 killed wrapper whose render still runs keeps it — or when it never got an owner
 and is older than a minute. An abandoned takeover is reported for a person to

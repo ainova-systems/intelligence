@@ -11,6 +11,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 - `targets.claude.plugin: true` renders a Claude Code plugin into `.claude/skills/intelligence/`: a mod that runs `intelligence sync --check` when a session starts and every five minutes, shows the verdict in the status line under the prompt, offers a `Sync now` button above the prompt when a sync is needed, and adds `/intelligence [sync|check]`. The field takes `true` or `false`; omission is `false`, and any other value refuses the sync before any output is touched. The plugin's `version` is the engine version; the directory is ignored, snapshotted and checked like every other Claude output, and goes with the next sync after the flag does. A source skill that would render as `.claude/skills/intelligence` refuses the sync while the flag is on. Needs the `intelligence` CLI on `PATH` and Claude Code 2.1.287 or later (decision 0022).
 - `cli/tests/verify.sh` checks the plugin template with `node --check` and `claude plugin validate` in its `lint-engine` scope; a check whose tool is absent is printed as skipped, never as passed.
 
+### Changed
+
+- A command that finds the project lock held by `intelligence sync --check` waits for the check to finish, up to five minutes, printing that it waits, instead of refusing at once; a check waits for another check the same way. A writing holder is still refused at once. Without this, the plugin's five-minute check would make a person's own `intelligence sync` fail whenever the two met (decision 0022).
+
 ## [0.21.0]
 
 ### Added

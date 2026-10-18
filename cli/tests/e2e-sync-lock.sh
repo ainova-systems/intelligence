@@ -153,6 +153,55 @@ OUTPUT="$(cd "$PROJECT" && bash "$CLI" adapter disable cursor 2>&1)" || RC=$?
 check test "$RC" -eq 0
 check test ! -e "$LOCK"
 
+echo '== a command waits for a check that holds the lock, then runs =='
+# sync --check writes nothing a person keeps; the status check a Claude Code
+# session runs every few minutes must never make the person's own sync fail.
+mkdir -p "$LOCK"
+printf 'check\n' > "$LOCK/kind"
+printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+(sleep 2; rm -rf "$LOCK") &
+release=$!
+run --force
+wait "$release"
+check test "$RC" -eq 0
+check has 'waiting for intelligence sync --check to release'
+check test ! -e "$LOCK"
+
+echo '== a check waits for another check the same way =='
+mkdir -p "$LOCK"
+printf 'check\n' > "$LOCK/kind"
+printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+(sleep 2; rm -rf "$LOCK") &
+release=$!
+run --check
+wait "$release"
+check test "$RC" -eq 0
+check has 'waiting for intelligence sync --check to release'
+check has 'IS_STATUS=ok'
+check test ! -e "$LOCK"
+
+echo '== a check that outlives the wait is refused like any holder =='
+mkdir -p "$LOCK"
+printf 'check\n' > "$LOCK/kind"
+printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+RC=0
+OUTPUT="$(cd "$PROJECT" && INTELLIGENCE_SYNC_LOCK_CHECK_WAIT=1 bash "$CLI" sync --force 2>&1)" || RC=$?
+check test "$RC" -ne 0
+check has 'waiting for intelligence sync --check to release'
+check has 'another intelligence sync is running in this project'
+check test -f "$LOCK/owner"
+rm -rf "$LOCK"
+
+echo '== a check refuses a writing holder at once, without waiting =='
+mkdir -p "$LOCK"
+printf '%s %s %s\n' "$$" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+run --check
+check test "$RC" -ne 0
+check test "$RC" -ne 2
+check has 'another intelligence sync is running in this project'
+check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
+rm -rf "$LOCK"
+
 echo '== a failed render releases the lock =='
 cp "$PROJECT/intelligence.yaml" "$TMP/manifest-good"
 awk '$0 == "    output: .claude" { print "    output: \".\""; next } { print }' "$TMP/manifest-good" > "$PROJECT/intelligence.yaml"
@@ -223,6 +272,27 @@ else
     wait "$job" || true
     echo '  (no separate process group for a background job here; case not applicable)'
 fi
+
+echo '== a running check marks its lock, and a sync started meanwhile waits for it =='
+rm -f "$TMP/slow-started" "$TMP/slow-release"
+(cd "$PROJECT" && bash "$CLI" sync --check --force > "$TMP/check.out" 2>&1; echo "$?" > "$TMP/check.rc") &
+checker=$!
+waited=0
+until [ -e "$TMP/slow-started" ] || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+check test -e "$TMP/slow-started"
+check test "$(cat "$LOCK/kind" 2>/dev/null)" = check
+(cd "$PROJECT" && bash "$CLI" sync --force > "$TMP/waiter.out" 2>&1; echo "$?" > "$TMP/waiter.rc") &
+waiter=$!
+waited=0
+until grep -q 'waiting for intelligence sync --check' "$TMP/waiter.out" 2>/dev/null || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+check grep -q 'waiting for intelligence sync --check' "$TMP/waiter.out"
+: > "$TMP/slow-release"
+wait "$checker"
+wait "$waiter"
+check test "$(cat "$TMP/check.rc")" -ne 1
+check test "$(cat "$TMP/waiter.rc")" = 0
+check grep -q '=== Slow ===' "$TMP/waiter.out"
+check test ! -e "$LOCK"
 
 [ "$fail" -eq 0 ] && echo "== sync-lock: $checks checks passed =="
 exit "$fail"

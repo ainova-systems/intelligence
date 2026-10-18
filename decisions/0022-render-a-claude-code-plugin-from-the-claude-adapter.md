@@ -65,6 +65,16 @@ must never reach into it (decision 0001).
    module and `claude plugin validate` on the directory. Each is printed as
    skipped when its tool is absent, never as passed. CI's `lint-engine` scope
    carries it; no workflow step is added.
+6. A command waits for a check instead of refusing it. `sync --check` holds
+   the project lock (decision 0018) for as long as it runs, which is minutes
+   on Git Bash, and the lock refused every second command at once. A status
+   check that runs every five minutes would then make a person's own
+   `intelligence sync`, `update` or package command fail whenever the two met.
+   The check writes nothing a person keeps, so it marks its lock with a
+   `kind` file, and a command that finds a check holding the lock waits for
+   it, up to five minutes, saying so; two checks wait for each other the same
+   way. A writing holder is still refused at once, so the one-writer guarantee
+   is unchanged. The mod's own sync first waits for a check it started.
 
 ## Consequences
 
@@ -75,8 +85,12 @@ must never reach into it (decision 0001).
 - A project-level plugin loads only in a trusted folder, and a cloud or
   remote session that does not load project plugins shows nothing. A cold
   `sync --check` renders the project in a private copy, which takes minutes on
-  Git Bash; the mod waits two minutes and reports a check that outlived them
-  as an error until the next tick answers from the record the first one left.
+  Git Bash; the mod waits for it up to just under the interval, so ticks never
+  overlap. When another command holds the lock, the check yields and the
+  status line says another command is running until the next tick.
+- A command started while a check runs now pauses for it instead of failing
+  at once. An older CLI does not write the mark, so its checks are still
+  refused by every other command, as before.
 - The plugin's `version` moves with `engine/VERSION`, so a release renders a
   new plugin without any change to the template.
 - The engine now ships a JavaScript file. Nothing in the engine executes it;
