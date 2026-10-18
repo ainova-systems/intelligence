@@ -140,8 +140,9 @@ registers no tool and never submits a prompt. The field takes `true` or
 output is touched. The directory sits inside `<output>/skills`, which the Claude
 contract owns, so it is ignored by Git, snapshotted and restored, compared by
 `sync --check` and removed by the next sync after the flag turns off. A source
-skill whose rendered name is `intelligence` collides with the plugin while the
-flag is on; sync refuses it and names the skill's source path and the field.
+skill whose rendered name is `intelligence`, in any letter case, collides with
+the plugin while the flag is on; sync refuses it and names the skill's source
+path and the field.
 
 The plugin needs the `intelligence` CLI on `PATH` (the status line says when it
 is missing) and Claude Code 2.1.287 or later, where mods are on by default;

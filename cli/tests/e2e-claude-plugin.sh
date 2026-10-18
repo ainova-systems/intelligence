@@ -176,6 +176,16 @@ chk test "$RC" -ne 0
 has 'intelligence/skills/intelligence.local/SKILL.md'
 has 'targets.claude.plugin'
 rm -rf "$PROJ/intelligence/skills/intelligence.local"
+# Another case is the same directory on Windows and macOS, so it collides on
+# every system.
+mkdir -p "$PROJ/intelligence/skills/Intelligence"
+printf -- '---\nname: Intelligence\ndescription: "Case clash"\n---\n\n# Clash\n' \
+    > "$PROJ/intelligence/skills/Intelligence/SKILL.md"
+run_in "$PROJ" sync
+chk test "$RC" -ne 0
+has 'intelligence/skills/Intelligence/SKILL.md'
+has 'targets.claude.plugin'
+rm -rf "$PROJ/intelligence/skills/Intelligence"
 # Without the flag the skill is an ordinary skill of that name.
 set_claude_target ''
 mkdir -p "$PROJ/intelligence/skills/intelligence"

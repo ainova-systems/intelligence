@@ -51,8 +51,9 @@ must never reach into it (decision 0001).
    Ownership, Git policy (`.claude/*` ignored), snapshots and rollback,
    `sync --check` and `status --check` therefore apply unchanged, and the
    directory disappears with the next sync after the flag goes. A source skill
-   whose rendered name is `intelligence` collides with the plugin while the
-   flag is on; sync refuses it, naming the skill's source path and the flag.
+   whose rendered name is `intelligence` in any letter case collides with the
+   plugin while the flag is on; sync refuses it, naming the skill's source path
+   and the flag.
 4. The mod informs the person and never Claude. At `session.start` it runs
    `intelligence sync --check` in the session root without waiting for it,
    repeats every five minutes, and registers `/intelligence [sync|check]`. It

@@ -96,20 +96,33 @@ sync_claude_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    local i name
+    local i name clash="" nocase=0
     local -a skill_dirs=()
     # The catalog's skills are the ones the inventory renders, symlinked ones
     # included (decision 0017).
     output_rel_var "$repo_root" "$output_dir"
     source_artifacts_var "$repo_root" "$config_file" skills claude "$IS_OUTPUT_REL/skills/{}"
     [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
-    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
-        # The plugin takes one skill directory name; a skill rendered under it
-        # and the plugin would each erase the other, so neither is written.
-        if [ "${IS_CLAUDE_PLUGIN:-0}" = 1 ] && [ "${IS_SOURCE_NAMES[i]}" = "$IS_CLAUDE_PLUGIN_NAME" ]; then
-            echo "ERROR: skill ${IS_SOURCE_FILES[i]#"$repo_root/"} renders as $IS_OUTPUT_REL/skills/$IS_CLAUDE_PLUGIN_NAME, the directory targets.claude.plugin: true reserves for the Claude Code plugin. Rename the skill or set targets.claude.plugin to false." >&2
+    # The plugin takes one skill directory name; a skill rendered under it and
+    # the plugin would each erase the other, so neither is written. Names
+    # compare without case: on Windows and macOS `Intelligence/` is the same
+    # directory. (nocasematch, not ${name,,}: macOS ships bash 3.2.)
+    if [ "${IS_CLAUDE_PLUGIN:-0}" = 1 ]; then
+        shopt -q nocasematch && nocase=1
+        shopt -s nocasematch
+        for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+            if [[ "${IS_SOURCE_NAMES[i]}" == "$IS_CLAUDE_PLUGIN_NAME" ]]; then
+                clash="${IS_SOURCE_FILES[i]#"$repo_root/"}"
+                break
+            fi
+        done
+        [ "$nocase" = 1 ] || shopt -u nocasematch
+        if [ -n "$clash" ]; then
+            echo "ERROR: skill $clash renders as $IS_OUTPUT_REL/skills/$IS_CLAUDE_PLUGIN_NAME, the directory targets.claude.plugin: true reserves for the Claude Code plugin. Rename the skill or set targets.claude.plugin to false." >&2
             return 1
         fi
+    fi
+    for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
         skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
     done
     copy_skill_bundle_dirs_named claude "$output_dir/skills" "$IS_SOURCE_NAME_MAP" "${skill_dirs[@]}"
