@@ -173,10 +173,14 @@ async function runSync($) {
       outcome = 'sync could not run: ' + errorMessage(err)
     }
   }
-  state.busy = false
-  $.ui.toast(outcome)
   // The check, not the sync's own exit code, decides what the status shows:
-  // it is the same judgement the next timer tick would make.
+  // it is the same judgement the next timer tick would make. Until it answers
+  // the status is `checking`, so the band never offers `Sync now` again for
+  // the verdict the sync just replaced.
+  state.status = 'unknown'
+  state.busy = false
+  show($)
+  $.ui.toast(outcome)
   await check($)
   return outcome
 }
