@@ -136,6 +136,18 @@ run_in "$PROJ" status --check
 chk test "$RC" -eq 0
 has 'all good.'
 
+echo "== a sync that renders leaves an unchanged plugin untouched =="
+# Claude Code reloads a mod on every file change and says so in the
+# transcript, so a forced render must not rewrite the plugin's files.
+sleep 1
+: > "$OUT/before-forced-render"
+sleep 1
+run_in "$PROJ" sync --force
+chk test "$RC" -eq 0
+chk test -f "$PLUGIN/hooks/register.js"
+chk test -z "$(find "$PLUGIN" -newer "$OUT/before-forced-render" 2>/dev/null)"
+chk test -z "$(find "$PROJ/.claude/skills" -maxdepth 1 -name '.intelligence.render.*' 2>/dev/null)"
+
 echo "== a hand edit inside the plugin is a change sync --check reports and sync repairs =="
 printf '// edited\n' >> "$PLUGIN/hooks/register.js"
 run_in "$PROJ" sync --check

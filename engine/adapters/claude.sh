@@ -56,16 +56,27 @@ IS_CLAUDE_PLUGIN_NAME=intelligence
 render_claude_plugin() {
     local output_dir="$1" tpl
     local dst="$output_dir/skills/$IS_CLAUDE_PLUGIN_NAME"
+    # Rendered beside the destination, under a name no skill can take, and
+    # swapped in only when it differs: a running session reloads the mod on
+    # every file change, and announces each reload in its transcript.
+    local tmp="$output_dir/skills/.$IS_CLAUDE_PLUGIN_NAME.render.$$"
     engine_root_var
     tpl="$IS_ENGINE_ROOT/adapters/claude-plugin"
     engine_version_var
-    mkdir -p "$dst/.claude-plugin" "$dst/hooks"
-    cp "$tpl/hooks/hooks.json" "$tpl/hooks/register.js" "$dst/hooks/"
-    cp "$tpl/README.md" "$dst/README.md"
+    rm -rf "$tmp"
+    mkdir -p "$tmp/.claude-plugin" "$tmp/hooks"
+    cp "$tpl/hooks/hooks.json" "$tpl/hooks/register.js" "$tmp/hooks/"
+    cp "$tpl/README.md" "$tmp/README.md"
     awk -v v="$IS_ENGINE_VERSION" '{ sub(/__INTELLIGENCE_VERSION__/, v); print }' \
-        "$tpl/.claude-plugin/plugin.json" > "$dst/.claude-plugin/plugin.json"
-    finalize_output_files "$dst/.claude-plugin/plugin.json" "$dst/hooks/hooks.json" \
-        "$dst/hooks/register.js" "$dst/README.md"
+        "$tpl/.claude-plugin/plugin.json" > "$tmp/.claude-plugin/plugin.json"
+    finalize_output_files "$tmp/.claude-plugin/plugin.json" "$tmp/hooks/hooks.json" \
+        "$tmp/hooks/register.js" "$tmp/README.md"
+    if [ -d "$dst" ] && [ ! -L "$dst" ] && diff -r -q "$tmp" "$dst" >/dev/null 2>&1; then
+        rm -rf "$tmp"
+    else
+        rm -rf "$dst"
+        mv "$tmp" "$dst"
+    fi
     echo "  plugin: $IS_CLAUDE_PLUGIN_NAME (Claude Code mod $IS_ENGINE_VERSION)"
 }
 
@@ -227,7 +238,15 @@ sync_to_claude() {
     # commands/, statusline.sh, etc.).
     rm -rf "$output_dir/rules" "$output_dir/agents"
     if [ -d "$output_dir/skills" ]; then
-        find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec rm -rf {} +
+        # The plugin directory stays while the flag holds: Claude Code reloads
+        # a mod whose files change, so render_claude_plugin rewrites it only
+        # when its content differs. A skill of that name was refused above.
+        if [ "$IS_CLAUDE_PLUGIN" = 1 ]; then
+            find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
+                ! -name "$IS_CLAUDE_PLUGIN_NAME" -exec rm -rf {} +
+        else
+            find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec rm -rf {} +
+        fi
     fi
     mkdir -p "$output_dir/rules" "$output_dir/skills" "$output_dir/agents"
 
