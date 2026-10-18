@@ -36,18 +36,12 @@ adapter_contract_claude() {
 
 # claude_plugin_var <manifest> — the one reader of targets.claude.plugin. Sets
 # IS_CLAUDE_PLUGIN to 1 when the project renders the Claude Code plugin and 0
-# for the default; returns 1 for any value other than true or false, so a typo
-# never decides silently whether a plugin is rendered.
+# for the default; returns 1 for a value target_bool_var refuses.
 claude_plugin_var() {
-    local manifest="$1" setting
-    IS_CLAUDE_PLUGIN=0
-    [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-    setting="$(get_target_field "$manifest" "claude" "plugin")"
-    case "$setting" in
-        ''|false) ;;
-        true) IS_CLAUDE_PLUGIN=1 ;;
-        *) return 1 ;;
-    esac
+    local rc=0
+    target_bool_var "$1" claude plugin || rc=1
+    IS_CLAUDE_PLUGIN="$IS_TARGET_BOOL"
+    return "$rc"
 }
 
 # The directory name the plugin takes under <output>/skills: a source skill
@@ -56,11 +50,14 @@ IS_CLAUDE_PLUGIN_NAME=intelligence
 
 # render_claude_plugin <output_dir> — copy the plugin template byte for byte,
 # stamp the engine version into its manifest and normalize line endings. The
-# template is beside this adapter in the engine, never in the content package:
-# it is executable tooling, and the bundle copies all of engine/.
+# template is in the engine's adapter directory, never in the content package:
+# it is executable tooling, and the bundle copies all of engine/. It is found
+# through the engine root, so a project's own claude.sh renders it too.
 render_claude_plugin() {
-    local output_dir="$1" tpl="${BASH_SOURCE[0]%/*}/claude-plugin"
+    local output_dir="$1" tpl
     local dst="$output_dir/skills/$IS_CLAUDE_PLUGIN_NAME"
+    engine_root_var
+    tpl="$IS_ENGINE_ROOT/adapters/claude-plugin"
     engine_version_var
     mkdir -p "$dst/.claude-plugin" "$dst/hooks"
     cp "$tpl/hooks/hooks.json" "$tpl/hooks/register.js" "$dst/hooks/"
@@ -235,7 +232,9 @@ sync_to_claude() {
     mkdir -p "$output_dir/rules" "$output_dir/skills" "$output_dir/agents"
 
     sync_claude_rules "$repo_root" "$config_file" "$output_dir"
-    sync_claude_skills "$repo_root" "$config_file" "$output_dir" || return 1
+    # Called plainly, never on the left of `||`: that would turn errexit off
+    # for every copy inside, and a failed one would no longer fail the sync.
+    sync_claude_skills "$repo_root" "$config_file" "$output_dir"
     sync_claude_agents "$repo_root" "$config_file" "$output_dir"
     # The skills renderer has refused a skill of the plugin's name by now, so
     # the plugin never lands on top of one. Cleared above with every other

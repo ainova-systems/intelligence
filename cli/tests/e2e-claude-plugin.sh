@@ -65,6 +65,29 @@ chk test "$RC" -eq 0
 chk test -f "$PROJ/.claude/skills/demo/SKILL.md"
 chknot test -e "$PLUGIN"
 
+echo "== a skill resource that cannot be copied fails the sync and restores the output =="
+# The skills renderer must stay under errexit: a copy that fails inside it
+# fails the whole sync, with or without the plugin.
+printf 'notes\n' > "$PROJ/intelligence/skills/demo/notes.md"
+run_in "$PROJ" sync
+chk test "$RC" -eq 0
+generated_digest > "$OUT/digest-before-unreadable"
+chmod 000 "$PROJ/intelligence/skills/demo/notes.md"
+if [ -r "$PROJ/intelligence/skills/demo/notes.md" ]; then
+    echo '  (a mode-000 file is still readable here; case not applicable)'
+else
+    printf 'changed\n' >> "$PROJ/intelligence/rules/base.md"
+    run_in "$PROJ" sync --force
+    chk test "$RC" -ne 0
+    has 'restored to their pre-sync state'
+    generated_digest > "$OUT/digest-after-unreadable"
+    chk cmp -s "$OUT/digest-before-unreadable" "$OUT/digest-after-unreadable"
+fi
+chmod 644 "$PROJ/intelligence/skills/demo/notes.md"
+rm -f "$PROJ/intelligence/skills/demo/notes.md"
+run_in "$PROJ" sync
+chk test "$RC" -eq 0
+
 echo "== plugin: true renders the mod with the engine version stamped =="
 set_claude_target ', plugin: true'
 run_in "$PROJ" sync
@@ -207,6 +230,18 @@ run_in "$PROJ" sync
 chk test "$RC" -eq 0
 chk test -f "$PLUGIN/hooks/register.js"
 chknot test -e "$PLUGIN/SKILL.md"
+
+echo "== a project's own claude.sh renders the plugin from the engine's template =="
+mkdir -p "$PROJ/intelligence/adapters"
+cp "$REPO/engine/adapters/claude.sh" "$PROJ/intelligence/adapters/claude.sh"
+rm -rf "$PLUGIN"
+run_in "$PROJ" sync --force
+chk test "$RC" -eq 0
+chk test -f "$PLUGIN/hooks/register.js"
+chk cmp -s "$TEMPLATE/hooks/register.js" "$PLUGIN/hooks/register.js"
+rm -f "$PROJ/intelligence/adapters/claude.sh"
+run_in "$PROJ" sync --force
+chk test "$RC" -eq 0
 
 echo "== the template itself is what a validator would read =="
 chk test -f "$TEMPLATE/.claude-plugin/plugin.json"
