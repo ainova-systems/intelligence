@@ -20,16 +20,18 @@ const CHECK_TIMEOUT_MS = 290000
 // `$.process.run` allows ten minutes at most, which a full sync may need: it
 // first waits for any check holding the project lock (decision 0022).
 const SYNC_TIMEOUT_MS = 600000
-// Another command holding the project lock is asked again this soon, not at
-// the next five-minute tick.
+// Another command holding the project lock is asked again this soon, then
+// after doubling pauses up to the regular interval, so a lock that stays held
+// costs a few processes, not one every 15 seconds.
 const RETRY_MS = 15000
 // The spinner Claude Code draws while it works.
 const FRAMES = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢']
 const FRAME_MS = 120
 // The CLI's refusal when another command holds the project lock.
 const LOCK_REFUSAL = /another intelligence sync is (running|starting)/
-// The CLI's warning when the project was stamped by a newer CLI than itself.
-const CLI_BEHIND = /newer than this CLI's engine/
+// The CLI's word that the project was stamped by a newer CLI than itself: a
+// warning for a newer minor or patch, a refusal for a newer major.
+const CLI_BEHIND = /newer than this CLI's engine|IS_STATUS=ahead-of-engine/
 
 // What the last check found. `status` is one of unknown (no verdict yet), ok,
 // stale, error, missing-cli or old-cli; `busy` is true while a sync started
@@ -39,6 +41,7 @@ const state = { status: 'unknown', detail: '', checkedAt: null, busy: false }
 // a /intelligence check never run two CLI processes side by side.
 let pendingCheck = null
 let retry = null
+let retryMs = RETRY_MS
 let ticker = null
 let frame = 0
 // The terminal and the Desktop app draw the band above the prompt; elsewhere,
@@ -76,6 +79,8 @@ function clock(date) {
 }
 
 function setState(status, detail) {
+  // A verdict ends a run of retries; the next held lock starts at 15 s again.
+  retryMs = RETRY_MS
   state.status = status
   state.detail = detail || ''
   state.checkedAt = new Date()
@@ -90,8 +95,6 @@ function animating() {
 function label() {
   if (state.busy) return FRAMES[frame] + ' intelligence: syncing'
   switch (state.status) {
-    case 'ok':
-      return 'intelligence: ✓ synced'
     case 'stale':
       return 'intelligence: sync needed'
     case 'missing-cli':
@@ -146,10 +149,11 @@ function show($) {
 // shown meanwhile is the last one, never a guess.
 function retrySoon($) {
   if (retry) return
-  retry = $.clock.after(RETRY_MS, () => {
+  retry = $.clock.after(retryMs, () => {
     retry = null
     check($)
   })
+  retryMs = Math.min(retryMs * 2, CHECK_EVERY_MS)
 }
 
 async function check($) {
@@ -183,7 +187,7 @@ async function runCheck($) {
   // An older CLI renders this project with its own engine, so its verdict
   // says nothing about what this project's CLI would write, and its sync
   // would drop this plugin: say so instead of offering one.
-  if (CLI_BEHIND.test(result.stderr || '')) setState('old-cli', reasonLine(result.stderr))
+  if (CLI_BEHIND.test((result.stderr || '') + ' ' + (result.stdout || ''))) setState('old-cli', reasonLine(result.stderr))
   // Exit 0 is up to date and 2 is `out-of-date`, the only verdicts sync
   // --check gives; anything else is the CLI refusing to answer.
   else if (result.exitCode === 0) setState('ok', parsed.detail)
@@ -212,7 +216,7 @@ async function runSync($) {
   if (state.busy) return
   if (state.status === 'old-cli') {
     $.ui.toast('update the intelligence CLI first: intelligence upgrade')
-    return 'not run: ' + statusText()
+    return 'not run'
   }
   state.busy = true
   show($)
@@ -255,7 +259,12 @@ async function runSync($) {
 
 export function register(on) {
   on('session.start', async ($, e, next) => {
-    band = (await $.session.surfaces()).some((s) => s === 'terminal' || s === 'desktop')
+    // A build without surfaces() draws in the terminal; the band is the default.
+    try {
+      band = (await $.session.surfaces()).some((s) => s === 'terminal' || s === 'desktop')
+    } catch {
+      band = true
+    }
     // The label shows at once, turning, while a cold first check can take
     // minutes.
     show($)

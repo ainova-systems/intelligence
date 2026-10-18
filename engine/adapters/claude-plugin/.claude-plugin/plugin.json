@@ -1,6 +1,6 @@
 {
   "name": "intelligence",
   "version": "__INTELLIGENCE_VERSION__",
-  "description": "Shows this project's Intelligence sync status under the prompt and runs intelligence sync from Claude Code",
+  "description": "Shows this project's Intelligence sync status above the prompt and runs intelligence sync from Claude Code",
   "author": { "name": "Ainova Systems" }
 }
