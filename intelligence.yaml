@@ -45,7 +45,7 @@ targets:
       edit `intelligence/rules/`, then run `intelligence sync`.
       Canonical context: [`intelligence/rules/product.md`](intelligence/rules/product.md).
   codex: { enabled: true, output: ".codex" }
-  claude: { enabled: true, output: ".claude" }
+  claude: { enabled: true, output: ".claude", plugin: true }
   antigravity: { enabled: true, output: ".agents" }
 
 # Packages are managed with 'intelligence package add|search|list':
