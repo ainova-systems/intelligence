@@ -178,6 +178,7 @@ async function runSync($) {
   // the status is `checking`, so the band never offers `Sync now` again for
   // the verdict the sync just replaced.
   state.status = 'unknown'
+  state.detail = ''
   state.busy = false
   show($)
   $.ui.toast(outcome)

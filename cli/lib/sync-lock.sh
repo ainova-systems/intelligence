@@ -168,6 +168,8 @@ sync_lock_acquire() {
                 # A caller that buffers this command's output (sync --compact)
                 # names a descriptor for the terminal, so a wait of minutes
                 # is never silent.
+                # Not one `>&"${fd:-2}"`: the group's 2>/dev/null, which keeps
+                # a closed descriptor quiet, would swallow the default too.
                 if [ -n "${IS_LOCK_NOTICE_FD:-}" ]; then
                     { echo "waiting for intelligence sync --check to release $lock" >&"$IS_LOCK_NOTICE_FD"; } 2>/dev/null \
                         || echo "waiting for intelligence sync --check to release $lock" >&2
