@@ -11,7 +11,7 @@
 project:
   name: cli-project
 
-schema_version: "0.21.0"
+schema_version: "0.22.0"
 
 # Package sources come first, project sources last: adapters copy in order
 # and the last write wins, so a project file overrides a same-named package
@@ -32,14 +32,16 @@ sources:
 
 targets:
   agents: { enabled: true, output: "AGENTS.md" }
-  claude: { enabled: true, output: ".claude" }
+  # plugin: true renders the Claude Code plugin into .claude/skills/intelligence:
+  # it shows whether a sync is needed under the prompt and runs one on request.
+  claude: { enabled: true, output: ".claude", plugin: true }
   cursor: { enabled: true, output: ".cursor" }
 
 # CLI-owned blocks — below this line the engine reads only package names and
 # aliases.
 packages:
   "@ainova-systems/sync":
-    version: "0.21.0"
+    version: "0.22.0"
   "@ainova-systems/core":
     version: "^0.3.0"
 

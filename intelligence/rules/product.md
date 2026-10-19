@@ -20,7 +20,7 @@ public command model. Neither model can be reconstructed from historical code.
 | Path | Role |
 |---|---|
 | `cli/` | dispatcher, lifecycle commands, package manager, test suites |
-| `engine/` | the sync engine bundled into the npm package |
+| `engine/` | the sync engine bundled into the npm package; `engine/adapters/claude-plugin/` is the Claude Code plugin template the Claude adapter renders behind `targets.claude.plugin` |
 | `packages/sync/` | rules, agents, meta-skills and references installed as `@ainova-systems/sync` |
 | `intelligence/skills/` | repository-only workflows, including `dev-build-adapter`; excluded from distributed content |
 | `npm/` | Node launcher and distribution build |

@@ -210,6 +210,8 @@ Path-scoped rules stay in native channels where supported:
 
 Agents are transformed to each tool's native frontmatter or file format. Skills follow the [Agent Skills standard](https://agentskills.io) and are copied as complete bundles, including their `references/`, `scripts/` and `assets/` directories.
 
+With `targets.claude.plugin: true`, the Claude adapter also renders a Claude Code plugin into `.claude/skills/intelligence/` that shows whether a sync is needed in a line above the prompt and runs it from a button there or `/intelligence sync`; see [the CLI reference](docs/cli.md#intelligence-sync).
+
 ## Custom adapters
 
 Built-ins live with the installed engine. Project adapters live in the configured content directory, survive CLI updates and may override a built-in by name.

@@ -100,18 +100,27 @@ is_status() {
     fi
 }
 
+# engine_root_var — set IS_ENGINE_ROOT to the engine directory, one level above
+# this lib. A project adapter that overrides a built-in finds the engine's own
+# files through it, never beside itself.
+engine_root_var() {
+    local lib="${BASH_SOURCE[0]}"
+    case "$lib" in
+        */*) lib="${lib%/*}" ;;
+        *) lib="." ;;
+    esac
+    IS_ENGINE_ROOT="$lib/.."
+}
+
 # Engine version = VERSION one level above this lib (BASH_SOURCE works when
 # sourced). Empty if unreadable — callers treat empty as "no guard".
 # engine_version_var sets IS_ENGINE_VERSION, and IS_ENGINE_VERSION_FOUND=1 when
 # the file exists; it reads the file once per process.
 engine_version_var() {
     [ -z "${IS_ENGINE_VERSION_FOUND:-}" ] || return 0
-    local lib="${BASH_SOURCE[0]}" vf content=""
-    case "$lib" in
-        */*) lib="${lib%/*}" ;;
-        *) lib="." ;;
-    esac
-    vf="$lib/../VERSION"
+    local vf content=""
+    engine_root_var
+    vf="$IS_ENGINE_ROOT/VERSION"
     IS_ENGINE_VERSION=""
     IS_ENGINE_VERSION_FOUND=0
     [ -f "$vf" ] || return 0

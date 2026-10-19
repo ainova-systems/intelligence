@@ -153,6 +153,131 @@ OUTPUT="$(cd "$PROJECT" && bash "$CLI" adapter disable cursor 2>&1)" || RC=$?
 check test "$RC" -eq 0
 check test ! -e "$LOCK"
 
+# hold_lock <kind> — a live holder that is this test shell, written the way the
+# CLI writes one: the kind first, then the five-field owner. Kind `-` is a
+# writer, which marks nothing.
+hold_lock() {
+    mkdir -p "$LOCK"
+    [ "$1" = - ] || printf '%s\n' "$1" > "$LOCK/kind"
+    printf '%s %s %s %s %s\n' "$$" "${HOSTNAME:-unknown}" "${2:-$(date +%s)}" - "token.$RANDOM" > "$LOCK/owner"
+}
+
+# release_lock — release a held lock the way the CLI releases a check's.
+release_lock() {
+    rm -f "$LOCK/owner"
+    rm -rf "$LOCK"
+}
+
+echo '== a command waits for a check that holds the lock, then runs =='
+# sync --check writes nothing a person keeps; the status check a Claude Code
+# session runs every few minutes must never make the person's own sync fail.
+hold_lock check
+(sleep 2; release_lock) &
+release=$!
+run --force
+wait "$release"
+check test "$RC" -eq 0
+check has 'waiting for intelligence sync --check to release'
+check test ! -e "$LOCK"
+
+echo '== sync --compact says at once that it waits, on stderr =='
+# Its output is buffered until it ends; a wait of minutes must not be silent.
+hold_lock check
+(sleep 2; release_lock) &
+release=$!
+RC=0
+(cd "$PROJECT" && bash "$CLI" sync --force --compact > "$TMP/compact.out" 2> "$TMP/compact.err") || RC=$?
+wait "$release"
+check test "$RC" -eq 0
+check grep -q 'waiting for intelligence sync --check to release' "$TMP/compact.err"
+check grep -q '^IS_STATUS=ok' "$TMP/compact.out"
+
+echo '== a writer interrupted while it waits leaves no takeover lock behind =='
+# A takeover lock left by a killed waiter would refuse every later command
+# once it is a minute old, so a waiter for a live check never takes one.
+for _ in 1 2 3; do
+    hold_lock check
+    (cd "$PROJECT" && exec bash "$CLI" sync --force > "$TMP/killed-waiter.out" 2>&1) &
+    waiter=$!
+    waited=0
+    until grep -q 'waiting for' "$TMP/killed-waiter.out" 2>/dev/null || [ "$waited" -ge 600 ]; do
+        waited=$((waited + 1))
+        sleep 0.1
+    done
+    # Strike while a takeover lock exists, if the waiter ever makes one: a
+    # tight loop of builtins sees one that lives for milliseconds.
+    deadline=$((SECONDS + 3))
+    while [ "$SECONDS" -lt "$deadline" ] && [ ! -d "$LOCK.takeover" ]; do :; done
+    kill -TERM "$waiter" 2>/dev/null || true
+    wait "$waiter" 2>/dev/null || true
+    check test ! -e "$LOCK.takeover"
+    release_lock
+done
+
+echo '== a check refuses another check at once, so it never queues ahead of a writer =='
+hold_lock check
+run --check
+check test "$RC" -ne 0
+check test "$RC" -ne 2
+check has 'another intelligence sync is running in this project'
+check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
+release_lock
+
+echo '== a writer waits for each check that holds the lock, not for the first one alone =='
+# Two checks in a row hold the lock for longer than the bound together, but
+# neither alone: the second starts its own count.
+hold_lock check
+(
+    sleep 3
+    hold_lock check "$(($(date +%s) + 100))"
+    sleep 3
+    release_lock
+) &
+release=$!
+RC=0
+OUTPUT="$(cd "$PROJECT" && INTELLIGENCE_SYNC_LOCK_CHECK_WAIT=4 bash "$CLI" sync --force 2>&1)" || RC=$?
+wait "$release"
+check test "$RC" -eq 0
+check test ! -e "$LOCK"
+
+echo '== a check that outlives the wait is refused like any holder =='
+hold_lock check
+RC=0
+OUTPUT="$(cd "$PROJECT" && INTELLIGENCE_SYNC_LOCK_CHECK_WAIT=1 bash "$CLI" sync --force 2>&1)" || RC=$?
+check test "$RC" -ne 0
+check has 'waiting for intelligence sync --check to release'
+check has 'another intelligence sync is running in this project'
+check test -f "$LOCK/owner"
+release_lock
+
+echo '== a check refuses a writing holder at once, without waiting =='
+hold_lock -
+run --check
+check test "$RC" -ne 0
+check test "$RC" -ne 2
+check has 'another intelligence sync is running in this project'
+check test "$(grep -c 'waiting for' <<< "$OUTPUT")" = 0
+release_lock
+
+echo '== each ownerless moment gets its own grace, however long the wait =='
+# A lock seen without an owner, then held by a check, then without an owner
+# again as that check is released: the second moment is not the first one
+# grown old, so the command still gets the lock.
+mkdir -p "$LOCK"
+(
+    sleep 2
+    hold_lock check
+    sleep 4
+    rm -f "$LOCK/owner" "$LOCK/kind"
+    sleep 2
+    rm -rf "$LOCK"
+) &
+release=$!
+run --force
+wait "$release"
+check test "$RC" -eq 0
+check test ! -e "$LOCK"
+
 echo '== a failed render releases the lock =='
 cp "$PROJECT/intelligence.yaml" "$TMP/manifest-good"
 awk '$0 == "    output: .claude" { print "    output: \".\""; next } { print }' "$TMP/manifest-good" > "$PROJECT/intelligence.yaml"
@@ -223,6 +348,46 @@ else
     wait "$job" || true
     echo '  (no separate process group for a background job here; case not applicable)'
 fi
+
+echo '== a running check marks its lock, and a sync started meanwhile waits for it =='
+rm -f "$TMP/slow-started" "$TMP/slow-release"
+(cd "$PROJECT" && bash "$CLI" sync --check --force > "$TMP/check.out" 2>&1; echo "$?" > "$TMP/check.rc") &
+checker=$!
+waited=0
+until [ -e "$TMP/slow-started" ] || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+check test -e "$TMP/slow-started"
+check test "$(cat "$LOCK/kind" 2>/dev/null)" = check
+(cd "$PROJECT" && bash "$CLI" sync --force > "$TMP/waiter.out" 2>&1; echo "$?" > "$TMP/waiter.rc") &
+waiter=$!
+waited=0
+until grep -q 'waiting for intelligence sync --check' "$TMP/waiter.out" 2>/dev/null || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+check grep -q 'waiting for intelligence sync --check' "$TMP/waiter.out"
+: > "$TMP/slow-release"
+wait "$checker"
+wait "$waiter"
+check test "$(cat "$TMP/check.rc")" -ne 1
+check test "$(cat "$TMP/waiter.rc")" = 0
+check grep -q '=== Slow ===' "$TMP/waiter.out"
+check test ! -e "$LOCK"
+# Nothing of a released check's lock stays behind.
+check test -z "$(find "$PROJECT/.intelligence" -maxdepth 1 -name 'sync.lock*' 2>/dev/null)"
+
+echo '== a sync that meets a running check never fails, round after round =='
+# The waiter polls once a second; a release that ever exposed the lock without
+# its kind would refuse it in one of these rounds.
+for _ in 1 2 3; do
+    rm -f "$TMP/slow-started" "$TMP/slow-release"
+    (cd "$PROJECT" && bash "$CLI" sync --check --force > /dev/null 2>&1) &
+    checker=$!
+    waited=0
+    until [ -e "$TMP/slow-started" ] || [ "$waited" -ge 600 ]; do waited=$((waited + 1)); sleep 0.1; done
+    RC=0
+    (sleep 1; : > "$TMP/slow-release") &
+    OUTPUT="$(cd "$PROJECT" && bash "$CLI" sync --force 2>&1)" || RC=$?
+    wait "$checker" || true
+    check test "$RC" -eq 0
+done
+check test ! -e "$LOCK"
 
 [ "$fail" -eq 0 ] && echo "== sync-lock: $checks checks passed =="
 exit "$fail"

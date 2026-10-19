@@ -3629,6 +3629,24 @@ is_target_enabled() {
     ' "$file"
 }
 
+# target_bool_var <manifest> <target> <field> — the one reading of a boolean
+# target field (targets.copilot.commit_output, targets.claude.plugin). Sets
+# IS_TARGET_BOOL to 1 for true and 0 for false, omission or an empty value;
+# returns 1 for anything else, so a typo never decides silently. No manifest —
+# a caller reading ownership only — is the default.
+# shellcheck disable=SC2034  # IS_TARGET_BOOL is the return channel
+target_bool_var() {
+    local setting
+    IS_TARGET_BOOL=0
+    [ -n "$1" ] && [ -f "$1" ] || return 0
+    setting="$(get_target_field "$1" "$2" "$3")"
+    case "$setting" in
+        ''|false) ;;
+        true) IS_TARGET_BOOL=1 ;;
+        *) return 1 ;;
+    esac
+}
+
 # Get an arbitrary field from a target's config block.
 # Handles both inline (`claude: { enabled: true, output: ".claude" }`)
 # and block form. Uses POSIX awk only — no gawk-specific 3-arg match().

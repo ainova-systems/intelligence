@@ -125,6 +125,49 @@ with the manifest, which `targets.copilot.commit_output` needs; see the
 [artifact conventions](../packages/sync/references/conventions.md#artifact-names-and-local-artifacts)
 and [selecting adapters](../packages/sync/references/conventions.md#selecting-adapters).
 
+`targets.claude.plugin: true` makes the Claude adapter render a Claude Code
+plugin into `<output>/skills/intelligence/` (decision 0022): a
+`.claude-plugin/plugin.json` whose `version` is the engine version, a
+`hooks/hooks.json` naming the hooks module `hooks/register.js`, and a README.
+The module is a Claude Code *mod*: at session start and every five minutes it
+runs `intelligence sync --check` in the session's root without delaying the
+session, shows the verdict in one line above the prompt while a check runs or
+something needs attention, with Claude Code's spinner while a check or a sync
+has not answered and a `Sync now` button when a sync is needed, shows nothing
+while the project is up to date (the VS Code extension, which draws no band,
+gets a status line instead), and registers
+`/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
+re-checks, `check` re-checks, no argument prints the current status. It
+registers no tool and never submits a prompt. This section defines the field.
+It takes `true` or `false`; omission or an empty value is `false`, as for every
+target field, and any other value refuses the sync and leaves every output as
+it was. The directory sits inside `<output>/skills`, which the Claude contract
+owns, so it is ignored by Git, snapshotted and restored, compared by
+`sync --check` and removed by the next sync after the flag turns off. A source
+skill whose rendered name is `intelligence`, in any letter case, collides with
+the plugin while the flag is on; sync refuses it and names the skill's source
+path and the field.
+
+The plugin needs the `intelligence` CLI on `PATH` (its line says when it is
+missing, and asks for `intelligence upgrade` when the CLI there is older than
+the project, offering no sync, since that CLI would drop the plugin) and Claude
+Code 2.1.287 or later, where mods are on by default;
+earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
+project plugin loads only in a folder the person has trusted, and a cloud or
+remote session that does not load project plugins shows nothing. A first
+`sync --check` with no record renders the project privately, which can take
+minutes on Windows/Git Bash; the mod waits for it up to just under the
+five-minute interval and never starts a check while one of its own is pending;
+a check abandoned at that timeout can still finish beside the next one. While a
+check holds the project lock, a person's own `intelligence sync` waits for it
+instead of refusing. When another command holds the lock, the line keeps the
+last verdict and the check asks again after 15 seconds, then after longer
+pauses up to the five-minute interval.
+Evidence: Claude Code's [mods reference](https://code.claude.com/docs/en/plugins/mods/reference),
+[create a mod](https://code.claude.com/docs/en/plugins/mods/create) and
+[troubleshoot a mod](https://code.claude.com/docs/en/plugins/mods/troubleshoot),
+read 2026-10-18.
+
 Built-in adapters render concurrently where their contracts allow it: adapters
 that share a managed directory run in order together, and an adapter that
 requires another starts after it. Each adapter's output still prints in list
@@ -136,6 +179,11 @@ Normal sync announces its checks immediately and streams rendering progress as
 adapters finish. An unchanged run separates retained warnings from the result and ends
 with `Unchanged: no files needed updating`. Cached results still require reading
 source and output contents; the check is not a timestamp-only shortcut.
+
+Normal sync writes the engine's whole stream, its `ERROR:` lines included, to
+stdout: the CLI records that one stream for the next cache hit, and splitting it
+would lose the order of its lines. `--compact` prints a failed run's output on
+stderr; `--check` prints only its verdict on stdout and everything else on stderr.
 
 For built-in adapters, unchanged sync compares file contents and filesystem
 entries, including skill resources, generated outputs, manifest/lock, and the
@@ -155,8 +203,14 @@ the configured sources. It can be combined with a target and `--compact`.
 One command writes a project at a time. `sync`, `update`, package add, remove and
 update, adapter enable, disable and removal, alignment and store restore hold
 `.intelligence/sync.lock` while they write, and the commands they run join it. A
-second writer refuses, naming the holder's process and host. A lock is taken over
-only when no process of its holder's process group remains on this machine — a
+second writer refuses, naming the holder's process and host. `sync --check` holds
+the lock too, because it may restore the store and compares a copy of the
+outputs, but it marks the lock as a check: a writing command that finds a check
+holding it prints that it is waiting and waits up to five minutes for each such
+check before refusing. A check itself never waits in line: it refuses any holder
+at once. One that arrives just as a lock is released can still take it first,
+and a waiting writer then waits for that check too. A lock is taken over only
+when no process of its holder's process group remains on this machine — a
 killed wrapper whose render still runs keeps it — or when it never got an owner
 and is older than a minute. An abandoned takeover is reported for a person to
 remove rather than recovered automatically.

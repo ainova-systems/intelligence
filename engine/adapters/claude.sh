@@ -6,6 +6,11 @@
 # Skills: copy skill directories in full (SKILL.md + bundled resources),
 #   effort -> Claude's effort level
 # Agents: tier -> model, effort -> effort, access -> tools/disallowedTools
+# Plugin: with `targets.claude.plugin: true`, the Claude Code mod in
+#   adapters/claude-plugin/ is rendered into <output>/skills/intelligence/
+#   (decision 0022). Claude Code loads a plugin from a project's skills
+#   directory, so the plugin lives inside a path this contract already owns:
+#   ownership, Git policy, snapshots and `sync --check` need no new record.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -27,6 +32,52 @@ adapter_contract_claude() {
     adapter_contract_ignore "CLAUDE.md"
     adapter_contract_ignore "$output/*"
     adapter_contract_include "$output/settings.json"
+}
+
+# claude_plugin_var <manifest> — the one reader of targets.claude.plugin. Sets
+# IS_CLAUDE_PLUGIN to 1 when the project renders the Claude Code plugin and 0
+# for the default; returns 1 for a value target_bool_var refuses.
+claude_plugin_var() {
+    local rc=0
+    target_bool_var "$1" claude plugin || rc=1
+    IS_CLAUDE_PLUGIN="$IS_TARGET_BOOL"
+    return "$rc"
+}
+
+# The directory name the plugin takes under <output>/skills: a source skill
+# rendered under this name would be overwritten, so sync refuses the pair.
+IS_CLAUDE_PLUGIN_NAME=intelligence
+
+# render_claude_plugin <output_dir> — copy the plugin template byte for byte,
+# stamp the engine version into its manifest and normalize line endings. The
+# template is in the engine's adapter directory, never in the content package:
+# it is executable tooling, and the bundle copies all of engine/. It is found
+# through the engine root, so a project's own claude.sh renders it too.
+render_claude_plugin() {
+    local output_dir="$1" tpl
+    local dst="$output_dir/skills/$IS_CLAUDE_PLUGIN_NAME"
+    # Rendered beside the destination, under a name no skill can take, and
+    # swapped in only when it differs: a running session reloads the mod on
+    # every file change, and announces each reload in its transcript.
+    local tmp="$output_dir/skills/.$IS_CLAUDE_PLUGIN_NAME.render.$$"
+    engine_root_var
+    tpl="$IS_ENGINE_ROOT/adapters/claude-plugin"
+    engine_version_var
+    rm -rf "$tmp"
+    mkdir -p "$tmp/.claude-plugin" "$tmp/hooks"
+    cp "$tpl/hooks/hooks.json" "$tpl/hooks/register.js" "$tmp/hooks/"
+    cp "$tpl/README.md" "$tmp/README.md"
+    awk -v v="$IS_ENGINE_VERSION" '{ sub(/__INTELLIGENCE_VERSION__/, v); print }' \
+        "$tpl/.claude-plugin/plugin.json" > "$tmp/.claude-plugin/plugin.json"
+    finalize_output_files "$tmp/.claude-plugin/plugin.json" "$tmp/hooks/hooks.json" \
+        "$tmp/hooks/register.js" "$tmp/README.md"
+    if [ -d "$dst" ] && [ ! -L "$dst" ] && diff -r -q "$tmp" "$dst" >/dev/null 2>&1; then
+        rm -rf "$tmp"
+    else
+        rm -rf "$dst"
+        mv "$tmp" "$dst"
+    fi
+    echo "  plugin: $IS_CLAUDE_PLUGIN_NAME (Claude Code mod $IS_ENGINE_VERSION)"
 }
 
 # Sync rules to Claude format (copy as-is, normalize LF)
@@ -53,13 +104,32 @@ sync_claude_skills() {
     local config_file="$2"
     local output_dir="$3"
 
-    local i name
+    local i name clash="" nocase=0
     local -a skill_dirs=()
     # The catalog's skills are the ones the inventory renders, symlinked ones
     # included (decision 0017).
     output_rel_var "$repo_root" "$output_dir"
     source_artifacts_var "$repo_root" "$config_file" skills claude "$IS_OUTPUT_REL/skills/{}"
     [ "${#IS_SOURCE_FILES[@]}" -gt 0 ] || return 0
+    # The plugin takes one skill directory name; a skill rendered under it and
+    # the plugin would each erase the other, so neither is written. Names
+    # compare without case: on Windows and macOS `Intelligence/` is the same
+    # directory. (nocasematch, not ${name,,}: macOS ships bash 3.2.)
+    if [ "${IS_CLAUDE_PLUGIN:-0}" = 1 ]; then
+        shopt -q nocasematch && nocase=1
+        shopt -s nocasematch
+        for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
+            if [[ "${IS_SOURCE_NAMES[i]}" == "$IS_CLAUDE_PLUGIN_NAME" ]]; then
+                clash="${IS_SOURCE_FILES[i]#"$repo_root/"}"
+                break
+            fi
+        done
+        [ "$nocase" = 1 ] || shopt -u nocasematch
+        if [ -n "$clash" ]; then
+            echo "ERROR: skill $clash renders as $IS_OUTPUT_REL/skills/$IS_CLAUDE_PLUGIN_NAME, the directory targets.claude.plugin: true reserves for the Claude Code plugin. Rename the skill or set targets.claude.plugin to false." >&2
+            return 1
+        fi
+    fi
     for ((i = 0; i < ${#IS_SOURCE_FILES[@]}; i++)); do
         skill_dirs+=("${IS_SOURCE_FILES[i]%/SKILL.md}/")
     done
@@ -156,18 +226,39 @@ sync_to_claude() {
 
     echo "=== Claude Code ==="
 
+    # The flag is read before anything is removed: a malformed value refuses
+    # the sync with the reason, and the output stays exactly as it was.
+    claude_plugin_var "$config_file" || {
+        echo "ERROR: targets.claude.plugin must be true or false: true renders the Claude Code plugin into ${output_dir#"$repo_root/"}/skills/$IS_CLAUDE_PLUGIN_NAME, false or omission does not." >&2
+        return 1
+    }
+
     # Clean generated content only — preserve any project-level files
     # the user manages directly (settings.json, settings.local.json,
     # commands/, statusline.sh, etc.).
     rm -rf "$output_dir/rules" "$output_dir/agents"
     if [ -d "$output_dir/skills" ]; then
-        find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec rm -rf {} +
+        # The plugin directory stays while the flag holds: Claude Code reloads
+        # a mod whose files change, so render_claude_plugin rewrites it only
+        # when its content differs. A skill of that name was refused above.
+        if [ "$IS_CLAUDE_PLUGIN" = 1 ]; then
+            find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) \
+                ! -name "$IS_CLAUDE_PLUGIN_NAME" -exec rm -rf {} +
+        else
+            find "$output_dir/skills" -mindepth 1 -maxdepth 1 \( -type d -o -type l \) -exec rm -rf {} +
+        fi
     fi
     mkdir -p "$output_dir/rules" "$output_dir/skills" "$output_dir/agents"
 
     sync_claude_rules "$repo_root" "$config_file" "$output_dir"
+    # Called plainly, never on the left of `||`: that would turn errexit off
+    # for every copy inside, and a failed one would no longer fail the sync.
     sync_claude_skills "$repo_root" "$config_file" "$output_dir"
     sync_claude_agents "$repo_root" "$config_file" "$output_dir"
+    # The skills renderer has refused a skill of the plugin's name by now, so
+    # the plugin never lands on top of one. Cleared above with every other
+    # skill directory, it exists only while the flag says so.
+    [ "$IS_CLAUDE_PLUGIN" = 0 ] || render_claude_plugin "$output_dir"
 
     count_matching_files "$output_dir/rules" "*.md" \
         "$output_dir/skills" "SKILL.md" "$output_dir/agents" "*.md"

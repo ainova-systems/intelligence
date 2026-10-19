@@ -106,6 +106,10 @@ run_check() {
             die "no intelligence project found here - run 'intelligence init'"
             ;;
     esac
+    # A check marks the lock it holds, so a sync started meanwhile waits for
+    # it instead of refusing (sync-lock.sh).
+    # shellcheck disable=SC2034  # read by sync-lock.sh when the lock is taken
+    SYNC_LOCK_KIND=check
     hold_project
     project_preflight "$IP_ROOT" || return $?
     if project_needs_upgrade "$IP_ROOT"; then
@@ -144,6 +148,11 @@ fi
 compact_output="$(mktemp -t intelligence-sync-XXXXXX)"
 trap 'rm -f "$compact_output"' EXIT
 rc=0
+# The one line that must not wait for the buffer: a wait for a check holding
+# the lock can last minutes (sync-lock.sh). Descriptor 9 keeps the real stderr.
+exec 9>&2
+# shellcheck disable=SC2034  # read by sync-lock.sh while the lock is taken
+IS_LOCK_NOTICE_FD=9
 (run_sync) > "$compact_output" 2>&1 || rc=$?
 if [ "$rc" -ne 0 ]; then
     cat "$compact_output" >&2

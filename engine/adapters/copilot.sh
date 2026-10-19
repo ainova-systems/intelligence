@@ -55,19 +55,13 @@ adapter_contract_copilot() {
 
 # copilot_commit_output_var <manifest> — the one reader of
 # targets.copilot.commit_output. Sets IS_COPILOT_COMMIT_OUTPUT to 1 when the
-# project commits generated output and 0 for the default; returns 1 for any
-# value other than true or false. No manifest — a caller reading ownership
-# only — is the default.
+# project commits generated output and 0 for the default; returns 1 for a value
+# target_bool_var refuses.
 copilot_commit_output_var() {
-    local manifest="$1" setting
-    IS_COPILOT_COMMIT_OUTPUT=0
-    [ -n "$manifest" ] && [ -f "$manifest" ] || return 0
-    setting="$(get_target_field "$manifest" "copilot" "commit_output")"
-    case "$setting" in
-        ''|false) ;;
-        true) IS_COPILOT_COMMIT_OUTPUT=1 ;;
-        *) return 1 ;;
-    esac
+    local rc=0
+    target_bool_var "$1" copilot commit_output || rc=1
+    IS_COPILOT_COMMIT_OUTPUT="$IS_TARGET_BOOL"
+    return "$rc"
 }
 
 # copilot_paths_rows <file>... — batch form of the old per-file `paths:`
