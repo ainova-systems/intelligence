@@ -337,6 +337,41 @@ cp "$TMP/version-before" "$TMP/runtime/engine/VERSION"
 miss
 hit
 
+echo '== Who starts sync, and from which spelling of the root, never decides a hit =='
+# A terminal and an editor plugin start the CLI with different PATH, locale and
+# umask, and may name one project by different paths; the files are the same.
+run_from() {
+    local dir="$1"
+    shift
+    RC=0
+    OUTPUT="$(cd "$dir" && "$@" bash "$CLI" sync 2>&1)" || RC=$?
+}
+run_from "$PROJECT" env PATH="$TMP/elsewhere:$PATH" LANG=C LC_ALL=C
+check test "$RC" -eq 0
+check has 'Unchanged:'
+OUTPUT=""; RC=0
+OUTPUT="$(cd "$PROJECT" && umask 077 && bash "$CLI" sync 2>&1)" || RC=$?
+check test "$RC" -eq 0
+check has 'Unchanged:'
+if ln -s "$TMP" "$TMP/root-link" 2>/dev/null && [ -L "$TMP/root-link" ]; then
+    run_from "$TMP/root-link/${PROJECT##*/}" env PWD="$TMP/root-link/${PROJECT##*/}"
+    check test "$RC" -eq 0
+    check has 'Unchanged:'
+    rm "$TMP/root-link"
+else
+    rm -rf "$TMP/root-link"
+    echo '  (symlinks unavailable ? linked-root case skipped)'
+fi
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        # Bash keeps an inherited PWD that names its directory: `D:/x` for `/d/x`.
+        run_from "$PROJECT" env PWD="$(cygpath -m "$PROJECT")"
+        check test "$RC" -eq 0
+        check has 'Unchanged:'
+        ;;
+esac
+hit
+
 echo '== Layout/output changes and actionable warning replay =='
 cp "$PROJECT/intelligence.yaml" "$TMP/layout-before"
 sed 's/output: .claude/output: .claude-other/' "$TMP/layout-before" > "$PROJECT/intelligence.yaml"

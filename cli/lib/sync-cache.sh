@@ -4,19 +4,19 @@
 #
 # The record keeps three fingerprints apart (decision 0018), so a check can say
 # which side moved:
-#   tooling  the CLI and engine code, plus the invocation and environment that
-#            shape rendering — target filter, root, layout, bash, locale, PATH,
-#            umask. A change here is not the project's: a check renders rather
-#            than answer "sync needed" from it.
+#   tooling  the CLI and engine code and the adapter filter. A change here is
+#            not the project's: a check renders rather than answer "sync
+#            needed" from it.
 #   inputs   the manifest, the lock, every configured source including skill
 #            resources and installed packages, and the project adapter folder.
 #   outputs  every path the enabled built-in adapters own or manage.
-# Each fingerprint lists names, entry kinds and executable state beside content
-# hashes; timestamps never count. `.intelligence/sync-cache/state` holds the
+# Each fingerprint lists relative names, entry kinds and executable state beside
+# content hashes; timestamps, the project's location and the caller's
+# environment never count. `.intelligence/sync-cache/state` holds the
 # record and the report a hit replays; `seal` holds the state file's own hash,
 # so a record is trusted only whole.
 
-SC_FORMAT='intelligence-sync-cache-v2'
+SC_FORMAT='intelligence-sync-cache-v3'
 SC_SAFE_SEEN=$'\n'
 
 sync_cache_safe_path() {
@@ -155,6 +155,19 @@ sync_cache_dependencies() {
 }
 
 # --- Fingerprint ---------------------------------------------------------------
+# sync_cache_label_var <path> — IS_SC_LABEL, the name a fingerprint records for
+# a path: relative to the engine or CLI directory for tooling, to the project
+# otherwise. Where the project or the CLI lives, and how that path is spelled,
+# never decides whether the same files are current.
+sync_cache_label_var() {
+    case "$1" in
+        "$IS_ENGINE_DIR"|"$IS_ENGINE_DIR"/*) IS_SC_LABEL="engine${1#"$IS_ENGINE_DIR"}" ;;
+        "$CLI_DIR"|"$CLI_DIR"/*) IS_SC_LABEL="cli${1#"$CLI_DIR"}" ;;
+        "$REPO_ROOT"/*) IS_SC_LABEL="${1#"$REPO_ROOT/"}" ;;
+        *) IS_SC_LABEL="$1" ;;
+    esac
+}
+
 # _sync_cache_starts <group> <path>... — queue a group's start points. A missing
 # one is recorded as missing; a repeated one is walked once.
 _sync_cache_starts() {
@@ -171,7 +184,8 @@ _sync_cache_starts() {
             SC_STARTS+=("$path")
             SC_START_GROUPS+=("$group")
         else
-            SC_MISSING+=("$group missing $path")
+            sync_cache_label_var "$path"
+            SC_MISSING+=("$group missing $IS_SC_LABEL")
         fi
     done
 }
@@ -190,7 +204,7 @@ _SC_AWK_LISTING='
         starts = split(ENVIRON["SC_AWK_STARTS"], rows, "\n")
         for (i = 1; i <= starts; i++) {
             split(rows[i], field, "\t")
-            group[i] = field[1]; posix[i] = field[2]; native[i] = field[3]
+            group[i] = field[1]; posix[i] = field[2]; native[i] = field[3]; label[i] = field[4]
         }
         probe = ENVIRON["SC_AWK_EXEC_PROBE"]
         stream = (ENVIRON["SC_AWK_STREAM"] == 1)
@@ -209,7 +223,7 @@ _SC_AWK_LISTING='
             if (!last) { bad = 1; return }
         }
         g = group[last]
-        listing[g] = listing[g] kind " " entry "\037"
+        listing[g] = listing[g] kind " " label[last] substr(entry, length(posix[last]) + 1) "\037"
         if (kind == "d") return
         k = ++files[g]
         path = native[last] substr(entry, length(posix[last]) + 1)
@@ -248,7 +262,7 @@ _SC_AWK_LISTING='
 # the listing stage tells kinds without a stat per entry. git hashes the files
 # while the walk is still running.
 sync_cache_fingerprint() {
-    local target="$1" hashes i j n value ordered=0 starts_env="" state="" umask_value
+    local target="$1" hashes i j n value ordered=0 starts_env="" state=""
     local tooling inputs outputs listing saved_ifs="$IFS"
     local -a hash_lines=() expression=() keep=() starts=() groups=() natives=() parts=() count=()
     SC_STARTS=() SC_START_GROUPS=() SC_MISSING=() SC_START_SEEN=$'\n'
@@ -299,7 +313,8 @@ sync_cache_fingerprint() {
     for ((j = 0; j < ${#starts[@]}; j++)); do
         value="${starts[j]}"
         [ "$SC_TRANSLATE" != 1 ] || value="${natives[j]}"
-        starts_env="$starts_env${groups[j]}"$'\t'"${starts[j]}"$'\t'"$value"$'\n'
+        sync_cache_label_var "${starts[j]}"
+        starts_env="$starts_env${groups[j]}"$'\t'"${starts[j]}"$'\t'"$value"$'\t'"$IS_SC_LABEL"$'\n'
     done
     starts_env="${starts_env%$'\n'}"
     expression=(\( ! -type d ! -type f -exec false {} + \)
@@ -359,15 +374,11 @@ sync_cache_fingerprint() {
     [ "${count[0]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:0:${count[0]}}"; tooling="$tooling$value"; }
     [ "${count[1]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:${count[0]}:${count[1]}}"; inputs="$inputs$value"; }
     [ "${count[2]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:$((count[0] + count[1])):${count[2]}}"; outputs="$outputs$value"; }
-    # Explicit values that affect rendering, discovery or parsing. No secrets
-    # or inherited environment dump are persisted. umask prints into a file so
-    # reading it costs no subshell.
-    umask > "$SC_SCRATCH.umask" || return 1
-    IFS= read -r umask_value < "$SC_SCRATCH.umask" || return 1
-    for value in "$target" "$REPO_ROOT" "$CONFIG_FILE" "$IS_CONTENT_REL" "$IS_MODULE_REL" \
-        "$IS_SYNC_CMD" "$IS_MANIFEST_NAME" "$IS_PROTECTED_DIRS" "$BASH_VERSION" "${OSTYPE:-}" \
-        "${LANG:-}" "${LC_ALL:-}" "${LC_CTYPE:-}" "${LC_COLLATE:-}" "${PATH:-}" "$umask_value" \
-        "exec-probe=$SC_EXEC_PROBE" "walk-ordered=$ordered"; do
+    # The adapter filter selects what renders; the two listing flags say how
+    # the listings above were made. Nothing else of the invocation counts:
+    # the code, the manifest and the files decide what sync writes, wherever
+    # the project lives and whoever starts the CLI.
+    for value in "filter=$target" "exec-probe=$SC_EXEC_PROBE" "walk-ordered=$ordered"; do
         case "$value" in *[[:cntrl:]]*) return 1 ;; esac
         tooling="${tooling}env $value"$'\037'
     done

@@ -10,6 +10,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - `intelligence sync --check` without a record copies into its private project only the manifest, lock, package store, sources, project adapter folder and generated paths, instead of every top-level entry: a project with dependency and build trees beside its sources no longer copies gigabytes, outlives the Claude Code plugin's check timeout and starts the copy again every five minutes. An enabled project adapter, or a link on the way to a needed path, keeps the whole-project copy (decision 0018).
 - A copy left by a check killed outright is removed when the project lock is next released or taken over.
+- The sync cache record names files relative to the project and the CLI, and no longer includes the project's path, `PATH`, locale, bash version or umask: a sync or check started from another terminal, an editor plugin, a linked path or a `D:/` spelling of the same project now reuses the record instead of rendering again. Records written by an earlier CLI are ignored once (decision 0018).
 
 ## [0.22.0]
 

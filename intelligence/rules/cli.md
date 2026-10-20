@@ -103,8 +103,9 @@ Publish cache state only for a successful render with stable inputs, and preserv
 failure exit codes and rollback. `sync --force` refreshes output and repository
 discovery; a cache hit retains useful diagnostics from the last full run.
 The record keeps tooling, inputs and outputs apart (decision 0018), so
-`sync --check` answers "sync needed" only from a record its own tooling and
-environment made, renders in a private project copy otherwise, and never
+`sync --check` answers "sync needed" only from a record its own tooling made
+(the CLI and engine code and the adapter filter; never where the project
+lives or who started the CLI), renders in a private project copy otherwise, and never
 applies tracked alignment. Under `--check`, 2 means only "sync needed": every
 other failure that ends in 2 becomes 1.
 

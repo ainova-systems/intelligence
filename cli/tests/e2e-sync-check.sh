@@ -574,6 +574,25 @@ run --check
 check test "$RC" -eq 0
 check rendered
 
+echo '== A record from another caller environment or root spelling answers =='
+# The plugin's check starts with another PATH than the terminal's sync.
+RC=0
+: > "$TMP/operations"
+OUT="$(cd "$PROJECT" && env PATH="$TMP/elsewhere:$PATH" LANG=C LC_ALL=C bash "$CLI" sync --check 2> "$TMP/stderr")" || RC=$?
+ERR="$(cat "$TMP/stderr")"
+check test "$RC" -eq 0
+check not_rendered
+case "${OSTYPE:-}" in
+    msys*|cygwin*)
+        RC=0
+        : > "$TMP/operations"
+        OUT="$(cd "$PROJECT" && env PWD="$(cygpath -m "$PROJECT")" bash "$CLI" sync --check 2> "$TMP/stderr")" || RC=$?
+        ERR="$(cat "$TMP/stderr")"
+        check test "$RC" -eq 0
+        check not_rendered
+        ;;
+esac
+
 echo '== A damaged record authorizes nothing =='
 printf 'damaged\n' >> "$STATE"
 run --check

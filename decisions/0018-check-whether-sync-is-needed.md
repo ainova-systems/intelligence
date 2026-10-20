@@ -172,3 +172,23 @@ keeps the whole-project copy.
 A run killed outright never reaches the trap that removes its copy, so the
 check names the copy in its lock, and the lock's release or a stale-lock
 takeover removes it.
+
+## Amendment — the record names files, not the caller
+
+Point 3 also put the project root, the manifest path, bash, locale, `PATH`
+and umask into the tooling fingerprint, and every listing held absolute
+paths. None of them decides what sync writes: the CLI and engine code, the
+adapter filter, the inputs and the outputs do, and the engine sets `LC_ALL=C`
+wherever order reaches the output. They only made one unchanged project look
+different to different callers. A terminal and an editor plugin start the CLI
+with different `PATH` values, and on Git Bash bash keeps an inherited `PWD`,
+so one project arrives as `D:/x` from one caller and `/d/x` from another.
+Each such caller missed the other's record and rendered: a full sync, or a
+check that rendered in its private copy.
+
+The record now lists every entry relative to its root, the project or the CLI
+and engine directories, and keeps from the invocation only the adapter filter
+and how the listing was made (`exec-probe`, `walk-ordered`). A drive-letter
+root resolves to its mount path, so both spellings walk in the same order. The
+record format moves to `intelligence-sync-cache-v3`, so a record written by an
+earlier CLI is ignored once.

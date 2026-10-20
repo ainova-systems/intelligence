@@ -305,8 +305,8 @@ It answers in one of two ways:
   render to identical files — a manifest comment, for example; `--force` gives
   the exact answer.
 - **By rendering.** Without a usable record — none yet, damaged, from an older
-  CLI, or made by other code or in another environment (a different `PATH` is
-  enough) � the engine renders in a private project copy, compares every owned
+  CLI, or made by other CLI or engine code, or for another adapter filter —
+  the engine renders in a private project copy, compares every owned
   and managed path with its snapshot, and discards the copy. The live project's
   bytes, modification times and concurrent edits stay untouched. Names, entry
   kinds, link targets, bytes and executable bits count; nested generated links
