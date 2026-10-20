@@ -70,6 +70,15 @@ lock_validate_checks() {
                 continue
             fi
         fi
+        if [ -z "$sha" ] && [ "$url" = "$SYNC_PKG_URL" ] && [ "$path" = "$SYNC_PKG_PATH" ]; then
+            # Bundle metadata pins the content a CLI ships; only this CLI's own
+            # version restores without a commit. update moves an older pin to it;
+            # a newer one needs a newer CLI.
+            if [[ "$resolved" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && _ver_gt "${resolved#v}" "$current"; then
+                die "locked restore: $name $resolved has a missing or invalid commit SHA, and this CLI bundles v$current — update the CLI: intelligence upgrade"
+            fi
+            die "locked restore: $name $resolved has a missing or invalid commit SHA, and this CLI bundles v$current — run: intelligence update"
+        fi
         [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
             || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
     done <<< "$rows"

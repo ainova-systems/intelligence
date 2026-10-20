@@ -2,6 +2,7 @@
 
 Date: 2026-10-07
 Status: accepted
+Superseded by 0023 in part: point 2's report of a project needing alignment as `out-of-date`. An older same-major stamp is a warning; a needed migration is `needs-update`, exit 6.
 
 ## Context
 

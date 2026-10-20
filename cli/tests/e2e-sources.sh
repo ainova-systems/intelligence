@@ -280,6 +280,9 @@ awk '{ if ($0 ~ /^schema_version:/) print "schema_version: \"0.18.1\""; else pri
     "$REF/intelligence.yaml" > "$REF/intelligence.yaml.tmp"
 mv "$REF/intelligence.yaml.tmp" "$REF/intelligence.yaml"
 out="$(rrun sync 2>&1)" || { echo "FAIL: sync of a 0.18.1 stamp: $out"; fail=1; }
+grep -q '^WARNING: project versions (schema 0.18.1) trail' <<< "$out" || { echo "FAIL: sync did not warn about the older stamp: $out"; fail=1; }
+is "schema_version after sync" 'schema_version: "0.18.1"' "$(grep '^schema_version:' "$REF/intelligence.yaml")"
+out="$(rrun update --apply 2>&1)" || { echo "FAIL: update of a 0.18.1 stamp: $out"; fail=1; }
 grep -q 'project alignment: stamp 0.18.1' <<< "$out" || { echo "FAIL: alignment did not run: $out"; fail=1; }
 is "schema_version after alignment" "schema_version: \"$ENGINE_VER\"" "$(grep '^schema_version:' "$REF/intelligence.yaml")"
 sources_block > "$OUT/ref-ac4.aligned"

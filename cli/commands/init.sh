@@ -132,7 +132,11 @@ case "$IP_MODE" in
             if project_stamped_ahead "$IP_ROOT"; then
                 echo "  project schema $(read_schema_version "$IP_ROOT/intelligence.yaml") is ahead of engine $(bundled_engine_version) — left as is (update the CLI)"
             elif project_needs_upgrade "$IP_ROOT"; then
-                echo "  would align project lifecycle with engine $(bundled_engine_version)"
+                if [ "$IS_UPGRADE_KIND" = behind ]; then
+                    echo "  project versions trail engine $(bundled_engine_version) — kept as committed; intelligence update moves them"
+                else
+                    echo "  project needs a migration to engine $(bundled_engine_version) — run: intelligence update"
+                fi
             else
                 echo "  schema/content already match engine $(bundled_engine_version)"
             fi
@@ -151,11 +155,7 @@ case "$IP_MODE" in
             fi
             exit 0
         fi
-        if [ "$apply" -eq 1 ]; then
-            ensure_project_current "$IP_ROOT" --explicit
-        else
-            ensure_project_current "$IP_ROOT"
-        fi
+        project_as_committed "$IP_ROOT"
         restore_project_store_if_missing "$IP_ROOT"
         ensure_manifest_gitignore "$IP_ROOT" "$IP_ROOT/intelligence.yaml"
         ensure_manifest_publisher_ignores "$IP_ROOT" "$IP_ROOT/intelligence.yaml"

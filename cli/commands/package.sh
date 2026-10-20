@@ -10,17 +10,17 @@ shift
 case "$action" in
     add)
         require_cli_project
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         exec bash "$CLI_DIR/internal/package-add.sh" "$@"
         ;;
     remove)
         require_cli_project
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         exec bash "$CLI_DIR/internal/package-remove.sh" "$@"
         ;;
     alias)
         require_cli_project
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         exec bash "$CLI_DIR/internal/package-alias.sh" "$@"
         ;;
     list)

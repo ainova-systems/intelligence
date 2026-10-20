@@ -33,8 +33,8 @@ the existing merge and release workflows. Reinvoke it to start the next batch.
 
 Keep top-level product behavior inside the established surface: `init`, `sync`, `update`, `upgrade`, `package`, `source`, `adapter`, `status` and `registry`. Package, source and adapter verbs are subcommands of their respective groups.
 
-- `init` owns new-project setup, legacy-project conversion and project alignment.
-- Project-aware mutations align Intelligence projects automatically; CI refuses an implicit tracked alignment and asks for a reviewed `intelligence init --apply` diff.
+- `init` owns new-project setup and legacy-project conversion.
+- Only `update` moves an existing project's `schema_version` and engine-content pin; every other project-aware command works on the project as committed (decision 0023).
 - `sync` restores a missing package store from the committed lock before rendering.
 - `update` plans CLI, project and package changes and applies the project ones; `upgrade` is the only command that replaces the installed CLI, and it touches no project.
 - Planned writes use `--preview` and `--apply` consistently.

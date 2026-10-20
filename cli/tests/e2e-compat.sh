@@ -217,6 +217,58 @@ xok "Nothing to apply" "$P3" update --apply
 chk cmp -s "$OUT/p3.yaml" "$P3/intelligence.yaml"
 chk cmp -s "$OUT/p3.lock" "$P3/intelligence.lock"
 
+# pin_project <dir> <stamp> <pin> — P3's layout with its own stamp and pin.
+pin_project() {
+    local d="$1" stamp="$2" pin="$3"
+    rm -rf "$d"
+    cp -R "$P3" "$d"
+    sed -e "s/^schema_version: .*/schema_version: \"$stamp\"/" -e "s/^    version: .*/    version: \"$pin\"/" \
+        "$OUT/p3.yaml" > "$d/intelligence.yaml"
+    sed -e "s/^    requested: .*/    requested: \"$pin\"/" -e "s/^    resolved: .*/    resolved: \"v$pin\"/" \
+        "$OUT/p3.lock" > "$d/intelligence.lock"
+    printf '%s\037%s\037%s\037%s\037%s\n' "@ainova-systems/sync" \
+        "https://github.com/ainova-systems/intelligence.git" "packages/sync" "v$pin" "" \
+        > "$d/.intelligence/packages/.installed"
+    cp "$d/intelligence.yaml" "$d.yaml.before"
+    cp "$d/intelligence.lock" "$d.lock.before"
+}
+
+echo "== 4b. a sync pin ahead of a current stamp is a newer CLI's, never moved down =="
+P3B="$OUT/pin-ahead"
+pin_project "$P3B" "$ENGINE_VER" "$PATCH_AHEAD"
+xok "IS_STATUS=ok" "$P3B" sync
+hasnot "WARNING: project versions"
+xok "Nothing to apply" "$P3B" update --apply
+chk cmp -s "$P3B.yaml.before" "$P3B/intelligence.yaml"
+chk cmp -s "$P3B.lock.before" "$P3B/intelligence.lock"
+
+PIN_BEHIND=""
+if [ "$PAT" -gt 0 ]; then PIN_BEHIND="$MAJ.$MIN.$((PAT - 1))"
+elif [ "$MIN" -gt 0 ]; then PIN_BEHIND="$MAJ.$((MIN - 1)).0"
+fi
+if [ -n "$PIN_BEHIND" ]; then
+    echo "== 4c. a sync pin behind a current stamp is named, kept, and moved by update =="
+    P3C="$OUT/pin-behind"
+    pin_project "$P3C" "$ENGINE_VER" "$PIN_BEHIND"
+    xok "WARNING: project versions (@ainova-systems/sync $PIN_BEHIND) trail this CLI's engine $ENGINE_VER" "$P3C" sync
+    chk cmp -s "$P3C.yaml.before" "$P3C/intelligence.yaml"
+    chk cmp -s "$P3C.lock.before" "$P3C/intelligence.lock"
+    xok "" "$P3C" update --apply
+    chk grep -q "^    version: \"$ENGINE_VER\"" "$P3C/intelligence.yaml"
+    chk grep -q "resolved: \"v$ENGINE_VER\"" "$P3C/intelligence.lock"
+fi
+
+echo "== 4d. a sync entry pinned by a ref the lock resolves to this engine is current =="
+P3D="$OUT/pin-ref"
+pin_project "$P3D" "$ENGINE_VER" "$ENGINE_VER"
+sed "s/^    version: .*/    ref: \"v$ENGINE_VER\"/" "$P3D.yaml.before" > "$P3D/intelligence.yaml"
+cp "$P3D/intelligence.yaml" "$P3D.yaml.before"
+xok "IS_STATUS=ok" "$P3D" sync
+hasnot "WARNING: project versions"
+xok "Nothing to apply" "$P3D" update --apply
+chk cmp -s "$P3D.yaml.before" "$P3D/intelligence.yaml"
+chk cmp -s "$P3D.lock.before" "$P3D/intelligence.lock"
+
 echo "== 5. a newer major is refused with exit 4 =="
 P4="$OUT/major-ahead"
 make_project "$P4" "$MAJOR_AHEAD"
@@ -234,17 +286,37 @@ xfail "is a newer major than this CLI's engine $ENGINE_VER" "$P4" status --check
 chk grep -q "^schema_version: \"$MAJOR_AHEAD\"" "$P4/intelligence.yaml"
 chknot test -f "$P4/AGENTS.md"
 
-echo "== 6. a project behind the engine still aligns upward =="
+echo "== 6. a project behind the engine renders as committed; only update moves it =="
 BEHIND=""
 if [ "$PAT" -gt 0 ]; then BEHIND="$MAJ.$MIN.$((PAT - 1))"
 elif [ "$MIN" -gt 0 ]; then BEHIND="$MAJ.$((MIN - 1)).0"
 fi
+BEHIND_LINE="WARNING: project versions (schema $BEHIND) trail this CLI's engine $ENGINE_VER"
 if [ -n "$BEHIND" ]; then
     P5="$OUT/behind"
     make_project "$P5" "$BEHIND"
-    xok "schema_version -> $ENGINE_VER" "$P5" sync
-    hasnot "$WARN_LINE"
+    cp "$P5/intelligence.yaml" "$OUT/behind-manifest"
+    for args in sync "sync --compact" "sync --force" "init --apply"; do
+        # shellcheck disable=SC2086  # each entry is a command line
+        xok "$BEHIND_LINE" "$P5" $args
+        warn_count="$(printf '%s\n' "$OUTPUT" | grep -c "^WARNING: project versions" || true)"
+        [ "$warn_count" -eq 1 ] || { echo "FAIL: $args printed $warn_count behind warnings"; fail=1; }
+        hasnot "schema_version ->"
+        chk cmp -s "$OUT/behind-manifest" "$P5/intelligence.yaml"
+    done
+    chk grep -q "COMPAT_MARKER" "$P5/AGENTS.md"
+    run_in "$P5" sync --check
+    [ "$RC" -eq 0 ] || { echo "FAIL: sync --check of a behind project exited $RC"; printf '%s\n' "$OUTPUT"; fail=1; }
+    has "$BEHIND_LINE"
+    has "IS_STATUS=ok"
+    xok "all good." "$P5" status --check
+    has "  ! manifest schema $BEHIND is older than this CLI's engine $ENGINE_VER"
+    chk cmp -s "$OUT/behind-manifest" "$P5/intelligence.yaml"
+    xok "lifecycle alignment required" "$P5" update --preview
+    xok "schema_version -> $ENGINE_VER" "$P5" update --apply
     chk grep -q "^schema_version: \"$ENGINE_VER\"" "$P5/intelligence.yaml"
+    xok "" "$P5" sync
+    hasnot "WARNING: project versions"
 else
     echo "  (engine $ENGINE_VER has no lower version to stamp; skipped)"
 fi

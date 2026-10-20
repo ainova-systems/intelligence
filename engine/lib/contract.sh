@@ -83,9 +83,9 @@ IS_RC_CONFIG_MISSING=2      # no manifest found
 IS_RC_AMBIGUOUS=3           # conflicting state; agent/human-only — bash never emits this itself
 IS_RC_AHEAD=4               # project stamped newer than this engine understands
 IS_RC_ABORTED_INCOMPLETE=5  # staged state incomplete; the project was left untouched
-IS_RC_NEEDS_UPDATE=6        # pending schema changes (stamp < engine) — run `intelligence init --apply`
+IS_RC_NEEDS_UPDATE=6        # a migration only `intelligence update` applies (no stamp, older major)
 # `intelligence sync --check` only: generated files differ from what sync would
-# leave, or alignment is pending (IS_STATUS=out-of-date). It shares 2 with
+# leave (IS_STATUS=out-of-date). It shares 2 with
 # config-missing, which a check never reports: the CLI found the manifest, and
 # the check turns any other failure that ends in 2 into 1.
 IS_RC_OUT_OF_DATE=2

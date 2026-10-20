@@ -142,7 +142,7 @@ if [ "$RC" -ne 0 ]; then
 fi
 chk test -d "$BUNDLE/.intelligence/packages/@ainova-systems/sync"
 
-echo "== older development bundle lock aligns with installed content =="
+echo "== older development bundle lock aligns with installed content through update =="
 OLD_BUNDLE="$OUT/older-bundle"
 mkdir -p "$OLD_BUNDLE"
 cp -R "$BUNDLE/." "$OLD_BUNDLE/"
@@ -159,7 +159,20 @@ awk -v old="$old_engine" '
     { print }
 ' "$OLD_BUNDLE/intelligence.lock" > "$OLD_BUNDLE/intelligence.lock.tmp"
 mv "$OLD_BUNDLE/intelligence.lock.tmp" "$OLD_BUNDLE/intelligence.lock"
-run_in "$OLD_BUNDLE" init --apply
+# A fresh clone of it has no store, and its pin restores without a commit only
+# at this CLI's own version: sync refuses and names the command that moves it.
+OLD_MISSING="$OUT/older-bundle-missing"
+mkdir -p "$OLD_MISSING"
+cp -R "$OLD_BUNDLE/." "$OLD_MISSING/"
+rm -rf "$OLD_MISSING/.intelligence/packages"
+snapshot "$OLD_MISSING" older-bundle-missing
+lock_xfail "this CLI bundles v$ENGINE_VER — run: intelligence update" "$OLD_MISSING" sync
+assert_snapshot "$OLD_MISSING" older-bundle-missing
+run_in "$OLD_MISSING" update --apply
+[ "$RC" -eq 0 ] || { echo "FAIL: update did not move the older pin of a fresh clone"; printf '%s
+' "$OUTPUT" | tail -8; fail=1; }
+chk test -d "$OLD_MISSING/.intelligence/packages/@ainova-systems/sync"
+run_in "$OLD_BUNDLE" update --apply
 if [ "$RC" -ne 0 ]; then
     echo "FAIL: older development bundle lock did not align"
     printf '%s\n' "$OUTPUT" | tail -8
@@ -406,7 +419,7 @@ assert_snapshot "$CASE" lifecycle
 lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" update --preview
 assert_snapshot "$CASE" lifecycle
 lock_xfail "unsupported or missing lockfile_version '9'" "$CASE" status --check
-if ! printf '%s\n' "$OUTPUT" | grep -qF "manifest schema $old_engine behind engine $ENGINE_VER"; then
+if ! printf '%s\n' "$OUTPUT" | grep -qF "manifest schema $old_engine is older than this CLI's engine $ENGINE_VER"; then
     echo "FAIL: status --check stopped before its independent schema check"
     printf '%s\n' "$OUTPUT" | tail -12
     fail=1

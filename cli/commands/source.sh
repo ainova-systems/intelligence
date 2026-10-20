@@ -139,7 +139,7 @@ case "$action" in
         dir="$(normalize_source_dir "$dir")"
         assert_valid_source_dir "$IP_ROOT" "$dir"
         [ "$anchor" != "$dir" ] || die "cannot place '$dir' relative to itself"
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         manifest="$IP_ROOT/intelligence.yaml"
 
         # The anchor may be spelled differently from the entry it means — a
@@ -189,7 +189,7 @@ case "$action" in
         require_cli_project
         manifest="$IP_ROOT/intelligence.yaml"
         assert_not_package_reference "$manifest" "$dir" remove
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
 
         if ! sources_has_entry "$manifest" "$section" "$dir"; then
             echo "not listed: sources.$section does not hold $dir"

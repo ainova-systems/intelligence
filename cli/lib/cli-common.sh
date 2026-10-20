@@ -344,17 +344,10 @@ export_engine_env() {
 }
 
 # --- Project lifecycle preflight -----------------------------------------
-# Public commands are intentionally few. They share this state gate so a CLI
-# installed at a newer engine version brings the current Intelligence project forward
-# before a mutating operation. The npm install itself cannot do that: it runs
-# outside any project and does not know which repositories the user owns.
-
-is_ci_environment() {
-    case "${CI:-}" in
-        1|true|TRUE|True|yes|YES|Yes|on|ON|On) return 0 ;;
-        *) return 1 ;;
-    esac
-}
+# Public commands are intentionally few. They share this state gate. Only
+# `update` moves a project's versions forward (decision 0023); every other
+# command works on the project as committed, or refuses one that needs a
+# migration first.
 
 # Validate a repository-relative project content directory, including every
 # existing symlinked path component. Call before writing a new manifest.
@@ -395,23 +388,37 @@ project_stamped_ahead() {
     [ -n "$stamp" ] && _ver_gt "$stamp" "$IS_BUNDLED_ENGINE_VERSION"
 }
 
+# project_needs_upgrade <root> — true when `update` would align the project.
+# IS_UPGRADE_KIND says how far behind it is: `behind` when only the schema
+# stamp or the sync content pin trails this engine within its major, which
+# every command renders around, with IS_UPGRADE_DESC naming what trails;
+# `migrate` when the project needs a change only alignment applies (no stamp,
+# an older major, a legacy manifest shape, a sync content pin that is no
+# version).
 project_needs_upgrade() {
     local root="$1" manifest="$1/intelligence.yaml" stamp eng pinned locked name url path rows
-    local lname _requested _url _path resolved _sha
+    local lname _requested _url _path resolved _sha behind=0 pin_behind="" value
+    IS_UPGRADE_KIND="" IS_UPGRADE_DESC=""
     [ -f "$manifest" ] || return 1
     read_schema_version_var "$manifest"
     stamp="$IS_SCHEMA_VERSION"
     bundled_engine_version_var
     eng="$IS_BUNDLED_ENGINE_VERSION"
-    [ -z "$stamp" ] && return 0
+    if [ -z "$stamp" ]; then IS_UPGRADE_KIND=migrate; return 0; fi
     # A project stamped ahead belongs to a newer CLI. Aligning it here would
     # restamp the schema and re-pin the engine content DOWNWARD, and the next
     # teammate on the current CLI would move both back: leave it as found.
     project_stamped_ahead "$root" && return 1
     _qmap_read_var top "$manifest" '' sync_version || true
-    [ -z "$IS_QMAP_OUT" ] || return 0
-    _ver_gt "$eng" "$stamp" && return 0
-    [ -d "$root/.intelligence/engine" ] && return 0
+    if [ -n "$IS_QMAP_OUT" ] || [ -d "$root/.intelligence/engine" ]; then
+        IS_UPGRADE_KIND=migrate; return 0
+    fi
+    if _ver_gt "$eng" "$stamp"; then
+        if [ "$(_ver_major "$stamp")" != "$(_ver_major "$eng")" ]; then
+            IS_UPGRADE_KIND=migrate; return 0
+        fi
+        behind=1
+    fi
 
     # One manifest pass for every package's fields, not a reader per field.
     _qmap_read_var fieldrows "$manifest" packages '' 'url path version' || true
@@ -420,8 +427,7 @@ project_needs_upgrade() {
         [ -n "$name" ] || continue
         # Early RC manifests mixed requested intent with resolved source
         # details. Source URL/path now live only in the required lockfile.
-        [ -n "$url" ] && return 0
-        [ -n "$path" ] && return 0
+        if [ -n "$url" ] || [ -n "$path" ]; then IS_UPGRADE_KIND=migrate; return 0; fi
         if [ "$name" = "$SYNC_PKG_NAME" ]; then
             # The first lock row for the name: what qmap_field would decode.
             locked=""
@@ -431,14 +437,52 @@ project_needs_upgrade() {
                 locked="$resolved"
                 break
             done <<< "$IS_QMAP_OUT"
-            [ "$pinned" = "$eng" ] || return 0
-            if [ -f "$root/intelligence.lock" ]; then
-                [ -n "$locked" ] || return 0
-                [ "${locked#v}" = "$eng" ] || return 0
+            if [ -f "$root/intelligence.lock" ] && [ -z "$locked" ]; then
+                IS_UPGRADE_KIND=migrate; return 0
             fi
+            # The manifest pin, then the lock row. One ahead of this engine is
+            # a newer CLI's, left as found like a stamp ahead (decision 0005).
+            for value in "$pinned" "${locked#v}"; do
+                [ -n "$value" ] && [ "$value" != "$eng" ] || continue
+                case "$value" in [0-9]*.[0-9]*.[0-9]*) ;; *) IS_UPGRADE_KIND=migrate; return 0 ;; esac
+                _ver_gt "$eng" "$value" || continue
+                [ "$(_ver_major "$value")" = "$(_ver_major "$eng")" ] || { IS_UPGRADE_KIND=migrate; return 0; }
+                behind=1
+                [ -n "$pin_behind" ] || pin_behind="$value"
+            done
         fi
     done <<< "$rows"
-    return 1
+    [ "$behind" = 1 ] || return 1
+    IS_UPGRADE_KIND=behind
+    # What the warning names: only the versions that actually trail.
+    if _ver_gt "$eng" "$stamp"; then IS_UPGRADE_DESC="schema $stamp"; fi
+    [ -z "$pin_behind" ] || IS_UPGRADE_DESC="${IS_UPGRADE_DESC:+$IS_UPGRADE_DESC, }$SYNC_PKG_NAME $pin_behind"
+}
+
+# project_as_committed <root> — the gate of every project-aware command but
+# `update`: the preflight, then the project as committed. One whose versions
+# only trail this engine within its major proceeds behind one warning and
+# keeps its tracked bytes; one that needs a migration is refused with
+# IS_STATUS=needs-update and exit 6.
+project_as_committed() {
+    local root="$1" stamp
+    project_preflight "$root" || return $?
+    project_needs_upgrade "$root" || return 0
+    read_schema_version_var "$root/intelligence.yaml"
+    stamp="$IS_SCHEMA_VERSION"
+    bundled_engine_version_var
+    if [ "$IS_UPGRADE_KIND" = behind ]; then
+        # Once per command, however many processes check on the way to the
+        # engine; unindented, so `sync --compact` keeps it.
+        if [ "${IS_PROJECT_BEHIND_WARNED:-}" != "$stamp" ]; then
+            echo "WARNING: project versions ($IS_UPGRADE_DESC) trail this CLI's engine $IS_BUNDLED_ENGINE_VERSION — they stay as committed; move them with: intelligence update" >&2
+            export IS_PROJECT_BEHIND_WARNED="$stamp"
+        fi
+        return 0
+    fi
+    is_status needs-update "stamp=${stamp:-unstamped} engine=$IS_BUNDLED_ENGINE_VERSION"
+    echo "ERROR: the project needs a migration this command does not apply (schema ${stamp:-unstamped}, engine $IS_BUNDLED_ENGINE_VERSION) — run: intelligence update" >&2
+    return "$IS_RC_NEEDS_UPDATE"
 }
 
 # A manifest with packages but no lock has no trustworthy resolved state from
@@ -466,17 +510,16 @@ project_preflight() {
     fi
 }
 
+# ensure_project_current <root> — align the project to this engine. `update`
+# alone calls it (decision 0023).
 ensure_project_current() {
-    local root="$1" explicit="${2:-}" manifest="$1/intelligence.yaml" stamp eng
+    local root="$1" manifest="$1/intelligence.yaml" stamp eng
     project_preflight "$root" || return $?
     project_needs_upgrade "$root" || return 0
     read_schema_version_var "$manifest"
     stamp="$IS_SCHEMA_VERSION"
     bundled_engine_version_var
     eng="$IS_BUNDLED_ENGINE_VERSION"
-    if is_ci_environment && [ "$explicit" != "--explicit" ]; then
-        die "project lifecycle requires alignment (stamp ${stamp:-unstamped}, engine $eng) — run 'intelligence init --apply' locally, review and commit the diff"
-    fi
     echo "  project alignment: stamp ${stamp:-unstamped}, engine $eng"
     bash "$CLI_DIR/internal/align-project.sh" --no-sync || return $?
     project_reads_refresh "$root"

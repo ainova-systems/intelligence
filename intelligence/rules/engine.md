@@ -8,9 +8,10 @@ description: "Engine boundaries: pure synchronization, the status contract, rule
 
 `engine/sync.sh` sources `engine/lib/common.sh` and `engine/lib/contract.sh`,
 discovers built-in plus project-owned adapters, and runs the enabled targets. It is a
-pure synchronizer: it never changes a schema and never fetches a package. Schema and
-content alignment is the CLI's preflight — `init --apply` is the reviewed path, and
-`update` folds alignment into its plan.
+pure synchronizer: it never changes a schema and never fetches a package. Moving a
+project's schema and content versions is `intelligence update` alone; the engine renders
+an older same-major stamp behind one warning and refuses no stamp or an older major
+with `needs-update`.
 
 ## The contract the CLI exports
 

@@ -2,6 +2,7 @@
 
 Date: 2026-08-26
 Status: accepted
+Superseded by 0023 in part: point 3. The shared preflight no longer aligns a project and CI no longer refuses one; only `intelligence update` moves its versions.
 
 ## Context
 

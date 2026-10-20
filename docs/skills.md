@@ -53,7 +53,7 @@ compare its content with the new owner before deciding whether to retain it.
 | `intelligence-install-adapter` | `intelligence-manage-adapters enable <name>` for an existing adapter |
 | `intelligence-uninstall-adapter` | `intelligence-manage-adapters disable <name>` or `remove <name>` |
 
-After project alignment and sync, verify the seven package skills and their
+After `intelligence update` and sync, verify the seven package skills and their
 reference files are present in enabled outputs and obsolete generated names are
 absent. Run `intelligence status --check`. Keep project-owned overrides only after
 their new responsibility and references have been reviewed.

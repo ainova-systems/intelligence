@@ -622,7 +622,12 @@ chk test -d "$P13/.intelligence/packages/@acme/extra"
 # A stale pre-package directory is removed even when source entries were
 # already migrated in an earlier interrupted RC alignment.
 mkdir -p "$P13/.intelligence/engine/rules"
-xok "removed stale .intelligence/engine" "$P13" init --apply
+# Only update migrates (decision 0023): every other command refuses with 6.
+xfail "run: intelligence update" "$P13" init --apply
+[ "$RC" -eq 6 ] || { echo "FAIL: init on a project needing migration exited $RC, want 6"; fail=1; }
+xfail "run: intelligence update" "$P13" sync
+chk test -d "$P13/.intelligence/engine"
+xok "removed stale .intelligence/engine" "$P13" update --apply
 chknot test -d "$P13/.intelligence/engine"
 # Early RC manifests duplicated resolved source fields. Alignment removes
 # them for every package while preserving lock-only source state.
@@ -634,7 +639,7 @@ awk -v engine="$ENGINE_VER" '
     }
 ' "$P13/intelligence.yaml" > "$P13/intelligence.yaml.tmp"
 mv "$P13/intelligence.yaml.tmp" "$P13/intelligence.yaml"
-xok "package url/path -> intelligence.lock" "$P13" init --apply
+xok "package url/path -> intelligence.lock" "$P13" update --apply
 if grep -nE '^[[:space:]]*(url|path):' "$P13/intelligence.yaml"; then
     echo "FAIL: RC package source fields survived lifecycle alignment"
     fail=1
@@ -655,8 +660,8 @@ git -C "$B13" init --quiet
 xok "bare setup" "$B13" init --bare
 chknot grep -q '"@ainova-systems/sync"' "$B13/intelligence.yaml"
 
-# A pre-package manifest is upgraded automatically before sync. CI refuses
-# that tracked schema/content mutation and points to an explicit local init.
+# A pre-package manifest needs a migration only update applies: sync refuses
+# it everywhere, and update --apply migrates it, in CI too.
 U13="$OUT/u13"
 mkdir -p "$U13/intelligence/rules" "$U13/.intelligence/engine/rules"
 printf '# Ctx\n\nu13 context\n' > "$U13/intelligence/rules/context.md"
@@ -680,11 +685,12 @@ targets:
   claude: { enabled: true, output: ".claude" }
 EOF
 git -C "$U13" init --quiet
-CI=true xfail "intelligence init --apply" "$U13" sync
-CI=true xfail "intelligence init --apply" "$U13" update --apply
-CI=True xfail "intelligence init --apply" "$U13" sync
-CI=on xfail "intelligence init --apply" "$U13" sync
-CI=true xok "project alignment" "$U13" init --apply
+xfail "run: intelligence update" "$U13" sync
+[ "$RC" -eq 6 ] || { echo "FAIL: sync of a project needing migration exited $RC, want 6"; fail=1; }
+CI=true xfail "run: intelligence update" "$U13" sync
+xfail "run: intelligence update" "$U13" init --apply
+chk grep -q '^sync_version:' "$U13/intelligence.yaml"
+CI=true xok "project alignment" "$U13" update --apply
 chknot grep -q '^sync_version:' "$U13/intelligence.yaml"
 chk grep -q "^schema_version: \"$ENGINE_VER\"" "$U13/intelligence.yaml"
 chknot grep -q '\.intelligence/engine' "$U13/intelligence.yaml"
@@ -714,7 +720,7 @@ targets:
 EOF
 git -C "$D13" init --quiet
 cp "$D13/intelligence.yaml" "$OUT/d13.before"
-xfail "conflicting schema_version" "$D13" init --apply
+xfail "conflicting schema_version" "$D13" update --apply
 chk cmp -s "$OUT/d13.before" "$D13/intelligence.yaml"
 
 echo "== 14. hostile inputs: lock keys, option-shaped urls, dispatcher =="

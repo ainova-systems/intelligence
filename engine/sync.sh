@@ -39,10 +39,10 @@ _vc_rc=0
 check_version_compat "$_cf" || _vc_rc=$?
 if [ "$_vc_rc" -ne 0 ]; then exit "$_vc_rc"; fi
 
-# Schema gap → refuse. sync is a PURE synchronizer: it never changes schemas,
-# so the CLI lifecycle preflight must align the project first. An ABSENT stamp
-# means the same thing — a manifest with no
-# `schema_version` must not silently sync past a schema change.
+# sync is a PURE synchronizer: it never changes a schema. The manifest is
+# additive within a major, so an older stamp of the same major renders as
+# committed behind one warning (decision 0023); an older major, or no stamp at
+# all, needs the migration only `intelligence update` applies.
 read_schema_version_var "$_cf"
 _stamp="$IS_SCHEMA_VERSION"
 engine_version_var
@@ -51,13 +51,18 @@ _eng="$IS_ENGINE_VERSION"
 if [ -z "$_stamp" ]; then
     is_status needs-update "stamped= engine=$_eng (no schema_version)"
     echo "ERROR: the manifest has no schema_version — schema un-applied." >&2
-    echo "       Run: intelligence init --apply" >&2
+    echo "       Run: intelligence update" >&2
     exit "$IS_RC_NEEDS_UPDATE"
 elif [ -n "$_eng" ] && _ver_gt "$_eng" "$_stamp"; then
-    is_status needs-update "stamped=$_stamp engine=$_eng"
-    echo "ERROR: project at $_stamp but engine is $_eng — pending schema changes." >&2
-    echo "       Run: intelligence init --apply" >&2
-    exit "$IS_RC_NEEDS_UPDATE"
+    if [ "$(_ver_major "$_stamp")" != "$(_ver_major "$_eng")" ]; then
+        is_status needs-update "stamped=$_stamp engine=$_eng"
+        echo "ERROR: project at $_stamp but engine is $_eng — an older major schema." >&2
+        echo "       Run: intelligence update" >&2
+        exit "$IS_RC_NEEDS_UPDATE"
+    fi
+    if [ "${IS_PROJECT_BEHIND_WARNED:-}" != "$_stamp" ]; then
+        echo "WARNING: project versions (schema $_stamp) trail this CLI's engine $_eng — they stay as committed; move them with: intelligence update" >&2
+    fi
 fi
 
 # Normalize REPO_ROOT and CONFIG_FILE to one `cd && pwd` spelling so

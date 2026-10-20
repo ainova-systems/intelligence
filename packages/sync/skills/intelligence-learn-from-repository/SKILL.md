@@ -28,8 +28,11 @@ mechanics; this skill supplies repository judgement.
 3. Run `intelligence status --check`. If the project is missing, inconsistent,
    or its first sync failed, run `intelligence init --preview`, show the exact
    repair plan, and request approval. After approval run
-   `intelligence init --apply`. Do not reproduce manifest, package, adapter,
-   backup, or ignore-file mechanics manually.
+   `intelligence init --apply`. When the check or the plan names
+   `intelligence update` instead, the project's versions need moving: show
+   `intelligence update --preview` and run `intelligence update --apply` only
+   after approval. Do not reproduce manifest, package, adapter, backup, or
+   ignore-file mechanics manually.
 4. Run `intelligence sync`. Sync is transactional: a failure restores every
    adapter-owned path. Resolve the reported cause and retry. Do not begin
    semantic migration until `IS_STATUS=ok` and `intelligence status --check`

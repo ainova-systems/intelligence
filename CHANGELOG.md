@@ -4,6 +4,24 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.23.0]
+
+### Changed
+
+- Only `intelligence update` moves a project's `schema_version` and `@ainova-systems/sync` pin. `sync`, `sync --check`, `init` on an existing project, `package`, `source`, `adapter` and `registry` render or edit a project as committed: an older stamp within the same major prints one `WARNING:` line naming `intelligence update`, and a project that needs a migration first is refused with `needs-update`, exit 6. `update --apply` aligns in CI too (decision 0023).
+- `status --check` reports an older same-major stamp as a note, and the Claude Code plugin shows `intelligence update` for a project that needs it.
+
+### Fixed
+
+- `intelligence.lock` keeps an updated package's entry where it stands instead of moving it to the end.
+- A fresh clone whose lock pins an older `@ainova-systems/sync` without a commit names `intelligence update` instead of only asking for a valid lock.
+
+### Breaking
+
+- In a project stamped older than the installed CLI, `intelligence sync` leaves `git diff -- intelligence.yaml intelligence.lock` empty and prints `WARNING: project versions`; `intelligence update --apply` moves both files.
+- `intelligence init --apply` in an existing Intelligence project leaves `schema_version` unchanged.
+- CI no longer refuses `intelligence sync` of a project stamped an older minor or patch: it exits 0 with the warning.
+
 ## [0.22.1]
 
 ### Fixed

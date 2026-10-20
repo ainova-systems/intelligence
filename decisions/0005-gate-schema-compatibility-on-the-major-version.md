@@ -2,6 +2,7 @@
 
 Date: 2026-09-05
 Status: accepted
+Superseded by 0023 in part: a CLI newer than the project no longer aligns it through lifecycle preflight; only `intelligence update` does.
 
 ## Context
 
