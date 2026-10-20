@@ -58,11 +58,10 @@ run_sync() {
             # One writer per project at a time: the store restore and the
             # render below both rewrite shared state (sync-lock.sh).
             hold_project
-            # `sync` is the normal fresh-clone command. A newer globally installed
-            # CLI aligns the current Intelligence project first (except in CI, where a
-            # tracked migration must be reviewed and committed locally), and a
-            # missing ignored store is restored strictly from the committed lock.
-            ensure_project_current "$IP_ROOT" || return $?
+            # `sync` is the normal fresh-clone command. It renders the project as
+            # committed, whichever CLI runs it, and restores a missing ignored
+            # store strictly from the committed lock.
+            project_as_committed "$IP_ROOT" || return $?
             restore_project_store_if_missing "$IP_ROOT" || return $?
             export_engine_env "$IP_ROOT" || return $?
             sync_with_cache "$target" "$force" || return $?
@@ -88,12 +87,10 @@ run_sync() {
     esac
 }
 
-# run_check — the same preflight as sync, except that tracked alignment is never
-# applied (it is reported as needed, in CI or not) and everything but the
-# verdict goes to stderr. Restoring the ignored package store from the lock is
-# allowed: it is reproducible state, and the comparison needs it.
+# run_check — the same preflight as sync, with everything but the verdict on
+# stderr. Restoring the ignored package store from the lock is allowed: it is
+# reproducible state, and the comparison needs it.
 run_check() {
-    local stamp
     detect_project || return $?
     case "$IP_MODE" in
         cli) ;;
@@ -111,15 +108,7 @@ run_check() {
     # shellcheck disable=SC2034  # read by sync-lock.sh when the lock is taken
     SYNC_LOCK_KIND=check
     hold_project
-    project_preflight "$IP_ROOT" || return $?
-    if project_needs_upgrade "$IP_ROOT"; then
-        read_schema_version_var "$IP_ROOT/intelligence.yaml"
-        stamp="$IS_SCHEMA_VERSION"
-        bundled_engine_version_var
-        IS_CHECK_OUT_OF_DATE=1
-        is_status out-of-date "the project needs alignment (stamp ${stamp:-unstamped}, engine $IS_BUNDLED_ENGINE_VERSION); run 'intelligence init --apply' locally, review and commit the diff"
-        return "$IS_RC_OUT_OF_DATE"
-    fi
+    project_as_committed "$IP_ROOT" || return $?
     restore_project_store_if_missing "$IP_ROOT" keep-sources >&2 || return $?
     export_engine_env "$IP_ROOT" || return $?
     sync_check "$target" "$force" || return $?

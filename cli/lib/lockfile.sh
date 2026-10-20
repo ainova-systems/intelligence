@@ -70,6 +70,15 @@ lock_validate_checks() {
                 continue
             fi
         fi
+        if [ -z "$sha" ] && [ "$url" = "$SYNC_PKG_URL" ] && [ "$path" = "$SYNC_PKG_PATH" ]; then
+            # Bundle metadata pins the content a CLI ships; only this CLI's own
+            # version restores without a commit. update moves an older pin to it;
+            # a newer one needs a newer CLI.
+            if [[ "$resolved" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && _ver_gt "${resolved#v}" "$current"; then
+                die "locked restore: $name $resolved has a missing or invalid commit SHA, and this CLI bundles v$current — update the CLI: intelligence upgrade"
+            fi
+            die "locked restore: $name $resolved has a missing or invalid commit SHA, and this CLI bundles v$current — run: intelligence update"
+        fi
         [[ "$sha" =~ ^[0-9a-f]{40}$ || "$sha" =~ ^[0-9a-f]{64}$ ]] \
             || die "locked restore: $name has a missing or invalid commit SHA — restore a valid intelligence.lock"
     done <<< "$rows"
@@ -128,16 +137,19 @@ lock_write_from_tsv() {
 }
 
 # lock_upsert <lock> <name> <requested> <url> <path> <resolved> <sha>
-# Replace-or-append one entry, keeping the others.
+# Replace one entry where it stands, or append a new one, keeping the others:
+# an update changes only that package's lines in the committed lock.
 lock_upsert() {
     local lock="$1" name="$2" requested="$3" url="$4" path="$5" resolved="$6" sha="$7"
-    local tsv
+    local tsv row
     tsv="$(mktemp -t intelligence-lock-XXXXXX 2>/dev/null || mktemp)"
-    {
-        lock_to_tsv "$lock" | awk -F"$LOCK_SEP" -v n="$name" '$1 != n'
-        printf '%s\037%s\037%s\037%s\037%s\037%s\n' \
-            "$name" "$requested" "$url" "$path" "$resolved" "$sha"
-    } > "$tsv"
+    printf -v row '%s\037%s\037%s\037%s\037%s\037%s' \
+        "$name" "$requested" "$url" "$path" "$resolved" "$sha"
+    lock_to_tsv "$lock" | IS_LOCK_ROW="$row" awk -F"$LOCK_SEP" -v n="$name" '
+        $1 == n { if (!done) print ENVIRON["IS_LOCK_ROW"]; done = 1; next }
+        { print }
+        END { if (!done) print ENVIRON["IS_LOCK_ROW"] }
+    ' > "$tsv"
     lock_write_from_tsv "$lock" "$tsv"
     rm -f "$tsv"
 }

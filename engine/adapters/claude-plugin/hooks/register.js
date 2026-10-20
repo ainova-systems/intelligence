@@ -196,6 +196,9 @@ async function runCheck($) {
   // session's check — is not a fault: the last verdict stays, and the check
   // asks again shortly instead of queueing ahead of a waiting sync.
   else if (LOCK_REFUSAL.test(result.stderr || '')) retrySoon($)
+  // A project that needs a migration names the command that applies it on
+  // stderr; the status detail only names the versions.
+  else if (parsed.status === 'needs-update') setState('error', reasonLine(result.stderr) || 'run intelligence update')
   else setState('error', parsed.detail || reasonLine(result.stderr) || 'exit ' + result.exitCode)
   show($)
 }

@@ -65,7 +65,7 @@ never as up to date.
 ## Initialization and mutation
 
 `init` detects absent, Intelligence and legacy Intelligence Sync states. On an
-Intelligence project it restores or aligns idempotently; on a legacy one it previews
+Intelligence project it restores idempotently; on a legacy one it previews
 conversion and requires confirmation or `--apply`. An older legacy project must first
 reach schema `0.10.0` under its archived engine. `init --preview` writes nothing to
 the project.
@@ -75,19 +75,22 @@ run a real staged sync, then commit and remove the vendored engine.
 Mirrored package identities come from valid recorded `.pack` SHAs, never today's
 remote ref; invalid ownership metadata refuses before touching the legacy project.
 
-A mutating project-aware command brings an older manifest and exact sync-content pin
-up to the bundled engine before doing its own work. CI refuses that tracked mutation
-and directs the user to run `intelligence init --apply` locally, review the diff and
-commit it.
+Only `update` moves a project's versions (decision 0023): `schema_version`, the
+sync-content pin and its lock row change through `ensure_project_current`, which
+nothing else calls. Every other project-aware command gates on `project_as_committed`:
+versions trailing the engine within its major render as committed behind one warning
+and keep their tracked bytes; a project needing migration (no stamp, an older major,
+a legacy manifest shape) refuses with `needs-update`, exit 6, naming `update`. CI
+gets the same gate, and `update` aligns there too because it is explicit.
 
-Validate a present lock before lifecycle alignment or mutation, including when the
+Validate a present lock before the version gate or any mutation, including when the
 store already exists. Previews, `status` and `package list` use the same metadata validator;
 malformed structure or required identity is a refusal, never an empty package set.
 Read-only diagnosis applies restore requirements when content is missing, and
 `status --check` continues checks that do not depend on a valid lock.
-The development-bundle metadata exception permits alignment and installed
-same-major compatibility; locked restore still requires an exact commit or the
-matching current bundle. Metadata validation does not verify installed bytes.
+The development-bundle metadata exception keeps an older project's lock valid and
+permits installed same-major compatibility; locked restore still requires an exact
+commit or the matching current bundle. Metadata validation does not verify installed bytes.
 
 One writer per project: a script that writes the store, the manifest or rendered
 output calls `project_lock_hold` (`cli/lib/sync-lock.sh`) before its first write,
@@ -106,8 +109,8 @@ The record keeps tooling, inputs and outputs apart (decision 0018), so
 `sync --check` answers "sync needed" only from a record its own tooling made
 (the CLI and engine code and the adapter filter; never where the project
 lives or who started the CLI), renders in a private project copy otherwise, and never
-applies tracked alignment. Under `--check`, 2 means only "sync needed": every
-other failure that ends in 2 becomes 1.
+moves a version. Under `--check`, 2 means only "sync needed" — a trailing stamp is a
+warning, not out of date — and every other failure that ends in 2 becomes 1.
 
 On Git Bash every process start costs tens of milliseconds, so a cache hit is
 budgeted in processes: the dispatcher sources `sync` instead of starting
@@ -120,7 +123,7 @@ or through a `_var` form, never through another `$(...)`.
 The gate is asymmetric. A project stamped a newer minor or patch than the bundled
 engine is left exactly as found — no restamp, no downward re-pin of the sync content —
 and the command proceeds behind one warning; only a newer major refuses
-(`ahead-of-engine`, exit 4). Alignment moves a project up, never down: a teammate on
+(`ahead-of-engine`, exit 4). `update` moves a project up, never down: a teammate on
 an older CLI must not rewrite tracked files the current CLI would move straight back.
 The manifest is therefore additive within a major — a shape an older engine of the
 same major cannot read is a major change.

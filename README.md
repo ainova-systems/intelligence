@@ -22,7 +22,7 @@ intelligence init --targets claude,codex
 
 - with no Intelligence setup, it creates `intelligence.yaml`, the lockfile and the initial package store;
 - in a legacy Intelligence Sync project, it previews conversion and asks before applying it;
-- in an Intelligence project, it aligns the schema and engine-content package with the installed CLI.
+- in an Intelligence project, it restores missing state and syncs the project as committed; moving its schema and engine-content versions to the installed CLI is `intelligence update`.
 
 Use `intelligence init --preview` to inspect without writing and `intelligence init --apply` for explicit non-interactive application.
 
@@ -87,8 +87,8 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 
 | Command | Purpose |
 |---|---|
-| `init [--preview\|--apply]` | Create, convert, restore or align the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
-| `sync [adapter] [--compact] [--force] [--check]` | Restore missing locked content, align the project when safe, then render enabled adapters or reuse verified unchanged output. `--force` renders and refreshes repository discovery. Compact mode shows context sizes, warnings and final status on success, and full diagnostics on failure. `--check` changes no generated file and exits 0 when they are up to date, 2 when sync would change them. |
+| `init [--preview\|--apply]` | Create, convert or restore the current project. Supports `--targets`, `--dir`, `--bare`, `--no-sync` and conversion `--force`. |
+| `sync [adapter] [--compact] [--force] [--check]` | Restore missing locked content, then render enabled adapters or reuse verified unchanged output. `--force` renders and refreshes repository discovery. Compact mode shows context sizes, warnings and final status on success, and full diagnostics on failure. `--check` changes no generated file and exits 0 when they are up to date, 2 when sync would change them. |
 | `update [@scope/name] [--latest] [--preview\|--apply]` | Show the CLI/project/package update plan; ask before applying by default. `--latest` moves one named package past its range to the newest version. |
 | `upgrade [--next] [--preview\|--apply]` | Replace the installed CLI with the newest version on its npm channel (`--next` for the prerelease line); ask before installing by default. |
 | `package add\|remove\|list\|search` | Manage and inspect versioned Intelligence Packages. |
@@ -136,13 +136,13 @@ Sync validates every adapter's declarative ownership contract before writing.
 All adapter-owned and shared managed paths are snapshotted for the run; if any
 later adapter fails, every earlier output is restored to its pre-sync state.
 
-### Automatic project alignment
+### Only `update` moves project versions
 
-The first project-aware mutating command run with a newer CLI automatically aligns an existing Intelligence manifest and its engine-content package before doing its own work. This keeps normal local workflows on one current schema without a separate maintenance command.
+Upgrading the CLI changes no tracked file. Only `intelligence update` moves a project's `schema_version` and its engine-content pin, so the version a project is on is always a reviewed diff, never a side effect of whoever synced last.
+
+A CLI newer than the project within the same major renders it as committed: every command prints one warning naming both versions and `intelligence update`, and leaves the tracked files as they are. A project that needs a migration first — no `schema_version`, or an older major — is refused with exit 6 naming `intelligence update`, in CI and locally alike.
 
 A CLI older than the project keeps working while the gap is a minor or patch version: it prints one warning naming both versions, renders with the locked content and never rewrites the project's `schema_version` or engine-content pin downward. Only a newer major version is refused until the CLI is updated.
-
-CI never performs an implicit tracked alignment. If committed project state is behind the installed CLI, the command fails and asks you to run `intelligence init --apply` locally, review the diff and commit it.
 
 `update` is deliberately plan-first:
 
@@ -152,7 +152,7 @@ intelligence update            # show plan, then ask in an interactive terminal
 intelligence update --apply    # apply without asking
 ```
 
-It reports the installed CLI against its npm channel, project schema/content alignment and movable package ranges. When a newer CLI is available, the plan names `intelligence upgrade`: that command replaces the global npm installation with the same preview/ask/apply modes and never touches a project.
+It reports the installed CLI against its npm channel, the project's schema and engine-content versions against that CLI, and movable package ranges. When a newer CLI is available, the plan names `intelligence upgrade`: that command replaces the global npm installation with the same preview/ask/apply modes and never touches a project.
 
 ## Packages and trust
 

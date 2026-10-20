@@ -47,7 +47,7 @@ adapter_create() {
     [ -n "$name" ] && [ $# -eq 0 ] || die "usage: intelligence adapter create <name>"
     assert_valid_target_name "$name"
     require_cli_project
-    ensure_project_current "$IP_ROOT"
+    project_as_committed "$IP_ROOT"
     local manifest="$IP_ROOT/intelligence.yaml" content_dir repo_phys probe old_ifs part probe_phys
     local template adapter_dir adapter_phys dest tmp
     local -a parts
@@ -95,7 +95,7 @@ adapter_remove() {
     [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
     assert_valid_target_name "$name"
     require_cli_project
-    ensure_project_current "$IP_ROOT"
+    project_as_committed "$IP_ROOT"
     manifest="$IP_ROOT/intelligence.yaml"
     content_dir="$(manifest_intelligence_dir "$manifest")"
     case "$content_dir" in
@@ -140,7 +140,7 @@ case "$action" in
         require_cli_project
         # Held through the final render: target-state and sync join it.
         project_lock_hold "$IP_ROOT"
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         if [ "$action" = "enable" ]; then
             state_stage="$(mktemp -d -t intelligence-adapter-state-XXXXXX)"
             cp "$IP_ROOT/intelligence.yaml" "$state_stage/intelligence.yaml"

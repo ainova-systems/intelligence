@@ -1,6 +1,6 @@
 # The Intelligence CLI
 
-The CLI owns a project's complete Intelligence lifecycle: initialization, legacy Intelligence Sync conversion, project alignment, package resolution, lock restoration, adapter management, consistency checks and rendering.
+The CLI owns a project's complete Intelligence lifecycle: initialization, legacy Intelligence Sync conversion, project version updates, package resolution, lock restoration, adapter management, consistency checks and rendering.
 
 Install the stable CLI from npm:
 
@@ -39,7 +39,7 @@ Behavior depends on discovered project state:
 |---|---|---|---|
 | No setup | Create an Intelligence manifest, lock/store, requested adapters and first sync | Show what would be created | Create without an interactive decision |
 | Legacy Intelligence Sync | Stage and display conversion, then ask before applying | Stage/verify and write nothing to the project | Apply non-interactively after verification |
-| Existing Intelligence project | Align schema/content if needed, restore missing store, reapply every enabled adapter's Git policy, sync | Show alignment/restoration plan only | Apply alignment explicitly after reviewing a CI refusal locally |
+| Existing Intelligence project | Restore missing store, reapply every enabled adapter's Git policy, sync the project as committed ([versions](#only-update-moves-project-versions)) | Show the restoration plan and the project's version state only | Same as the default |
 
 `--force` applies only to archived-project conversion when a dirty worktree must be accepted deliberately. `--dir name` names the project's content directory — where its own rules, agents, skills and adapters live — when it should not be `intelligence/`; the name is recorded as `project.intelligence_dir` and must be a plain directory inside the repository, never an absolute path, a `..` path or the `.intelligence/` package store. Like `--targets` and `--bare`, it applies only when creating a new project. `--bare` omits `@ainova-systems/sync`; `--no-sync` stops after project state is ready.
 
@@ -94,7 +94,7 @@ intelligence sync [adapter] [--compact] [--force] [--check]
 
 For Intelligence projects, sync performs lifecycle preflight before rendering:
 
-1. Validate any existing lock, then align tracked project schema/content with the installed CLI when safe.
+1. Validate any existing lock, then pass the [version gate](#only-update-moves-project-versions): versions that trail the installed CLI within its major render as committed behind one warning; a project that needs a migration is refused with exit 6. Sync never changes those versions.
 2. If a package in `.intelligence/` is missing or holds a commit other than the one `intelligence.lock` pins — a pull that moved the lock leaves the ignored store behind — restore it strictly from `intelligence.lock` without registry lookup or range resolution. The store records each package's installed lock row in `.intelligence/packages/.installed`; a package without that record is fetched again once.
 3. When inputs and outputs match a previous successful sync, reuse its result
    without rewriting outputs or taking snapshots. Otherwise validate each
@@ -201,7 +201,7 @@ scan. Use `intelligence sync --force` to discover newly added directories outsid
 the configured sources. It can be combined with a target and `--compact`.
 
 One command writes a project at a time. `sync`, `update`, package add, remove and
-update, adapter enable, disable and removal, alignment and store restore hold
+update, adapter enable, disable and removal, and store restore hold
 `.intelligence/sync.lock` while they write, and the commands they run join it. A
 second writer refuses, naming the holder's process and host. `sync --check` holds
 the lock too, because it may restore the store and compares a copy of the
@@ -225,7 +225,7 @@ requested ref and the lock unchanged. An unavailable commit fails without substi
 the current ref or HEAD. Missing or malformed required commit SHAs are refused before
 restoration writes; use `intelligence update` to deliberately advance a ref.
 
-Lock validation runs before lifecycle alignment and mutations, even when the
+Lock validation runs before the version gate and mutations, even when the
 package store is already installed. `init --preview`, `update --preview`,
 `status` and `package list` use the same metadata checks. Read-only reports use
 restore requirements when package content is missing, so an unpinned bundle is
@@ -238,7 +238,7 @@ known SHA must match the locked SHA; otherwise restoration fetches the locked co
 from its recorded source. Development bundles or bundle-seeded locks without a SHA
 retain the offline path with an explicit warning that commit verification is unavailable.
 Metadata validation also recognizes version-tagged development bundles at the
-built-in URL/path within the CLI's major version, so older projects can align and an installed newer same-major
+built-in URL/path within the CLI's major version, so an older project's lock stays valid until `update` moves it and an installed newer same-major
 bundle remains usable. It reports that commit verification is unavailable for
 these cross-version empty-SHA entries. `engine_version` records the lock writer
 and can differ from a preserved bundle pin. A missing cross-version bundle still
@@ -252,7 +252,7 @@ commit. `status --check` does not rehash installed package contents.
 The output rollback in steps 4–5 covers adapter-declared paths. Package restoration
 publishes one verified package at a time before rendering; a later fetch or render
 failure can leave earlier packages restored. It is not a transaction spanning the
-package store, manifest and lock. Lifecycle alignment in step 1 is also separate.
+package store, manifest and lock.
 
 Every successful sync reports context pressure in one line: byte totals and file
 counts for always-on rules, then for custom context (scoped rules, agent prompts
@@ -269,7 +269,7 @@ restore or rendering fails, it prints the complete captured diagnostics and
 preserves the original exit code.
 
 If the manifest declares packages but `intelligence.lock` is missing, every
-mutating lifecycle command fails before alignment or restoration. Restore the
+mutating lifecycle command fails before restoration or any write. Restore the
 committed lock; the CLI never invents a partial replacement from the packages
 that happen to be locally available.
 
@@ -282,15 +282,16 @@ generated file, and changes none itself. It prints one status line,
 | Exit | `IS_STATUS` | Meaning |
 |---:|---|---|
 | 0 | `ok` | Generated files are what sync would leave |
-| 2 | `out-of-date` | Sync would change generated files, or the project needs alignment first |
+| 2 | `out-of-date` | Sync would change generated files |
+| 6 | `needs-update` | The project needs a migration only `intelligence update` applies — no `schema_version`, an older major, a legacy manifest shape |
 | other | | An error, with sync's own status: an invalid lock or no Intelligence project (1), a newer-major schema (4, `ahead-of-engine`), a failing renderer. A failure that would end in 2 is reported as 1 |
 
 The check runs sync's preflight and takes the project lock like sync. It
 restores a missing or mis-recorded package store from `intelligence.lock`,
 because that store is ignored, reproducible state; restore progress and every
-diagnostic go to stderr. It never applies tracked alignment: when the project
-needs it, the check exits 2 and names `intelligence init --apply`, in CI and
-locally alike. A legacy Intelligence Sync project is an error.
+diagnostic go to stderr. It never moves the project's versions: versions that
+trail the CLI within its major are checked as committed behind sync's warning,
+not reported as out of date. A legacy Intelligence Sync project is an error.
 
 It answers in one of two ways:
 
@@ -346,7 +347,7 @@ intelligence update [@scope/name] [--latest] [--preview | --apply]
 One plan covers:
 
 - the globally installed CLI against its npm channel (`next` for a prerelease, otherwise `latest`);
-- project schema and engine-content alignment against the installed CLI;
+- the project's schema and engine-content versions against the installed CLI — `update` is the only command that moves them;
 - package ranges that can move to a newer stable tag, and `ref:` pins whose commit moved.
 
 Modes:
@@ -372,7 +373,7 @@ outside the requested range: 1 package(s) — read the changelog, then run the '
 
 They are counted apart because no ordinary mode installs them. This matters most before `1.0.0`, where the caret holds the minor, so `^0.4.0` follows `0.4.x` only.
 
-`--latest` is that deliberate crossing: it moves the named package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. It shares the plan's modes, so `--preview` shows the move and the new range without writing. It requires the package to be named, because one confirmation must not cover several unrelated changelogs; it refuses a `ref:` pin, which is frozen by intent, and the engine-content package, whose pin follows `intelligence upgrade`. The widened range reaches the manifest only after the new content is installed and wired. See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
+`--latest` is that deliberate crossing: it moves the named package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. It shares the plan's modes, so `--preview` shows the move and the new range without writing. It requires the package to be named, because one confirmation must not cover several unrelated changelogs; it refuses a `ref:` pin, which is frozen by intent, and the engine-content package, whose pin follows the installed CLI through a plain `update`. The widened range reaches the manifest only after the new content is installed and wired. See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
 
 ### `intelligence upgrade`
 
@@ -528,21 +529,18 @@ intelligence registry remove <repository-url>
 
 Registries are an ordered project trust list. `add` verifies that the Git repository exposes `index.yaml`; `--force` records an unavailable or not-yet-published registry deliberately. The first trusted registry declaring a package name wins.
 
-## Automatic project alignment
+## Only `update` moves project versions
 
-A newer globally installed CLI cannot update projects at npm installation time because it does not know which repositories the user owns. Instead, every project-aware mutating command passes through one shared preflight. On the first such call in an Intelligence project, the CLI applies any required idempotent schema/content alignment before continuing.
+Installing a newer CLI changes no tracked file. `intelligence update` alone moves `schema_version`, the `@ainova-systems/sync` pin and its lock row, after showing the move in its plan, so the version a project is on is always a reviewed diff rather than a side effect of whoever synced last (decision 0023). Creating a project and converting a legacy one still write them. `update` aligns wherever it runs, CI included: running it is the explicit decision.
 
-This includes normal sync, package mutations, adapter mutations and registry mutations. Read-only listing, searching, preview and ordinary status do not mutate project state.
+Every other project-aware command — `sync`, `sync --check`, `init` on an existing project, and package, source, adapter and registry mutations — passes one shared gate and works on the project as committed:
 
-The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — alignment only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI (`intelligence upgrade`) to align the project again.
+- A stamp or sync-content pin older than the engine **within its major** renders as it is. The command prints one `WARNING:` line naming both versions and `intelligence update`, and the tracked files keep their bytes. The store is restored from the lock as committed, which can need the network for an older sync-content pin. `status --check` reports that state as a note.
+- A project that needs a migration — no `schema_version`, an **older major**, or a manifest shape only migration reads — is refused with `IS_STATUS=needs-update` and exit 6, naming `intelligence update`.
 
-CI is intentionally different. When `CI` is true and tracked alignment is pending, implicit preflight refuses and prints:
+CI meets the same gate with the same messages; nothing aligns implicitly anywhere. Read-only listing, searching, preview and ordinary status do not mutate project state.
 
-```text
-run 'intelligence init --apply' locally, review and commit the diff
-```
-
-CI therefore never hides a schema/content change inside generated output. The committed alignment must arrive as a reviewed repository diff.
+The gate runs the other way too. A CLI **older** than the project compares `schema_version` with its engine by SemVer level. A newer major refuses every project-aware command with `IS_STATUS=ahead-of-engine` and exit code 4, because the manifest may carry shapes that engine cannot read. A newer minor or patch within the same major prints one `WARNING:` line naming both versions and continues: `sync` renders with the engine content the lock names, and no command restamps `schema_version` or re-pins `@ainova-systems/sync` downward — `update` only ever moves a project up to the installed CLI. `status --check` reports that state as a note rather than a problem. Update the CLI with `intelligence upgrade`.
 
 ## Packages
 
@@ -572,13 +570,13 @@ packages:
     version: "^0.3.0"
 ```
 
-- The **store path** `.intelligence/packages/@scope/name/<dir>` is an ordinary repository path, and the one the CLI writes: `init`, `package add`, `update`, restore, lifecycle alignment and legacy conversion wire it exactly as before.
+- The **store path** `.intelligence/packages/@scope/name/<dir>` is an ordinary repository path, and the one the CLI writes: `init`, `package add`, `update`, restore and legacy conversion wire it exactly as before.
 - **`@scope/name/<dir>`** is folder `<dir>` of the package `packages:` declares as `@scope/name`. An entry is a reference only when its first two segments equal a declared package name; otherwise it is an ordinary path, as it always was, and is judged like any project directory.
 - **`<alias>:<dir>`** is the same through the alias that package's `packages:` entry declares. The colon marks this form: a project path never contains one.
 
 Both references render exactly as the store path they stand for, byte for byte: the engine expands them inside the list parser every reader shares, so `sync`, `status --check` and project adapters see the same directory. `<dir>` is one or more `/`-separated segments, none of them empty, `.` or `..`, so a reference never leaves its package.
 
-Nothing rewrites a reference. The CLI only ever writes store paths, and when a section already names a package's directory in any spelling, wiring leaves that entry where it stands instead of adding the store path beside it — so restore, alignment and `update` keep the spelling and the position a person chose. `package remove` removes the package's entries in every spelling.
+Nothing rewrites a reference. The CLI only ever writes store paths, and when a section already names a package's directory in any spelling, wiring leaves that entry where it stands instead of adding the store path beside it — so restore and `update` keep the spelling and the position a person chose. `package remove` removes the package's entries in every spelling.
 
 An alias belongs to one package and is written only by the CLI: `package add --alias` and `package alias` ([`intelligence package`](#intelligence-package)). A reference that names nothing — an alias no package declares, an alias two packages declare, or a malformed `<dir>` — renders nothing: `sync` skips it with a `WARNING:` line naming the entry, and `status --check` reports it as a problem. `status --check` also reports a section that lists one package directory twice under different spellings, since the later one moves the package past every entry between them.
 

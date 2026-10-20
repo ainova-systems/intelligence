@@ -703,22 +703,26 @@ rm "$TMP/operations.exit2"
 run --check
 check test "$RC" -eq 0
 
-echo '== Alignment is reported, never applied, in CI or not =='
+echo '== An older stamp is a warning, never applied, in CI or not =='
 cp "$PROJECT/intelligence.yaml" "$TMP/manifest-current"
 awk '/^schema_version:/ { print "schema_version: \"0.1.0\""; next } { print }' "$TMP/manifest-current" > "$PROJECT/intelligence.yaml"
 cp "$PROJECT/intelligence.yaml" "$TMP/manifest-behind"
-run --check
-check test "$RC" -eq 2
+# A stamp edit is a manifest change; --force gives the exact answer.
+run --check --force
+check test "$RC" -eq 0
 check one_line
-check has 'IS_STATUS=out-of-date'
-check has "intelligence init"
+check has 'IS_STATUS=ok'
+check err_has 'WARNING: project versions (schema 0.1.0) trail'
+check err_has 'intelligence update'
 check cmp "$TMP/manifest-behind" "$PROJECT/intelligence.yaml"
-check not_rendered
-CI=true run --check
-check test "$RC" -eq 2
-check has "intelligence init"
+CI=true run --check --force
+check test "$RC" -eq 0
+check err_has 'WARNING: project versions (schema 0.1.0) trail'
 check cmp "$TMP/manifest-behind" "$PROJECT/intelligence.yaml"
 cp "$TMP/manifest-current" "$PROJECT/intelligence.yaml"
+# The forced checks recorded the older manifest; record the current one again.
+run --check --force
+check test "$RC" -eq 0
 
 echo '== Errors are distinct from "sync needed" =='
 awk '/^schema_version:/ { print "schema_version: \"99.0.0\""; next } { print }' "$TMP/manifest-current" > "$PROJECT/intelligence.yaml"

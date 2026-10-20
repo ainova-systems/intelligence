@@ -125,7 +125,7 @@ Practice:
 
 Commit `intelligence.lock`. It records requested versions, source URLs and paths, resolved refs and commit SHAs. After cloning, or after a pull that moved the lock, `intelligence sync` restores every package the store lacks or holds at another commit, strictly from that lock, before rendering; manifest/lock or SHA drift is refused. Re-run `package add` when deliberately changing a source.
 
-`@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Lifecycle preflight keeps that pin and `schema_version` aligned with the installed CLI; package-range updates never move it independently.
+`@ainova-systems/sync` is ordinary package content exact-pinned to the bundled engine version. `intelligence init` installs it unless `--bare` is used. Only `intelligence update` moves that pin and `schema_version` to the installed CLI; every other command keeps them as committed, and package-range updates never move the pin independently.
 
 ## Layout tokens
 
@@ -504,15 +504,15 @@ The permanent applied-schema key is the top-level scalar `schema_version` in `in
 
 The public lifecycle is deliberately compact:
 
-- `intelligence init [--preview|--apply]` is universal: it creates a new setup, aligns an existing Intelligence project, or plans/applies conversion of an eligible legacy Intelligence Sync project.
-- `intelligence sync [adapter] [--compact] [--force] [--check]` first aligns an existing Intelligence project with the installed CLI and restores every package the store lacks or holds at another commit, strictly from `intelligence.lock`. It skips rendering when local inputs and outputs match a previous successful run. Changes or missing outputs trigger rendering; `--force` always renders and refreshes the search for unconfigured source directories. An unchanged run replays the last full run's useful diagnostics. Compact mode shows context sizes, actionable warnings and final status on success, and all diagnostics on failure. In CI it refuses an alignment that would change tracked files and points to a local `intelligence init --apply` plus review/commit. `--check` changes no generated file: it prints one `IS_STATUS` line and exits 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them or alignment is pending; it never applies alignment.
+- `intelligence init [--preview|--apply]` is universal: it creates a new setup, restores an existing Intelligence project as committed, or plans/applies conversion of an eligible legacy Intelligence Sync project.
+- `intelligence sync [adapter] [--compact] [--force] [--check]` first restores every package the store lacks or holds at another commit, strictly from `intelligence.lock`. It skips rendering when local inputs and outputs match a previous successful run. Changes or missing outputs trigger rendering; `--force` always renders and refreshes the search for unconfigured source directories. An unchanged run replays the last full run's useful diagnostics. Compact mode shows context sizes, actionable warnings and final status on success, and all diagnostics on failure. It renders an Intelligence project at its committed versions: versions that trail the installed CLI within its major render behind one warning naming `intelligence update`; a project that needs a migration first — no `schema_version` or an older major — is refused with `needs-update`, locally and in CI alike. `--check` changes no generated file: it prints one `IS_STATUS` line and exits 0 when generated files are up to date and 2 (`out-of-date`) when sync would change them; it never moves a version.
 - `intelligence update [@scope/name] [--preview|--apply]` is the only update surface. It prints the CLI/project/package plan; default mode prompts, `--preview` never writes, and `--apply` does not prompt. It never moves `ref:` pins.
 - `intelligence upgrade [--next] [--preview|--apply]` replaces the installed CLI with the newest version on its npm channel (`next` for a prerelease or with `--next`, otherwise `latest`) with the same modes. It touches no project, never downgrades, and refuses an installation that npm did not make.
 - `intelligence package add|remove|list|search` owns package inventory.
 - `intelligence adapter list|create|enable|disable|remove` owns adapter inventory and target state.
 - `intelligence status [--check]` reports state; `--check` runs deep consistency checks.
 
-Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is a newer major; a newer minor or patch within the same major warns once and proceeds without restamping the project. Normal project entry points close a behind-project gap through lifecycle preflight.
+Implement Intelligence schema changes as idempotent structural checks. Stage and verify replacement state before deleting or replacing prior state. A stale engine refuses a manifest whose `schema_version` is a newer major; a newer minor or patch within the same major warns once and proceeds without restamping the project. A project behind the engine stays as committed until `intelligence update` closes the gap.
 
 Breaking changelog entries use a `### Breaking` checklist of verifiable post-conditions. The `intelligence-upgrade` skill reads every release across the version gap, chooses the package/CLI/project command sequence and verifies those conditions after the deterministic command completes.
 
@@ -526,11 +526,11 @@ The engine emits one machine-readable line, `IS_STATUS=<code> [IS_DETAIL=...]`, 
 | `migrated` | 0 | Initialization converted an older layout |
 | `error` | 1 | Generic failure |
 | `config-missing` | 2 | Required manifest is absent |
-| `out-of-date` | 2 | `sync --check` only: sync would change generated files, or alignment is pending. A check never reports `config-missing`, and turns any other failure that would end in 2 into 1 |
+| `out-of-date` | 2 | `sync --check` only: sync would change generated files. A check never reports `config-missing`, and turns any other failure that would end in 2 into 1 |
 | `ambiguous` | 3 | Conflicting state requiring agent/human judgment; reserved |
 | `ahead-of-engine` | 4 | Manifest schema is a newer major than the engine (a newer minor or patch warns and continues) |
 | `aborted-incomplete` | 5 | Staged replacement was incomplete; prior state remains |
-| `needs-update` | 6 | Project schema is behind the engine; rerun through a public lifecycle command |
+| `needs-update` | 6 | The project needs a migration only `intelligence update` applies: no `schema_version`, or an older major |
 
 Callers capture the real code with `command || rc=$?`. Do not use `if ! command; then rc=$?`; inside that branch `$?` is the status of the negation.
 

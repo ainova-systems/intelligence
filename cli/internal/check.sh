@@ -41,7 +41,7 @@ fi
 stamp="$(read_schema_version "$manifest")"
 eng="$(bundled_engine_version)"
 if [ -z "$stamp" ]; then
-    warn "manifest has no schema_version — run 'intelligence init'"
+    warn "manifest has no schema_version — run 'intelligence update'"
 elif _ver_gt "$stamp" "$eng"; then
     if [ "$(_ver_major "$stamp")" -gt "$(_ver_major "$eng")" ]; then
         warn "manifest schema $stamp is a newer major than this CLI's engine $eng — update the CLI: intelligence upgrade (--next for a prerelease line)"
@@ -49,13 +49,17 @@ elif _ver_gt "$stamp" "$eng"; then
         note "manifest schema $stamp is newer than this CLI's engine $eng — the project uses a newer CLI; update it: intelligence upgrade (--next for a prerelease line)"
     fi
 elif _ver_gt "$eng" "$stamp"; then
-    warn "manifest schema $stamp behind engine $eng — run 'intelligence init'"
+    if [ "$(_ver_major "$stamp")" = "$(_ver_major "$eng")" ]; then
+        note "manifest schema $stamp is older than this CLI's engine $eng — kept as committed; move it with: intelligence update"
+    else
+        warn "manifest schema $stamp is an older major than this CLI's engine $eng — run 'intelligence update'"
+    fi
 else
     ok "schema_version $stamp matches the engine"
 fi
 
-# The engine-content package must sit at the bundled engine version — the
-# content documents exactly the scripts the CLI executes.
+# The engine-content package follows the project's own version: the stamp,
+# not the CLI, decides which content renders (decision 0023).
 sync_locked=""
 if [ "$lock_valid" -eq 1 ]; then
     sync_locked="$(qmap_field "$lock" "packages" "$SYNC_PKG_NAME" "resolved")"
@@ -65,12 +69,14 @@ if [ -n "$sync_locked" ]; then
         ok "$SYNC_PKG_NAME at $sync_locked (matches the engine)"
     elif [ "${sync_locked#v}" = "$stamp" ] && _ver_gt "$stamp" "$eng"; then
         note "$SYNC_PKG_NAME at $sync_locked (matches the project schema; the engine is $eng)"
+    elif [ "${sync_locked#v}" = "$stamp" ] && [ "$(_ver_major "$stamp")" = "$(_ver_major "$eng")" ]; then
+        note "$SYNC_PKG_NAME at $sync_locked (matches the project schema; intelligence update moves it to $eng)"
     else
-        warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence init'"
+        warn "$SYNC_PKG_NAME locked at $sync_locked but the engine is $eng — run 'intelligence update'"
     fi
 fi
 if [ -d "$IP_ROOT/.intelligence/engine" ]; then
-    warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence init'"
+    warn "stale .intelligence/engine directory (pre-package layout) — run 'intelligence update'"
 fi
 
 # Manifest packages: names valid, requested intent only, locked and installed.
@@ -96,7 +102,7 @@ while IFS= read -r name; do
             || warn "$name pins ref '$m_ref' but the lock resolved '$l_res'"
         if [ -n "$(qmap_field "$manifest" "packages" "$name" "url")" ] \
             || [ -n "$(qmap_field "$manifest" "packages" "$name" "path")" ]; then
-            warn "$name stores source details in the manifest — run 'intelligence init --apply' to move them to the lock-only model"
+            warn "$name stores source details in the manifest — run 'intelligence update' to move them to the lock-only model"
         fi
         if [ ! -d "$IP_ROOT/.intelligence/packages/$name" ]; then
             warn "$name is locked but not installed — run 'intelligence sync'"

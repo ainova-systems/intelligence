@@ -40,7 +40,7 @@ case "$sub" in
         esac
         assert_safe_source_url "${url#git+}"
         require_cli_project
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         # Fail closed: a URL that cannot produce an index is not a registry,
         # and recording it would turn a typo here into a confusing failure at
         # the first add. --force covers the one honest case: the registry is
@@ -71,7 +71,7 @@ case "$sub" in
         url="${2:-}"
         [ -n "$url" ] || die "usage: intelligence registry remove <url>"
         require_cli_project
-        ensure_project_current "$IP_ROOT"
+        project_as_committed "$IP_ROOT"
         registries_remove "$IP_ROOT/intelligence.yaml" "$url"
         # The retired flat-map form also stored scope keys — drop one if the
         # argument names it, so old manifests clean up with the old command.
