@@ -416,6 +416,7 @@ chk diff "$OUT/rows1.tsv" "$OUT/rows2.tsv"
 
 lock_upsert "$LOCK" "@acme/one" "^1.0.0" "https://h/one.git" "" "v1.3.0" "ccc333"
 chk eq "$(grep -c '"@acme/one"' "$LOCK")" "1"   # replaced, not duplicated
+chk eq "$(qmap_keys "$LOCK" packages | tr '\n' ',')" "@acme/one,@acme/two,"   # in place
 chk eq "$(qmap_field "$LOCK" packages "@acme/one" sha)" "ccc333"
 chk eq "$(lock_to_tsv "$LOCK" | grep -c .)" "2"
 
