@@ -742,10 +742,14 @@ SYNC_TX_ACTIVE=0
 #     defaults move forward — e.g., gpt-5.5 -> gpt-5.6).
 # Concurrently, the scan runs beside the other two and beside removing the
 # snapshots; the buffers print in the order above.
+# A check renders in a copy that holds only the project's inputs and outputs; the
+# scan lists directories and reads no bytes, so it looks at the live project.
+UNSYNCED_ROOT="$REPO_ROOT"
+[ -z "${IS_SYNC_CHECK:-}" ] || [ -z "${IS_SYNC_CHECK_ROOT:-}" ] || UNSYNCED_ROOT="$IS_SYNC_CHECK_ROOT"
 if [ "$SYNC_PARALLEL" = 1 ]; then
     rm -rf "$SYNC_TX_DIR/data" &
     SYNC_BG_PIDS+=("$!")
-    warn_unsynced "$REPO_ROOT" "$CONFIG_FILE" > "$SYNC_TX_DIR/unsynced" 2>&1 &
+    warn_unsynced "$UNSYNCED_ROOT" "$CONFIG_FILE" > "$SYNC_TX_DIR/unsynced" 2>&1 &
     SYNC_BG_PIDS+=("$!")
     {
         report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
@@ -758,7 +762,7 @@ if [ "$SYNC_PARALLEL" = 1 ]; then
 else
     rm -rf "$SYNC_TX_DIR"
     trap - EXIT INT TERM
-    warn_unsynced "$REPO_ROOT" "$CONFIG_FILE"
+    warn_unsynced "$UNSYNCED_ROOT" "$CONFIG_FILE"
     report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
     report_model_drift "$CONFIG_FILE"
 fi

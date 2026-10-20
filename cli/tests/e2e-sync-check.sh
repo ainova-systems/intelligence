@@ -28,6 +28,10 @@ case "${1:-}" in
     */engine/sync.sh)
         echo engine >> "$LOG"
         if [ -e "$LOG.exit2" ]; then echo 'Simulated renderer status 2' >&2; exit 2; fi
+        if [ -e "$LOG.tmpdir" ]; then
+            { IFS= read -r lock; IFS= read -r dir; } < "$LOG.tmpdir"
+            printf '%s\n' "$dir" > "$lock/scratch.0.tmpdir"
+        fi
         if [ -e "$LOG.warnings" ]; then printf 'WARNING: Probe warning\n    Probe continuation\n' >&2; fi
         ;;
 esac
@@ -46,6 +50,7 @@ err_lacks() { ! err_has "$1"; }
 one_line() { [ -n "$OUT" ] && [ "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')" -eq 1 ]; }
 rendered() { grep -qx engine "$TMP/operations"; }
 not_rendered() { ! rendered; }
+not_copied() { ! grep -q -- "$1" "$TMP/copies"; }
 run_in() {
     local dir="$1"
     shift
@@ -344,6 +349,154 @@ run --check --force
 check test "$RC" -eq 0
 check grep -qx 'Concurrent edit' "$PROJECT/.agents/skills/README.md"
 cp "$TMP/engine-before" "$TMP/runtime/engine/sync.sh"
+
+echo '== A check copies only what the render reads and writes =='
+# Copying every top-level entry took dependency and build trees along: a cold
+# check copied gigabytes for a render that reads a few megabytes. A logging cp
+# shows which project paths reach the private copy.
+{
+    printf '#!/bin/bash\nLOG=%q\nREAL=%q\n' "$TMP/copies" "$(command -v cp)"
+    cat <<'WRAPPER'
+printf '%s\n' "$@" >> "$LOG"
+exec "$REAL" "$@"
+WRAPPER
+} > "$TMP/cp-logger"
+chmod +x "$TMP/cp-logger"
+log_copies() { : > "$TMP/copies"; cp "$TMP/cp-logger" "$TMP/instrumentation/cp"; }
+unlog_copies() { rm -f "$TMP/instrumentation/cp"; }
+mkdir -p "$PROJECT/node_modules/dep" "$PROJECT/build/obj" "$PROJECT/docs/intelligence/rules" "$TMP/check-tmp"
+printf 'dependency\n' > "$PROJECT/node_modules/dep/index.js"
+printf 'object\n' > "$PROJECT/build/obj/app.o"
+printf '%s\n' '---' 'description: Unwired' '---' 'Unwired' > "$PROJECT/docs/intelligence/rules/unwired.md"
+log_copies
+TMPDIR="$TMP/check-tmp" run --check --force
+unlog_copies
+check test "$RC" -eq 0
+check rendered
+check grep -q '/intelligence/rules$' "$TMP/copies"
+check grep -q '/AGENTS\.md$' "$TMP/copies"
+check not_copied /node_modules
+check not_copied /build
+check not_copied /docs
+# The scan for unwired source directories still sees the whole project.
+check err_has 'NOT SYNCED: docs/intelligence/rules'
+check test -z "$(ls -A "$TMP/check-tmp")"
+# A filtered render still reads what the other adapters generated.
+log_copies
+run --check --force codex
+unlog_copies
+check test "$RC" -eq 0
+check grep -q '/AGENTS\.md$' "$TMP/copies"
+check not_copied /node_modules
+
+echo '== A link on the way to a source copies the whole project =='
+if MSYS=winsymlinks:nativestrict ln -s ../agents-real "$PROJECT/intelligence/agents-link" 2>/dev/null \
+    && [ -L "$PROJECT/intelligence/agents-link" ]; then
+    rm "$PROJECT/intelligence/agents-link"
+    mv "$PROJECT/intelligence/agents" "$PROJECT/agents-real"
+    MSYS=winsymlinks:nativestrict ln -s ../agents-real "$PROJECT/intelligence/agents"
+    run
+    check test "$RC" -eq 0
+    log_copies
+    run --check --force
+    unlog_copies
+    check test "$RC" -eq 0
+    check grep -q '/node_modules$' "$TMP/copies"
+    rm "$PROJECT/intelligence/agents"
+    mv "$PROJECT/agents-real" "$PROJECT/intelligence/agents"
+else
+    echo '  (native symlinks unavailable ? linked-source case skipped)'
+fi
+rm -rf "$PROJECT/node_modules" "$PROJECT/build"
+
+echo '== A source link into a part of the project the copy leaves out still resolves =='
+printf '%s\n' '---' 'description: Shared rule' '---' 'Shared wording' > "$PROJECT/docs/shared.md"
+if MSYS=winsymlinks:nativestrict ln -s ../../docs/shared.md "$PROJECT/intelligence/rules/shared.md" 2>/dev/null \
+    && [ -L "$PROJECT/intelligence/rules/shared.md" ]; then
+    run
+    check test "$RC" -eq 0
+    check grep -q 'Shared wording' "$PROJECT/AGENTS.md"
+    run --check --force
+    check test "$RC" -eq 0
+    rm "$PROJECT/intelligence/rules/shared.md"
+else
+    rm -f "$PROJECT/intelligence/rules/shared.md"
+    echo '  (native symlinks unavailable ? source-link case skipped)'
+fi
+rm -rf "$PROJECT/docs"
+run
+check test "$RC" -eq 0
+
+echo '== An enabled project adapter copies the whole project =='
+# Its code may read any file: here one the copy set would never name.
+ADAPTER_PROJECT="$TMP/adapter-project"
+mkdir -p "$ADAPTER_PROJECT/intelligence/adapters" "$ADAPTER_PROJECT/intelligence/rules" "$ADAPTER_PROJECT/node_modules"
+cp "$PROJECT/intelligence/rules/base.md" "$ADAPTER_PROJECT/intelligence/rules/base.md"
+printf 'dependency\n' > "$ADAPTER_PROJECT/node_modules/index.js"
+printf old > "$ADAPTER_PROJECT/mode"
+cat > "$ADAPTER_PROJECT/intelligence.yaml" <<YAML
+schema_version: "$VERSION"
+sources:
+  rules:
+    - intelligence/rules
+targets:
+  probe: { enabled: true, output: ".probe" }
+YAML
+cat > "$ADAPTER_PROJECT/intelligence/adapters/probe.sh" <<'ADAPTER'
+adapter_contract_probe() { adapter_contract_version 1; adapter_contract_owned "$1"; }
+sync_to_probe() { mkdir -p "$3"; cat "$1/mode" > "$3/value"; }
+ADAPTER
+run_in "$ADAPTER_PROJECT"
+check test "$RC" -eq 0
+log_copies
+run_in "$ADAPTER_PROJECT" --check --force
+unlog_copies
+check test "$RC" -eq 0
+check grep -q '/node_modules$' "$TMP/copies"
+printf new > "$ADAPTER_PROJECT/mode"
+run_in "$ADAPTER_PROJECT" --check --force
+check test "$RC" -eq 2
+check grep -qx old "$ADAPTER_PROJECT/.probe/value"
+
+echo '== A copy left by a check killed outright goes with its stale lock =='
+LOCK="$PROJECT/.intelligence/sync.lock"
+ABANDONED="$TMP/check-tmp/intelligence-check-AbCdEf"
+UNMARKED="$TMP/check-tmp/intelligence-check-NoMark"
+NESTED="$TMP/keep/intelligence-check-Keep/nested"
+mkdir -p "$ABANDONED/project" "$UNMARKED" "$NESTED"
+: > "$ABANDONED/.intelligence-check"
+: > "$NESTED/.intelligence-check"
+( exit 0 ) &
+dead=$!
+wait "$dead"
+mkdir "$LOCK"
+printf 'check\n' > "$LOCK/kind"
+printf '%s %s %s - token\n' "$dead" "${HOSTNAME:-unknown}" "$(date +%s)" > "$LOCK/owner"
+printf '%s\n' "$ABANDONED" > "$LOCK/scratch.$dead.tmpdir"
+# A record is a file in the project: it removes only a directory the CLI made.
+printf '%s\n' "$UNMARKED" > "$LOCK/scratch.1.tmpdir"
+printf '%s\n' "$NESTED" > "$LOCK/scratch.2.tmpdir"
+printf '%s\n' "check-tmp/intelligence-check-AbCdEf" > "$LOCK/scratch.3.tmpdir"
+run --check
+check test "$RC" -eq 0
+check test ! -e "$ABANDONED"
+check test -d "$UNMARKED"
+check test -f "$NESTED/.intelligence-check"
+check test ! -e "$LOCK"
+rm -rf "$UNMARKED" "$TMP/keep"
+
+echo '== A copy a run names in its lock goes when the lock is released =='
+# The engine wrapper writes the record while the run holds the lock, as a check
+# whose render subshell was killed would leave it.
+RELEASED="$TMP/check-tmp/intelligence-check-GhIjKl"
+mkdir -p "$RELEASED"
+: > "$RELEASED/.intelligence-check"
+printf '%s\n%s\n' "$LOCK" "$RELEASED" > "$TMP/operations.tmpdir"
+run --force
+rm "$TMP/operations.tmpdir"
+check test "$RC" -eq 0
+check test ! -e "$RELEASED"
+check test ! -e "$LOCK"
 
 echo '== Without a record the check renders, compares, restores and records =='
 save_outputs

@@ -322,6 +322,16 @@ used as read inputs retain their original resolution, including external adapter
 scripts; generated relative links retain their spelling. The normal source-link
 policy still applies.
 
+The private copy holds only what a render reads and writes: the manifest, the
+lock, the package store, the configured sources inside the project, the project
+adapter folder and every path an enabled adapter owns or manages. Dependency
+and build trees never reach it, and a link into a part of the project the copy
+leaves out reads the live path. When an enabled project adapter could read any
+file, or a link lies on the way to one of those paths, the check copies the
+whole project except Git history instead. A check killed before it cleans up
+leaves its copy in the system temporary directory; the next command that
+releases or takes over the project lock removes it.
+
 `--check --force` always renders: the strict answer. An adapter name scopes the
 check to that adapter, and full and filtered records never stand in for each
 other. `--compact` is accepted and changes nothing, because the check already

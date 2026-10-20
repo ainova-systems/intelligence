@@ -117,6 +117,36 @@ sync_lock_held_by_check() {
     [ "$kind" = check ]
 }
 
+# sync_lock_tmpdirs <lock> — SYNC_LOCK_TMPDIRS, the temporary directories
+# outside the lock that its holder's runs named in `scratch.<pid>.tmpdir`
+# files. A run killed outright never reaches the trap that removes its own, so
+# whoever releases or takes over the lock removes them. A record is only a
+# file in the project, so it names nothing to remove unless the directory is
+# one the CLI made: an absolute, real `intelligence-check-*` directory holding
+# the marker `.intelligence-check` that the check writes first.
+sync_lock_tmpdirs() {
+    local record dir
+    SYNC_LOCK_TMPDIRS=()
+    for record in "$1"/scratch.*.tmpdir; do
+        [ -f "$record" ] || continue
+        dir=""
+        IFS= read -r dir < "$record" || [ -n "$dir" ] || continue
+        case "$dir" in /*) ;; *) continue ;; esac
+        case "$dir" in *[[:cntrl:]]*|*/./*|*/../*|*/.|*/..) continue ;; esac
+        case "${dir##*/}" in intelligence-check-?*) ;; *) continue ;; esac
+        [ -d "$dir" ] && [ ! -L "$dir" ] && [ -f "$dir/.intelligence-check" ] || continue
+        SYNC_LOCK_TMPDIRS+=("$dir")
+    done
+}
+
+# Removing an abandoned copy can take long; it never keeps the lock looking
+# ownerless or a takeover in progress.
+sync_lock_remove_tmpdirs() {
+    [ "${#SYNC_LOCK_TMPDIRS[@]}" -eq 0 ] || rm -rf "${SYNC_LOCK_TMPDIRS[@]}" 2>/dev/null || true
+    SYNC_LOCK_TMPDIRS=()
+}
+SYNC_LOCK_TMPDIRS=()
+
 # sync_lock_acquire <root> — take <root>/.intelligence/sync.lock, or refuse.
 # A writer waits for each check that holds it for up to SYNC_LOCK_CHECK_WAIT
 # seconds; a check refuses at once.
@@ -127,6 +157,7 @@ sync_lock_acquire() {
     [ -d "$root/.intelligence" ] || mkdir -p "$root/.intelligence" || die "cannot create $root/.intelligence"
     while :; do
         took=0
+        SYNC_LOCK_TMPDIRS=()
         if mkdir "$lock" 2>/dev/null; then
             took=1
         elif sync_lock_is_stale "$lock" && mkdir "$lock.takeover" 2>/dev/null; then
@@ -136,10 +167,15 @@ sync_lock_acquire() {
             # Judge again under it: another run may have taken the lock over
             # since this one looked.
             if sync_lock_is_stale "$lock"; then
+                sync_lock_tmpdirs "$lock"
                 rm -rf "$lock"
                 mkdir "$lock" 2>/dev/null && took=1
             fi
             rmdir "$lock.takeover"
+            # Their records went with the lock: remove them now even when
+            # another run took it first. A lock this run took gets its owner
+            # before any of that time is spent.
+            [ "$took" = 1 ] || sync_lock_remove_tmpdirs
         elif [ -d "$lock.takeover" ] && [ -n "$(find "$lock.takeover" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
             # A takeover runs for milliseconds. Removing an abandoned one is itself
             # a check-then-delete race, so it is left to a person.
@@ -147,6 +183,7 @@ sync_lock_acquire() {
         fi
         if [ "$took" = 1 ]; then
             sync_lock_write_owner "$lock" || { rm -rf "$lock"; die "cannot write $lock/owner"; }
+            sync_lock_remove_tmpdirs
             SYNC_LOCK_HELD="$lock"
             return 0
         fi
@@ -224,6 +261,9 @@ project_lock_hold() {
 sync_lock_release() {
     [ -n "$SYNC_LOCK_HELD" ] || return 0
     if sync_lock_read_owner "$SYNC_LOCK_HELD" && [ "$IS_LOCK_TOKEN" = "$SYNC_LOCK_TOKEN" ]; then
+        # While the owner still stands, so a waiter keeps waiting.
+        sync_lock_tmpdirs "$SYNC_LOCK_HELD"
+        sync_lock_remove_tmpdirs
         # A check's owner goes first: `rm -rf` alone could expose a moment with
         # the owner still there and the kind gone, and a command waiting for
         # the check would be refused in it. Without the owner, a waiter sees a

@@ -4,6 +4,13 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.22.1]
+
+### Fixed
+
+- `intelligence sync --check` without a record copies into its private project only the manifest, lock, package store, sources, project adapter folder and generated paths, instead of every top-level entry: a project with dependency and build trees beside its sources no longer copies gigabytes, outlives the Claude Code plugin's check timeout and starts the copy again every five minutes. An enabled project adapter, or a link on the way to a needed path, keeps the whole-project copy (decision 0018).
+- A copy left by a check killed outright is removed when the project lock is next released or taken over.
+
 ## [0.22.0]
 
 ### Added
