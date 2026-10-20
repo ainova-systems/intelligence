@@ -4,19 +4,19 @@
 #
 # The record keeps three fingerprints apart (decision 0018), so a check can say
 # which side moved:
-#   tooling  the CLI and engine code, plus the invocation and environment that
-#            shape rendering — target filter, root, layout, bash, locale, PATH,
-#            umask. A change here is not the project's: a check renders rather
-#            than answer "sync needed" from it.
+#   tooling  the CLI and engine code and the adapter filter. A change here is
+#            not the project's: a check renders rather than answer "sync
+#            needed" from it.
 #   inputs   the manifest, the lock, every configured source including skill
 #            resources and installed packages, and the project adapter folder.
 #   outputs  every path the enabled built-in adapters own or manage.
-# Each fingerprint lists names, entry kinds and executable state beside content
-# hashes; timestamps never count. `.intelligence/sync-cache/state` holds the
+# Each fingerprint lists relative names, entry kinds and executable state beside
+# content hashes; timestamps, the project's location and the caller's
+# environment never count. `.intelligence/sync-cache/state` holds the
 # record and the report a hit replays; `seal` holds the state file's own hash,
 # so a record is trusted only whole.
 
-SC_FORMAT='intelligence-sync-cache-v2'
+SC_FORMAT='intelligence-sync-cache-v3'
 SC_SAFE_SEEN=$'\n'
 
 sync_cache_safe_path() {
@@ -155,6 +155,19 @@ sync_cache_dependencies() {
 }
 
 # --- Fingerprint ---------------------------------------------------------------
+# sync_cache_label_var <path> — IS_SC_LABEL, the name a fingerprint records for
+# a path: relative to the engine or CLI directory for tooling, to the project
+# otherwise. Where the project or the CLI lives, and how that path is spelled,
+# never decides whether the same files are current.
+sync_cache_label_var() {
+    case "$1" in
+        "$IS_ENGINE_DIR"|"$IS_ENGINE_DIR"/*) IS_SC_LABEL="engine${1#"$IS_ENGINE_DIR"}" ;;
+        "$CLI_DIR"|"$CLI_DIR"/*) IS_SC_LABEL="cli${1#"$CLI_DIR"}" ;;
+        "$REPO_ROOT"/*) IS_SC_LABEL="${1#"$REPO_ROOT/"}" ;;
+        *) IS_SC_LABEL="$1" ;;
+    esac
+}
+
 # _sync_cache_starts <group> <path>... — queue a group's start points. A missing
 # one is recorded as missing; a repeated one is walked once.
 _sync_cache_starts() {
@@ -171,7 +184,8 @@ _sync_cache_starts() {
             SC_STARTS+=("$path")
             SC_START_GROUPS+=("$group")
         else
-            SC_MISSING+=("$group missing $path")
+            sync_cache_label_var "$path"
+            SC_MISSING+=("$group missing $IS_SC_LABEL")
         fi
     done
 }
@@ -190,7 +204,7 @@ _SC_AWK_LISTING='
         starts = split(ENVIRON["SC_AWK_STARTS"], rows, "\n")
         for (i = 1; i <= starts; i++) {
             split(rows[i], field, "\t")
-            group[i] = field[1]; posix[i] = field[2]; native[i] = field[3]
+            group[i] = field[1]; posix[i] = field[2]; native[i] = field[3]; label[i] = field[4]
         }
         probe = ENVIRON["SC_AWK_EXEC_PROBE"]
         stream = (ENVIRON["SC_AWK_STREAM"] == 1)
@@ -209,7 +223,7 @@ _SC_AWK_LISTING='
             if (!last) { bad = 1; return }
         }
         g = group[last]
-        listing[g] = listing[g] kind " " entry "\037"
+        listing[g] = listing[g] kind " " label[last] substr(entry, length(posix[last]) + 1) "\037"
         if (kind == "d") return
         k = ++files[g]
         path = native[last] substr(entry, length(posix[last]) + 1)
@@ -248,7 +262,7 @@ _SC_AWK_LISTING='
 # the listing stage tells kinds without a stat per entry. git hashes the files
 # while the walk is still running.
 sync_cache_fingerprint() {
-    local target="$1" hashes i j n value ordered=0 starts_env="" state="" umask_value
+    local target="$1" hashes i j n value ordered=0 starts_env="" state=""
     local tooling inputs outputs listing saved_ifs="$IFS"
     local -a hash_lines=() expression=() keep=() starts=() groups=() natives=() parts=() count=()
     SC_STARTS=() SC_START_GROUPS=() SC_MISSING=() SC_START_SEEN=$'\n'
@@ -299,7 +313,8 @@ sync_cache_fingerprint() {
     for ((j = 0; j < ${#starts[@]}; j++)); do
         value="${starts[j]}"
         [ "$SC_TRANSLATE" != 1 ] || value="${natives[j]}"
-        starts_env="$starts_env${groups[j]}"$'\t'"${starts[j]}"$'\t'"$value"$'\n'
+        sync_cache_label_var "${starts[j]}"
+        starts_env="$starts_env${groups[j]}"$'\t'"${starts[j]}"$'\t'"$value"$'\t'"$IS_SC_LABEL"$'\n'
     done
     starts_env="${starts_env%$'\n'}"
     expression=(\( ! -type d ! -type f -exec false {} + \)
@@ -359,15 +374,11 @@ sync_cache_fingerprint() {
     [ "${count[0]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:0:${count[0]}}"; tooling="$tooling$value"; }
     [ "${count[1]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:${count[0]}:${count[1]}}"; inputs="$inputs$value"; }
     [ "${count[2]}" -eq 0 ] || { printf -v value '%s\037' "${hash_lines[@]:$((count[0] + count[1])):${count[2]}}"; outputs="$outputs$value"; }
-    # Explicit values that affect rendering, discovery or parsing. No secrets
-    # or inherited environment dump are persisted. umask prints into a file so
-    # reading it costs no subshell.
-    umask > "$SC_SCRATCH.umask" || return 1
-    IFS= read -r umask_value < "$SC_SCRATCH.umask" || return 1
-    for value in "$target" "$REPO_ROOT" "$CONFIG_FILE" "$IS_CONTENT_REL" "$IS_MODULE_REL" \
-        "$IS_SYNC_CMD" "$IS_MANIFEST_NAME" "$IS_PROTECTED_DIRS" "$BASH_VERSION" "${OSTYPE:-}" \
-        "${LANG:-}" "${LC_ALL:-}" "${LC_CTYPE:-}" "${LC_COLLATE:-}" "${PATH:-}" "$umask_value" \
-        "exec-probe=$SC_EXEC_PROBE" "walk-ordered=$ordered"; do
+    # The adapter filter selects what renders; the two listing flags say how
+    # the listings above were made. Nothing else of the invocation counts:
+    # the code, the manifest and the files decide what sync writes, wherever
+    # the project lives and whoever starts the CLI.
+    for value in "filter=$target" "exec-probe=$SC_EXEC_PROBE" "walk-ordered=$ordered"; do
         case "$value" in *[[:cntrl:]]*) return 1 ;; esac
         tooling="${tooling}env $value"$'\037'
     done
@@ -514,9 +525,15 @@ sync_with_cache() {
 
 # The write contract marks links whose spelling must remain unchanged: they
 # are compared, never dereferenced, and are not renderer read inputs.
+#
+# SC_CHECK_OUTPUTS holds the selected adapters' paths; SC_CHECK_ALL_OUTPUTS
+# every enabled adapter's, since a filtered render still reads what the others
+# generated. SC_CHECK_PROJECT_ADAPTER is 1 when an enabled adapter is the
+# project's own code.
 sync_check_write_paths() {
     local filter="$1" dir file name i output adapter kind value
     local -a names=() files=() batch=()
+    SC_CHECK_PROJECT_ADAPTER=0
     for dir in "$IS_ENGINE_DIR/adapters" "$REPO_ROOT/$IS_CONTENT_REL/adapters"; do
         for file in "$dir"/*.sh; do
             [ -f "$file" ] || continue
@@ -530,41 +547,142 @@ sync_check_write_paths() {
     i=0
     while [ "$i" -lt "${#names[@]}" ]; do
         name="${names[i]}"; file="${files[i]}"; i=$((i + 1))
-        [ -z "$filter" ] || [ "$name" = "$filter" ] || continue
         target_enabled_var "$CONFIG_FILE" "$name"
         [ "$IS_TGT_ENABLED" = 1 ] || continue
+        case "$file" in "$REPO_ROOT/$IS_CONTENT_REL/adapters/"*) SC_CHECK_PROJECT_ADAPTER=1 ;; esac
         target_output_var "$CONFIG_FILE" "$name"
         output="${IS_TGT_OUTPUT:-.$name}"
         batch+=("$name" "$file" "$output")
     done
-    SC_CHECK_OUTPUTS=()
+    SC_CHECK_OUTPUTS=() SC_CHECK_ALL_OUTPUTS=()
     [ "${#batch[@]}" -gt 0 ] || return 0
     adapter_contract_records_batch "$SC_SCRATCH.check-contract" "${batch[@]}" > "$SC_SCRATCH.check-records" || return 1
     while IFS=$'\t' read -r adapter kind value; do
-        case "$kind" in owned|managed) SC_CHECK_OUTPUTS+=("$value") ;; esac
+        case "$kind" in
+            owned|managed)
+                SC_CHECK_ALL_OUTPUTS+=("$value")
+                [ -z "$filter" ] || [ "$adapter" = "$filter" ] || continue
+                SC_CHECK_OUTPUTS+=("$value")
+                ;;
+        esac
     done < "$SC_SCRATCH.check-records"
 }
 
+# sync_check_unlinked_path <rel> — true when no existing component of the
+# project path, the last included, is a link. Copying such a path alone would
+# leave its link pointing at something the copy does not hold.
+sync_check_unlinked_path() {
+    local rest="$1" probe="$REPO_ROOT" part
+    while [ -n "$rest" ]; do
+        part="${rest%%/*}"
+        if [ "$part" = "$rest" ]; then rest=""; else rest="${rest#*/}"; fi
+        probe="$probe/$part"
+        [ ! -L "$probe" ] || return 1
+        [ -e "$probe" ] || return 0
+    done
+}
+
+# sync_check_copy_paths — SC_CHECK_COPY, the existing project paths a render
+# by built-in adapters reads or writes, none inside another. Return 1 when only
+# a copy of the whole project is faithful: a project adapter may read any file,
+# and a link on the way to an input may point anywhere in the project.
+# Everything else the engine reads in the project is a directory listing the
+# check takes from the live tree (warn_unsynced).
+sync_check_copy_paths() {
+    local section src rel other kept
+    local -a wanted=("${CONFIG_FILE#"$REPO_ROOT/"}" intelligence.lock .intelligence/packages
+        "$IS_CONTENT_REL/adapters" .agents/rules .agents/agents)
+    SC_CHECK_COPY=()
+    [ "$SC_CHECK_PROJECT_ADAPTER" = 0 ] || return 1
+    for section in rules agents skills; do
+        load_yaml_list "$CONFIG_FILE" "$section"
+        while IFS= read -r src; do
+            case "$src" in
+                ''|/*|..|../*|*/..|*/../*) continue ;; # Outside the project: read where it is.
+            esac
+            wanted+=("$src")
+        done <<< "$IS_YAML_LIST"
+    done
+    wanted+=(${SC_CHECK_ALL_OUTPUTS[@]+"${SC_CHECK_ALL_OUTPUTS[@]}"})
+    for rel in "${wanted[@]}"; do
+        normalize_path_var "/$rel"
+        rel="${IS_NORM_PATH#/}"
+        case "$rel" in ''|.git|.git/*) return 1 ;; esac
+        sync_check_unlinked_path "$rel" || return 1
+        [ -e "$REPO_ROOT/$rel" ] || continue
+        kept=()
+        for other in ${SC_CHECK_COPY[@]+"${SC_CHECK_COPY[@]}"}; do
+            case "$rel" in "$other"|"$other"/*) continue 2 ;; esac
+            case "$other" in "$rel"/*) continue ;; esac
+            kept+=("$other")
+        done
+        SC_CHECK_COPY=(${kept[@]+"${kept[@]}"} "$rel")
+    done
+}
+
+# sync_check_holds <private-project> <rel> — true when the private copy holds
+# the project path: inside a copied entry, never a directory made only as the
+# parent of one. An empty SC_CHECK_COPY means the whole project was copied.
+sync_check_holds() {
+    local entry
+    [ -e "$1/$2" ] || [ -L "$1/$2" ] || return 1
+    [ "${#SC_CHECK_COPY[@]}" -gt 0 ] || return 0
+    for entry in "${SC_CHECK_COPY[@]}"; do
+        case "$2" in "$entry"|"$entry"/*) return 0 ;; esac
+    done
+    return 1
+}
+
 # Check renders use a private project tree. A rollback in the live tree would
-# overwrite unrelated edits made while the renderer was running.
+# overwrite unrelated edits made while the renderer was running. The tree holds
+# only what the render reads and writes: a copy of the whole project took
+# minutes and gigabytes where dependency and build trees sit beside the sources.
 sync_check_render() (
-    local target="$1" verdict="$2" staging entry link target_link manifest_rel rel output is_output original_target original_root="$REPO_ROOT" rc=0
-    local -a SC_CHECK_OUTPUTS=()
+    local target="$1" verdict="$2" staging entry link target_link manifest_rel rel output is_output original_target original_root="$REPO_ROOT" rc=0 parent
+    local -a SC_CHECK_OUTPUTS=() SC_CHECK_ALL_OUTPUTS=() SC_CHECK_COPY=() parents=() batch=()
+    local SC_CHECK_PROJECT_ADAPTER=0
     sync_check_write_paths "$target" || return 1
     manifest_rel="${CONFIG_FILE#"$REPO_ROOT/"}"
     staging="$(mktemp -d -t intelligence-check-XXXXXX)" || return 1
     trap 'rm -rf "$staging"' EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    mkdir "$staging/project" || { rm -rf "$staging"; return 1; }
-    for entry in "$REPO_ROOT"/* "$REPO_ROOT"/.[!.]* "$REPO_ROOT"/..?*; do
-        [ -e "$entry" ] || [ -L "$entry" ] || continue
-        # Git history is not a renderer input. The project lock contains the
-        # check's scratch buffers and must stay solely in the real project.
-        [ "${entry##*/}" != .git ] || continue
-        cp -a "$entry" "$staging/project/" || rc=$?
-        [ "$rc" = 0 ] || break
-    done
+    # A run killed outright never reaches its trap; the lock's release or
+    # takeover removes the copy it names here.
+    : > "$staging/.intelligence-check" || return 1
+    printf '%s\n' "$staging" > "$SC_SCRATCH.tmpdir" || return 1
+    mkdir "$staging/project" || return 1
+    if sync_check_copy_paths; then
+        # One copy per parent directory: on Git Bash each process costs tens
+        # of milliseconds.
+        for rel in ${SC_CHECK_COPY[@]+"${SC_CHECK_COPY[@]}"}; do
+            parent=.
+            case "$rel" in */*) parent="${rel%/*}" ;; esac
+            for entry in ${parents[@]+"${parents[@]}"}; do
+                [ "$entry" != "$parent" ] || continue 2
+            done
+            parents+=("$parent")
+        done
+        for parent in ${parents[@]+"${parents[@]}"}; do
+            batch=()
+            for rel in "${SC_CHECK_COPY[@]}"; do
+                entry=.
+                case "$rel" in */*) entry="${rel%/*}" ;; esac
+                [ "$entry" != "$parent" ] || batch+=("$REPO_ROOT/$rel")
+            done
+            mkdir -p "$staging/project/$parent" && cp -a "${batch[@]}" "$staging/project/$parent/" || { rc=1; break; }
+        done
+    else
+        SC_CHECK_COPY=()
+        for entry in "$REPO_ROOT"/* "$REPO_ROOT"/.[!.]* "$REPO_ROOT"/..?*; do
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
+            # Git history is not a renderer input. The project lock contains the
+            # check's scratch buffers and must stay solely in the real project.
+            [ "${entry##*/}" != .git ] || continue
+            cp -a "$entry" "$staging/project/" || rc=$?
+            [ "$rc" = 0 ] || break
+        done
+    fi
     if [ "$rc" = 0 ]; then
         # Never remove or rewrite through a copied directory link: it may
         # still point at the live project or an external source.
@@ -575,7 +693,9 @@ sync_check_render() (
         while IFS= read -r -d '' link; do
             target_link="$(readlink "$link")" || { rc=1; break; }
             # Output links need no relocation: comparison never follows them.
-            # Internal absolute links still move with their copied project.
+            # Internal absolute links still move with their copied project;
+            # one into a part of the project the copy does not hold keeps
+            # reading the live path, which a render only ever reads.
             rel="${link#"$staging/project/"}"
             is_output=0
             for output in ${SC_CHECK_OUTPUTS[@]+"${SC_CHECK_OUTPUTS[@]}"}; do
@@ -586,6 +706,7 @@ sync_check_render() (
                     rm "$link" && ln -s "$staging/project" "$link" || { rc=1; break; }
                     ;;
                 "$REPO_ROOT"/*)
+                    sync_check_holds "$staging/project" "${target_link#"$REPO_ROOT/"}" || continue
                     rm "$link" && ln -s "$staging/project/${target_link#"$REPO_ROOT/"}" "$link" || { rc=1; break; }
                     ;;
                 /*) ;; # Absolute external links already retain their resolution.
@@ -596,7 +717,10 @@ sync_check_render() (
                     original_target="$IS_NORM_PATH"
                     case "$original_target" in
                         "$REPO_ROOT") original_target="$staging/project" ;;
-                        "$REPO_ROOT"/*) original_target="$staging/project/${original_target#"$REPO_ROOT/"}" ;;
+                        "$REPO_ROOT"/*)
+                            entry="${original_target#"$REPO_ROOT/"}"
+                            if sync_check_holds "$staging/project" "$entry"; then original_target="$staging/project/$entry"; fi
+                            ;;
                     esac
                     normalize_path_var "${link%/*}/$target_link"
                     [ "$IS_NORM_PATH" != "$original_target" ] || continue

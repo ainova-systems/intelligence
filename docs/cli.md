@@ -305,8 +305,8 @@ It answers in one of two ways:
   render to identical files — a manifest comment, for example; `--force` gives
   the exact answer.
 - **By rendering.** Without a usable record — none yet, damaged, from an older
-  CLI, or made by other code or in another environment (a different `PATH` is
-  enough) � the engine renders in a private project copy, compares every owned
+  CLI, or made by other CLI or engine code, or for another adapter filter —
+  the engine renders in a private project copy, compares every owned
   and managed path with its snapshot, and discards the copy. The live project's
   bytes, modification times and concurrent edits stay untouched. Names, entry
   kinds, link targets, bytes and executable bits count; nested generated links
@@ -321,6 +321,16 @@ Absolute links into the project are relocated within the copy. Relative links
 used as read inputs retain their original resolution, including external adapter
 scripts; generated relative links retain their spelling. The normal source-link
 policy still applies.
+
+The private copy holds only what a render reads and writes: the manifest, the
+lock, the package store, the configured sources inside the project, the project
+adapter folder and every path an enabled adapter owns or manages. Dependency
+and build trees never reach it, and a link into a part of the project the copy
+leaves out reads the live path. When an enabled project adapter could read any
+file, or a link lies on the way to one of those paths, the check copies the
+whole project except Git history instead. A check killed before it cleans up
+leaves its copy in the system temporary directory; the next command that
+releases or takes over the project lock removes it.
 
 `--check --force` always renders: the strict answer. An adapter name scopes the
 check to that adapter, and full and filtered records never stand in for each

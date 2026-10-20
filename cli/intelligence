@@ -7,6 +7,12 @@
 
 set -euo pipefail
 
+# Bash keeps a PWD inherited from its parent when it names the current
+# directory, so a Windows caller can hand over `D:/x` or `D:\x` for what every
+# other caller sees as `/d/x`. Taken once here, one spelling gives the project
+# one root and the CLI one location, whoever started it.
+case "$PWD" in [A-Za-z]:*) cd -P . ;; esac
+
 case "$0" in
     */*) CLI_DIR="${0%/*}"; [ -n "$CLI_DIR" ] || CLI_DIR="/" ;;
     *) CLI_DIR="." ;;
