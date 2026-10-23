@@ -118,6 +118,8 @@ same_run "filtered shared" codex --force
 
 echo '== an adapter failure restores everything with the serial status and text =='
 for side in serial concurrent; do
+    check test -f "$TMP/$side/AGENTS.override.md"
+    printf -- '---\npaths: ["rollback/**"]\n---\n' > "$TMP/$side/intelligence/rules/rollback.md"
     awk '{ print; if ($0 == "  codex:") print "    warn_project_doc_limit: 0" }' \
         "$TMP/$side/intelligence.yaml" > "$TMP/manifest" && mv "$TMP/manifest" "$TMP/$side/intelligence.yaml"
 done

@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.24.0]
+
+### Added
+
+- Codex receives compact scoped-rule routing in `AGENTS.override.md`, including local rules, without generating instruction files inside application directories.
+
 ## [0.23.0]
 
 ### Changed

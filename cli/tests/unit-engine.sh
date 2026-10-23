@@ -881,5 +881,22 @@ chk grep -Fq "rules/bad.local.md is local, but its targets name agents, whose ou
 chknot grep -Fq "fine.local.md" "$OUT/local.err"
 unset IS_COMMIT_POLICY IS_COMMIT_POLICY_SET IS_ENABLED_ADAPTERS IS_ADAPTER_CLAIMS
 
+echo "== compact paths display preserves scope syntax, never rule bodies =="
+F="$OUT/paths-display"
+mkdir -p "$F"
+printf -- '---\npaths:\n  - "src with spaces/**"\n  - "src/{one,two}/**"\ndescription: scope\n---\npaths: [body-only]\n' > "$F/block.md"
+printf -- '---\r\npaths: ["*.ts", "src/{one,two}/**"]\r\ndescription: scope\r\n---\r\n' > "$F/inline.md"
+printf -- '---\npaths: [\n  "one/**",\n  "two/**"\n]\npaths: [ignored-duplicate]\n---\n' > "$F/multiline.md"
+printf -- '---\npaths: []\n---\n' > "$F/empty.md"
+printf 'paths: [body-only]\n' > "$F/body.md"
+rows="$(frontmatter_index 'paths[],description' "$F/block.md" "$F/inline.md" "$F/multiline.md" "$F/empty.md" "$F/body.md")"
+chk eq "$(frontmatter_index 'paths[]' "$F/block.md")" "$F/block.md"$'\x1f''"src with spaces/**" "src/{one,two}/**"'
+chk eq "$(frontmatter_index 'paths[]' "$F/inline.md")" "$F/inline.md"$'\x1f''["*.ts", "src/{one,two}/**"]'
+chk eq "$(frontmatter_index 'paths[]' "$F/multiline.md")" "$F/multiline.md"$'\x1f''[ "one/**", "two/**" ]'
+chk eq "$(frontmatter_index 'paths[]' "$F/empty.md")" "$F/empty.md"$'\x1f''[]'
+chk eq "$(frontmatter_index 'paths[]' "$F/body.md")" "$F/body.md"$'\x1f'
+chknot grep -Fq body-only <<< "$rows"
+chknot grep -Fq ignored-duplicate <<< "$rows"
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"
