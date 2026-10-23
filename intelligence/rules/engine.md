@@ -72,6 +72,11 @@ not consume `AGENTS.md`, so its adapter receives every rule. An always-on rule
 `AGENTS.md` does not carry (`IS_SOURCE_IN_AGENTS` is 0: local, or targeted away
 from `agents`) takes each tool's own always-on channel instead — Codex's is
 `AGENTS.override.md`, Pi's its rules extension, and OpenCode has none.
+Codex also puts a compact scoped-rule index in its override: repository-relative
+patterns and source links, with an instruction to read matching rules on demand.
+Keep that routing out of shared `AGENTS.md`: other tools already attach scoped
+rules through their native channels. This is model-followed guidance, not native
+glob-triggered loading (decision 0024).
 
 The `agents` target is therefore required whenever an enabled target relies on
 `AGENTS.md`. Adding an adapter means updating that list in `engine/sync.sh` in the
