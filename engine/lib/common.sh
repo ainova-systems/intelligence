@@ -246,9 +246,10 @@ frontmatter_index() {
         fm_done || !in_fm { next }
         {
             if (paths_list && /^[[:space:]]*#/) next
-            if (paths_list && (/^[[:space:]]+/ || /^\]/)) {
+            if (paths_list && (/^[[:space:]]+/ || /^-[[:space:]]+/ || /^\]/)) {
                 item = $0
-                sub(/^[[:space:]]+(-[[:space:]]+)?/, "", item)
+                sub(/^[[:space:]]*/, "", item)
+                sub(/^-[[:space:]]+/, "", item)
                 if (item != "" && item !~ /^#/) {
                     for (ki = 1; ki <= nk; ki++)
                         if (K[ki] == "paths[]") V[ki] = V[ki] (V[ki] == "" ? "" : " ") item

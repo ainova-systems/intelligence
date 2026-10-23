@@ -379,6 +379,7 @@ rm "$Q/intelligence/rules/x.local.md"
 
 echo "== Codex routes scoped rules without changing other tools' instructions =="
 printf -- '---\npaths:\n  - "src/**"\n  - "tests/**"\n---\n\nSHARED_SCOPED_BODY\n' > "$Q/intelligence/rules/backend.md"
+printf -- '---\npaths:\n- "api/**"\n- "spec/**"\n---\n\nINDENTLESS_SCOPED_BODY\n' > "$Q/intelligence/rules/indentless.md"
 printf -- '---\r\npaths: ["*.ts", "src/{one,two}/**"]\r\n---\r\n\r\nLOCAL_SCOPED_BODY\r\n' > "$Q/intelligence/rules/.local.md"
 printf -- '---\npaths: ["private/**"]\ntargets: [claude]\n---\n\nEXCLUDED_SCOPED_BODY\n' > "$Q/intelligence/rules/excluded.md"
 run "$Q" sync
@@ -386,8 +387,9 @@ is "scoped-only Codex sync" 0 "$RC"
 chknot grep -Fq 'cannot reach codex' "$LOG"
 chk grep -Fq 'Before working on files matching these repo-relative patterns' "$Q/AGENTS.override.md"
 chk grep -Fq '`"src/**" "tests/**"` → [backend](<intelligence/rules/backend.md>)' "$Q/AGENTS.override.md"
+chk grep -Fq '`"api/**" "spec/**"` → [indentless](<intelligence/rules/indentless.md>)' "$Q/AGENTS.override.md"
 chk grep -Fq '`["*.ts", "src/{one,two}/**"]` → [local](<intelligence/rules/.local.md>)' "$Q/AGENTS.override.md"
-for word in SHARED_SCOPED_BODY LOCAL_SCOPED_BODY EXCLUDED_SCOPED_BODY excluded.md; do
+for word in SHARED_SCOPED_BODY INDENTLESS_SCOPED_BODY LOCAL_SCOPED_BODY EXCLUDED_SCOPED_BODY excluded.md; do
     chknot grep -Fq "$word" "$Q/AGENTS.override.md"
 done
 chknot grep -Fq '.local.md' "$Q/AGENTS.md"
@@ -420,7 +422,7 @@ is "disable Codex" 0 "$RC"
 chk test -f "$Q/AGENTS.override.md"
 run "$Q" adapter enable codex
 is "enable Codex again" 0 "$RC"
-rm "$Q/intelligence/rules/backend.md" "$Q/intelligence/rules/.local.md" "$Q/intelligence/rules/excluded.md"
+rm "$Q/intelligence/rules/backend.md" "$Q/intelligence/rules/indentless.md" "$Q/intelligence/rules/.local.md" "$Q/intelligence/rules/excluded.md"
 run "$Q" sync
 is "remove last scoped rules" 0 "$RC"
 chknot test -e "$Q/AGENTS.override.md"
