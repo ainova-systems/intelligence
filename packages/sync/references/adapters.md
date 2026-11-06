@@ -187,7 +187,7 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `read_yaml_list(config, section)` | Stream entries from `sources.<section>`, package references as their store paths. |
 | `load_yaml_list(config, section)` | Same list into `IS_YAML_LIST`, cached — no subprocess on repeat reads. |
 | `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block. |
-| `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; special key `paths#` counts `paths:` lines). |
+| `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; `paths#` counts `paths:` lines, `paths[]` folds a paths list for display). |
 | `has_frontmatter(file)` / `has_paths(file)` | Inspect source shape. |
 | `strip_frontmatter(file)` | Emit the body without its first frontmatter block. |
 | `get_model(config, tool, tier)` | Resolve a `frontier`, `heavy`, `standard` or `light` model, including manifest overrides. |
@@ -223,11 +223,13 @@ Intelligence routes always-on rules once through `AGENTS.md` for tools that cons
 | `claude` | Copy | Copy | Copy with `paths:` preserved |
 | `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `alwaysApply: true` | `.mdc` with `globs:` |
 | `copilot` | Omit; reads `AGENTS.md` | `.instructions.md` with `applyTo: "**"` | `.instructions.md` with `applyTo:` |
-| `codex` | Omit; reads `AGENTS.md` | `AGENTS.override.md`: all of `AGENTS.md` plus these rules | No native channel |
+| `codex` | Omit; reads `AGENTS.md` | `AGENTS.override.md`: all of `AGENTS.md` plus these rules | Compact patterns and source links in `AGENTS.override.md`; read on demand |
 | `pi` | Omit; reads `AGENTS.md` | Added to the system prompt by the generated extension | Generated on-demand files and extension |
 | `opencode` | Omit; reads `AGENTS.md` | No channel; sync warns | No native channel |
 
-Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the Codex adapter writes it — the whole rendered `AGENTS.md`, then the rules only Codex receives — while such a rule exists, and removes it when none does. Its contract manages and ignores the path; a file there that Intelligence did not generate is never touched, and a render that needs the path refuses until it is moved.
+Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the Codex adapter writes the whole rendered `AGENTS.md`, a compact scoped-rule index, and any additional always-on rules into that override. It exists while either kind needs it. Its contract manages and ignores the path; a file there that Intelligence did not generate is never touched, and a render that needs the path refuses until it is moved.
+
+The scoped index pairs source `paths:` patterns with source links and asks Codex to read matching rules before working on files. Local and targeted rules follow the same source filtering as other output. This is model-followed guidance, not a native glob matcher; it creates no nested `AGENTS.md` files and leaves other tools' instruction channels unchanged. Checked 2026-10-23 against OpenAI's [instruction discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md): startup discovery walks from the project root to the working directory, and an override replaces the base file in the same directory. Restart Codex after syncing updated instructions.
 
 If a new adapter relies on `AGENTS.md` for always-on rules, its target must require `agents`. Add that invariant to `engine/sync.sh` when contributing the adapter upstream.
 

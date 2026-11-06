@@ -206,7 +206,8 @@ Path-scoped rules stay in native channels where supported:
 | Antigravity | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
 | GitHub Copilot | `.github/instructions/*.instructions.md` with `applyTo:` |
 | Pi | generated on-demand rule files and extension |
-| Codex / OpenCode | no generated scoped-rule channel |
+| Codex | compact patterns and source links in `AGENTS.override.md`, read on demand |
+| OpenCode | no generated scoped-rule channel |
 
 Agents are transformed to each tool's native frontmatter or file format. Skills follow the [Agent Skills standard](https://agentskills.io) and are copied as complete bundles, including their `references/`, `scripts/` and `assets/` directories.
 

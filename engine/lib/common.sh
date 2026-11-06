@@ -217,7 +217,9 @@ source_name_map_var() {
 # unit separator — never present in frontmatter values). Value semantics are
 # get_frontmatter_value's exactly: first frontmatter block only, first key
 # occurrence wins, first-colon split, symmetric quote strip. The special key
-# `paths#` yields the has_paths count instead of a value. A file without
+# `paths#` yields the has_paths count; `paths[]` folds the first paths list
+# into one display value, preserving YAML quotes and inline list syntax.
+# A file without
 # frontmatter (or an empty file) still gets a row, with empty values.
 frontmatter_index() {
     local keys="$1"
@@ -235,7 +237,7 @@ frontmatter_index() {
             store()
             cur = FILENAME
             for (ri = 1; ri <= nk; ri++) { V[ri] = (K[ri] == "paths#") ? 0 : ""; delete SEEN[ri] }
-            in_fm = 0; fm_done = 0
+            in_fm = 0; fm_done = 0; paths_list = 0
         }
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { in_fm = 1; next }
@@ -243,12 +245,29 @@ frontmatter_index() {
         in_fm && !fm_done && $0 == "---" { fm_done = 1; next }
         fm_done || !in_fm { next }
         {
+            if (paths_list && /^[[:space:]]*#/) next
+            if (paths_list && (/^[[:space:]]+/ || /^-[[:space:]]+/ || /^\]/)) {
+                item = $0
+                sub(/^[[:space:]]*/, "", item)
+                sub(/^-[[:space:]]+/, "", item)
+                if (item != "" && item !~ /^#/) {
+                    for (ki = 1; ki <= nk; ki++)
+                        if (K[ki] == "paths[]") V[ki] = V[ki] (V[ki] == "" ? "" : " ") item
+                }
+                next
+            }
+            if ($0 !~ /^[[:space:]]*$/) paths_list = 0
             idx = index($0, ":")
             if (idx == 0) next
             k = substr($0, 1, idx - 1)
             for (ki = 1; ki <= nk; ki++) {
                 if (K[ki] == "paths#") {
                     if (k == "paths") V[ki]++
+                } else if (K[ki] == "paths[]" && k == "paths" && !(ki in SEEN)) {
+                    SEEN[ki] = 1
+                    V[ki] = substr($0, idx + 1)
+                    sub(/^[[:space:]]+/, "", V[ki])
+                    paths_list = 1
                 } else if (k == K[ki] && !(ki in SEEN)) {
                     SEEN[ki] = 1
                     V[ki] = fm_value_strip(substr($0, idx + 1))
@@ -2767,7 +2786,7 @@ source_catalog_check_local() {
 # A project adapter's channels are its own business: it has one.
 builtin_has_channel() {
     case "$1:$2" in
-        opencode:always|opencode:scoped|codex:scoped) return 1 ;;
+        opencode:always|opencode:scoped) return 1 ;;
     esac
     return 0
 }
