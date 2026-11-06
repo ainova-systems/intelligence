@@ -8,6 +8,60 @@ warn() { echo "  ✗ $*"; problems=$((problems + 1)); }
 note() { echo "  ! $*"; }
 ok()   { echo "  ✓ $*"; }
 
+# claude_md_excluded <path> <settings>... - whether an entry of
+# claudeMdExcludes in one of the settings files matches <path>. Claude Code
+# matches those globs against absolute paths; this reads `**`, `*` and `?` and
+# takes every other character literally. A Windows path is tried in both the
+# Git Bash spelling and the drive spelling (`/d/x`, `D:/x`).
+claude_md_excluded() {
+    local f alt=""
+    if command -v cygpath >/dev/null 2>&1; then alt="$(cygpath -m "$1")"; fi
+    for f in "${@:2}"; do
+        [ -f "$f" ] || continue
+        CMX_PATH="$1" CMX_ALT="$alt" awk '
+            function glob_re(g,   i, c, out) {
+                out = "^"
+                for (i = 1; i <= length(g); i++) {
+                    c = substr(g, i, 1)
+                    if (c == "*" && substr(g, i + 1, 1) == "*") {
+                        i++
+                        if (substr(g, i + 1, 1) == "/") { i++; out = out "(.*/)?" }
+                        else out = out ".*"
+                    }
+                    else if (c == "*") out = out "[^/]*"
+                    else if (c == "?") out = out "[^/]"
+                    else if (index("\\^$.|+()[]{}", c)) out = out "\\" c
+                    else out = out c
+                }
+                return out "$"
+            }
+            { buf = buf $0 "\n" }
+            END {
+                p = index(buf, "\"claudeMdExcludes\"")
+                if (!p) exit 1
+                s = substr(buf, p + 18)
+                if (!sub(/^[ \t\r\n]*:[ \t\r\n]*\[/, "", s)) exit 1
+                while (1) {
+                    sub(/^[ \t\r\n,]*/, "", s)
+                    if (substr(s, 1, 1) != "\"") exit 1
+                    v = ""
+                    for (i = 2; i <= length(s); i++) {
+                        c = substr(s, i, 1)
+                        if (c == "\\") { i++; v = v substr(s, i, 1); continue }
+                        if (c == "\"") break
+                        v = v c
+                    }
+                    s = substr(s, i + 1)
+                    re = glob_re(v)
+                    if (ENVIRON["CMX_PATH"] ~ re) exit 0
+                    if (ENVIRON["CMX_ALT"] != "" && ENVIRON["CMX_ALT"] ~ re) exit 0
+                }
+            }
+        ' "$f" && return 0
+    done
+    return 1
+}
+
 echo "environment:"
 command -v git >/dev/null 2>&1 && ok "git $(git --version | awk '{print $3}')" || warn "git not found"
 command -v awk >/dev/null 2>&1 && ok "awk present" || warn "awk not found"
@@ -144,6 +198,7 @@ content_dir="$(manifest_intelligence_dir "$manifest")"
 # Ownership across enabled adapters: two adapters claiming one owned path prune
 # each other silently, and sync reports success for both.
 adapter_claims_reset
+claude_out="" agents_out="" disabled_owned=""
 while IFS= read -r target; do
     [ -n "$target" ] || continue
     output="$(get_target_output "$manifest" "$target")"
@@ -161,6 +216,14 @@ while IFS= read -r target; do
     if [ "$(is_target_enabled "$manifest" "$target")" = "1" ]; then
         adapter_claims_add_records "$target" "$records" \
             || warn "$IS_ADAPTER_CLAIM_CONFLICT"
+        case "$target" in
+            claude) claude_out="$output" ;;
+            agents) agents_out="$output" ;;
+        esac
+    else
+        while IFS=$'\t' read -r kind value; do
+            [ "$kind" != owned ] || disabled_owned+="$target"$'\t'"$value"$'\n'
+        done <<< "$records"
     fi
     while IFS=$'\t' read -r kind value; do
         if [ "$kind" = "requires" ] \
@@ -203,6 +266,53 @@ while IFS= read -r target; do
     done <<< "$records"
     ok "adapter $target contract v1"
 done < <(target_names "$manifest")
+
+# Disabling an adapter keeps its output for a cleanup the owner approves. An
+# owned path an enabled adapter also claims is that adapter's output now. The
+# empty line the here-string ends with reports the last adapter.
+left_target="" left_paths=""
+while IFS=$'\t' read -r target value; do
+    if [ "$target" != "$left_target" ] && [ -n "$left_paths" ]; then
+        note "adapter '$left_target' is disabled, and its output is still here: ${left_paths#, }. The intelligence-manage-adapters skill reviews it and removes what you approve"
+        left_paths=""
+    fi
+    left_target="$target"
+    [ -n "$target" ] || continue
+    [ -e "$IP_ROOT/$value" ] || [ -L "$IP_ROOT/$value" ] || continue
+    adapter_contract_rel_path "$value"
+    claimed=0
+    while IFS=$'\t' read -r _ _ path; do
+        [ -n "$path" ] || continue
+        case "$IS_ADAPTER_REL_PATH/" in "$path"/*) claimed=1 ;; esac
+        case "$path/" in "$IS_ADAPTER_REL_PATH"/*) claimed=1 ;; esac
+    done <<< "$IS_ADAPTER_CLAIMS"
+    [ "$claimed" = 1 ] || left_paths="$left_paths, $IS_ADAPTER_REL_PATH"
+done <<< "$disabled_owned"
+
+# Claude Code 2.1.277 and later reads AGENTS.md as project instructions when no
+# CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md exists, and keeps loading
+# .claude/rules/ beside it (code.claude.com/docs/en/memory). With both targets
+# enabled every always-on rule then loads twice. The contract preserves
+# settings.json, so the exclude is the owner's to add.
+if [ -n "$claude_out" ] && [ -n "$agents_out" ]; then
+    agents_output_path_var "$agents_out"
+    adapter_contract_rel_path "$IS_AGENTS_OUTPUT_PATH"
+    agents_md="$IS_ADAPTER_REL_PATH"
+    adapter_contract_rel_path "$claude_out"
+    claude_out="$IS_ADAPTER_REL_PATH"
+    case "/$agents_md" in
+        */.agents/*) ;;
+        */AGENTS.md)
+            if [ ! -e "$IP_ROOT/CLAUDE.md" ] && [ ! -e "$IP_ROOT/CLAUDE.local.md" ] \
+                && [ ! -e "$IP_ROOT/$claude_out/CLAUDE.md" ] \
+                && ! claude_md_excluded "$IP_ROOT/$agents_md" \
+                    "$IP_ROOT/$claude_out/settings.json" "$IP_ROOT/$claude_out/settings.local.json"; then
+                note "Claude Code 2.1.277 and later reads $agents_md when there is no CLAUDE.md, $claude_out/CLAUDE.md or CLAUDE.local.md, so the always-on rules load twice: from $claude_out/rules/ and from $agents_md. Sync never edits settings; put this key in $claude_out/settings.json:"
+                printf '      { "claudeMdExcludes": ["**/%s"] }\n' "$agents_md"
+            fi
+            ;;
+    esac
+fi
 
 # A local rule, agent or skill is one these patterns name (decision 0021): the
 # engine keeps it out of every committed output, and without the pattern Git

@@ -35,12 +35,14 @@ product requirement.
 
 Proposals use `DELETE`, `MERGE`, `SCOPE`, `MOVE`, `REFERENCE`, or `REWRITE` and name
 the owner, semantic contract, estimated savings, and any changed behavior or load
-timing. Keep unapproved passages byte-for-byte; the review skill routes only
-accepted proposals to the shared authoring procedure.
+timing. Keep unapproved passages byte-for-byte; only accepted proposals reach
+the shared authoring procedure, which runs the steps below.
 
 ## Verify the accepted result
 
-1. Compare the ledger with the diff. Each original behavior exists once in its
+1. Before editing, when the baseline marks a rendered measurement missing, record
+   `<sync-cmd> --compact` output and require `IS_STATUS=ok`. After editing,
+   compare the ledger with the diff. Each original behavior exists once in its
    authoritative owner, was deliberately removed with approval, or is enforced by
    the named deterministic mechanism. Check for dead links, unconditional reference
    loads, conflicting instructions, and unintended scope expansion.
@@ -54,4 +56,4 @@ accepted proposals to the shared authoring procedure.
    and an ordinary explanation that reveals clipped language. Report explicitly
    when this evaluation is unavailable: fewer bytes prove size, not quality.
 4. Report artifacts changed, behavior checks, measurements, and remaining owner
-   decisions. Return these results to the review skill's final report.
+   decisions in the authoring skill's final report.

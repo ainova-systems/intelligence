@@ -85,7 +85,12 @@ chk grep -q 'resolved: "v1.1.0"' "$PROJ/intelligence.lock"
 chk grep -q "url: \"$PACK_URL\"" "$PROJ/intelligence.lock"
 chk grep -q 'sha: "' "$PROJ/intelligence.lock"
 chk grep -q 'PACK_RULE_MARKER_11' "$PROJ/AGENTS.md"
-chk grep -q 'pack-do-thing' "$PROJ/AGENTS.md"
+# AGENTS.md is committed and the store is not: package content is listed by
+# name, project content keeps its link.
+chk grep -Fqx '| pack-do-thing | Do the pack thing |' "$PROJ/AGENTS.md"
+chk grep -Fqx -- '- pack-rule (global)' "$PROJ/AGENTS.md"
+chk grep -Fqx -- '- [context](intelligence/rules/context.md) (global)' "$PROJ/AGENTS.md"
+chknot grep -Fq '](.intelligence/' "$PROJ/AGENTS.md"
 
 echo "== package list =="
 (cd "$PROJ" && bash "$CLI" package list)

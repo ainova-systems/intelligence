@@ -274,6 +274,16 @@ for skill in intelligence-upgrade intelligence-manage-adapters; do
     chknot test -e "$FRESH/.claude/skills/$skill/agents"
 done
 chknot test -e "$FRESH/.agents/skills/intelligence-sync/agents/openai.yaml"
+# A skill names an agent only when it forks into it, because `agent:` selects
+# nothing without `context: fork`; both forks make their caller wait.
+for skill in intelligence-review-context intelligence-sync; do
+    chk grep -Fqx 'context: fork' "$FRESH/.claude/skills/$skill/SKILL.md"
+    chk grep -Fqx 'background: false' "$FRESH/.claude/skills/$skill/SKILL.md"
+done
+for skill in intelligence-learn-from-repository intelligence-learn-from-session \
+    intelligence-manage-adapters intelligence-update-context intelligence-upgrade; do
+    chknot grep -q '^agent:' "$FRESH/.claude/skills/$skill/SKILL.md"
+done
 chk grep -Fqx '  - intelligence-sync' "$FRESH/.claude/agents/intelligence-operator.md"
 chknot grep -Eq '^  - intelligence-(upgrade|manage-adapters)$' "$FRESH/.claude/agents/intelligence-operator.md"
 chk grep -Fq 'intelligence.yaml' \

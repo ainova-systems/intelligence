@@ -201,7 +201,7 @@ Path-scoped rules stay in native channels where supported:
 
 | Tool | Scoped-rule output |
 |---|---|
-| Claude Code | `.claude/rules/*.md` (all rules; Claude does not consume `AGENTS.md`) |
+| Claude Code | `.claude/rules/*.md` (all rules; exclude `AGENTS.md` in `.claude/settings.json`, see [routing](packages/sync/references/conventions.md#routing)) |
 | Cursor | `.cursor/rules/*.mdc` with `globs:` |
 | Antigravity | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
 | GitHub Copilot | `.github/instructions/*.instructions.md` with `applyTo:` |

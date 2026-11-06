@@ -21,7 +21,7 @@ Three ways to shorten, in order of what they are worth:
 2. **Delete what the code already says.** A rule restating what a reader can see in the file is noise, and noise trains people to skim the lines that are not.
 3. **Cut the words, keep the reason.** Prose can shrink; the *why* cannot — an instruction without its reason does not survive contact with a judgement call.
 
-**Never solve a problem by adding an artifact when moving one, or removing one, would do.** A new rule is the most expensive answer available, and it is the one that feels cheapest to write.
+**Never solve a problem by adding an artifact when moving one, or removing one, would do.** A new rule is the most expensive answer available, and it is the one that feels cheapest to write. The same holds inside an artifact: a fix restates the outcome once, and a clause added for each edge case or review finding is itself the defect.
 
 ## Source of truth
 
@@ -60,7 +60,7 @@ The mistakes that actually happen, in order of frequency:
 
 ### Invariants
 
-- **Never state behaviour of a tool or engine you have not verified in its documentation or source.** An unverified claim about tooling is worse than a gap: nothing in the repository contradicts it, so it silently reshapes every decision downstream. Verified means a page you can cite - for how rules load, the Claude Code docs *Memory → Organize rules with `.claude/rules/`* and *Subagents → What loads at startup*.
+- **Never state behaviour of a tool or engine you have not verified in its documentation or source.** An unverified claim about tooling is worse than a gap: nothing in the repository contradicts it, so it silently reshapes every decision downstream. Verified means a page you can cite - for how rules load, the Claude Code [memory](https://code.claude.com/docs/en/memory#organize-rules-with-claude/rules/) and [subagent startup](https://code.claude.com/docs/en/sub-agents#what-loads-at-startup) docs.
 - **Never write a current defect into a rule as if it were the design.** Known breakage belongs in one place that says so. Every other rule describes the project *as it is meant to work* — a workaround documented as procedure becomes permanent.
 - **Never link from one always-on rule to another.** Always-on rules are inlined verbatim into `AGENTS.md`, and the path-scoped channels carry only scoped rules, so a relative link is dead in at least one output. Name the rule instead; it loads on its own.
 
@@ -68,7 +68,7 @@ The mistakes that actually happen, in order of frequency:
 
 An agent is **thin**: who it is, where it stops, how it verifies. Nothing else.
 
-- **Do not list rules for an agent to read.** They load on their own — Claude Code loads `.claude/rules/` into every custom subagent's startup context, and Cursor, Copilot, Codex, Pi, OpenCode and Antigravity receive always-on rules inlined in `AGENTS.md`. Naming a rule is fine; copying it is duplication that drifts.
+- **Do not list rules for an agent to read.** They load on their own: a Claude Code subagent starts with the project's instruction files, `.claude/rules/` included, unless it is the built-in Explore or Plan agent or its definition sets `omitClaudeMd`, and Cursor, Copilot, Codex, Pi, OpenCode and Antigravity receive always-on rules inlined in `AGENTS.md`. A step handed to an agent that starts without them names the rules it depends on in the delegation message. Naming a rule is fine; copying it is duplication that drifts.
 - **Point at a rule, do not restate it.** Wanting to copy a rule into an agent means the rule is in the wrong place — move it.
 - **Do carry** what is genuinely the agent's own: its boundaries ("if the app will not start, stop — do not hand-write the output"), its verification commands, its definition of done.
 
@@ -95,15 +95,16 @@ Two verbs are told apart by what already exists. **`add-` puts one new member in
 
 ## Size — the backstop, not the goal
 
-The goal is subtraction, above. These are only the line past which something is definitely wrong.
+The goal is subtraction, above. These are only the line past which something is definitely wrong. They count words, because a line cap never sees a paragraph written as one long line.
 
-| Type | Hard cap |
+| Type | Budget |
 |---|---|
-| Rule | 500 lines |
-| Agent | 200 lines |
-| `SKILL.md` | 1000 lines |
+| Rule | 2,000 words |
+| Agent | 500 words |
+| `SKILL.md` | 1,500 words |
+| Paragraph, list item or table row | 150 words |
 
-**Ceilings, not quotas.** An artifact that says everything it needs to is finished, not underweight — nothing here is a reason to pad. Over the cap means the artifact is doing two jobs, or the detail belongs in `references/<topic>.md` with a pointer from the body.
+**Ceilings, not quotas.** An artifact that says everything it needs to is finished, not underweight; nothing here is a reason to pad. Over the budget means the artifact is doing two jobs, or the detail belongs in `references/<topic>.md` with a pointer from the body, and a paragraph over it holds several thoughts to split.
 
 `description` fields compete for one shared budget across the whole registry: a long one pushes another artifact out of reach. Four to eight words when the name is unambiguous; longer only when a sibling does something similar and needs distinguishing. (The tools reject a `description` over 1024 characters outright — but that is a wall to stay far away from, not a target.)
 

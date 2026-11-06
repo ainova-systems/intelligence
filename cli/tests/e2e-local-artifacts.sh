@@ -54,6 +54,13 @@ for path in intelligence/rules/team.md intelligence/rules/.draft.md intelligence
 done
 run "$P" status --check
 is "status --check on a fresh project" 0 "$RC"
+# Claude Code reads AGENTS.md beside .claude/rules/ when no CLAUDE.md exists:
+# the exclude is printed until a settings layer holds one that matches.
+chk grep -Fq '{ "claudeMdExcludes": ["**/AGENTS.md"] }' "$LOG"
+printf '{\n  "claudeMdExcludes": [\n    "**/AGENTS.md"\n  ]\n}\n' > "$P/.claude/settings.local.json"
+run "$P" status --check
+chknot grep -Fq claudeMdExcludes "$LOG"
+rm "$P/.claude/settings.local.json"
 
 echo "== status --check reports a missing local pattern; init restores it =="
 grep -Fvx 'intelligence/agents/*.local.md' "$P/.gitignore" > "$OUT/gitignore" && cp "$OUT/gitignore" "$P/.gitignore"
@@ -420,8 +427,13 @@ echo "== disabling Codex retains its override; removing scoped sources cleans it
 run "$Q" adapter disable codex
 is "disable Codex" 0 "$RC"
 chk test -f "$Q/AGENTS.override.md"
+run "$Q" status --check
+is "status --check with a disabled adapter's output" 0 "$RC"
+chk grep -Fq "adapter 'codex' is disabled, and its output is still here: .codex/agents. The intelligence-manage-adapters skill" "$LOG"
 run "$Q" adapter enable codex
 is "enable Codex again" 0 "$RC"
+run "$Q" status --check
+chknot grep -Fq 'is disabled, and its output' "$LOG"
 rm "$Q/intelligence/rules/backend.md" "$Q/intelligence/rules/indentless.md" "$Q/intelligence/rules/.local.md" "$Q/intelligence/rules/excluded.md"
 run "$Q" sync
 is "remove last scoped rules" 0 "$RC"

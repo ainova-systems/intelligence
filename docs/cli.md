@@ -461,6 +461,8 @@ fifth renders the wrong thing loudly:
 - a path a double-quoted YAML scalar cannot carry verbatim (quotes, `#`, `:`, backslashes);
 - the repository root itself (`.` and `./`) — it *is* a directory, so every top-level `*.md` beside it would be read as an artifact of that section.
 
+Package content under `.intelligence/` is listed in `AGENTS.md` by name too, since the store is ignored and a link into it is dead in a fresh clone.
+
 Spellings of the same directory are one entry: `./intelligence/rules/`,
 `intelligence/./rules` and `intelligence/rules` are stored, compared and
 reported identically.
@@ -518,6 +520,15 @@ name (`*.local.md`, a `*.local/` skill) that Git tracks in a project-owned
 source. Each
 package line reports the commit the store holds. Frozen store
 restoration verifies the locked commit SHA.
+
+Two findings are notes and leave the exit status alone. The first is a disabled
+adapter whose owned output is still on disk; it names the
+`intelligence-manage-adapters` skill, which reviews that output and removes what
+the owner approves. The second applies when the `claude` and `agents` targets are
+both enabled and there is no `CLAUDE.md`, `.claude/CLAUDE.md` or
+`CLAUDE.local.md`: Claude Code 2.1.277 and later then reads `AGENTS.md` beside
+`.claude/rules/` and loads the always-on rules twice, so the note prints the
+`claudeMdExcludes` entry the owner adds to `.claude/settings.json`.
 
 ### `intelligence registry`
 

@@ -22,15 +22,16 @@
 name: <domain>-<verb>-<noun>
 description: "What the skill does and when to use it"
 argument-hint: "Expected arguments"
-agent: <existing-agent>
 ---
 ```
 
 Omit optional fields that do not apply. Add `effort:` only when the procedure
 needs a reasoning effort other than the session's, using the scale in the
-authoring conventions' effort mappings. Add the skill to its matching agent's
+authoring conventions' effort mappings. Add `context: fork` with `agent:` only
+for a skill the authoring conventions say to fork, and `background: false` when
+its caller needs the result in the same turn. Add the skill to its matching agent's
 `skills:` list when that agent is project-owned; propose an upstream change for
 a package-owned agent instead of editing the installed copy. Verify bindings,
 relative resource links, executable steps, and final success criteria. Apply the
-1000-line skill limit and other budgets from the authoring conventions, then
-return to the shared sync and verification steps.
+word budgets from the authoring conventions, then return to the shared sync and
+verification steps.

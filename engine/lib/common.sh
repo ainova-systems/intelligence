@@ -23,6 +23,9 @@ normalize_file_to_lf() {
 #   <content-dir> -> the repo-relative project content dir (e.g. `Intelligence`)
 #   <module>      -> the repo-relative sync package store path
 #
+# A backslash in front keeps a token literal, and the source lint warns about a
+# token in a project source that reads as ordinary text (_IS_AWK_LINT).
+#
 # Values come from IS_CONTENT_REL / IS_MODULE_REL, which the CLI derives from
 # the detected layout (never hardcoded) and exports before any adapter runs.
 # Expansion happens in EVERY generated file, frontmatter and body alike, so a
@@ -50,11 +53,22 @@ IS_AWK_LIB='
         }
         return out s
     }
-    function fin_line(s) {
+    # A backslash keeps a token as written: `\<module>` renders as `<module>`.
+    # The escaped token waits on a control character while the others expand.
+    function fin_line(s,   kept) {
+        if (index(s, "\\<")) {
+            kept = s
+            s = is_repl(s, "\\<sync-cmd>", "\034sync-cmd>")
+            s = is_repl(s, "\\<manifest>", "\034manifest>")
+            s = is_repl(s, "\\<module>", "\034module>")
+            s = is_repl(s, "\\<content-dir>", "\034content-dir>")
+            kept = (s != kept)
+        }
         s = is_repl(s, "<sync-cmd>", FIN_SC)
         s = is_repl(s, "<manifest>", FIN_MF)
         s = is_repl(s, "<module>", FIN_MOD)
         s = is_repl(s, "<content-dir>", FIN_CONTENT)
+        if (kept) s = is_repl(s, "\034", "<")
         return s
     }
     function fm_value_strip(val,   n, first, last) {
@@ -1089,9 +1103,41 @@ _IS_AWK_LINT='
                 LEVEL[LV[li]] = 1
                 allowed = allowed (li > 1 ? ", " : "") LV[li]
             }
+            tok_root = ENVIRON["IS_TOK_ROOT"]
+            split("<content-dir> <module> <manifest> <sync-cmd>", TOK, " ")
+            TOKV[1] = FIN_CONTENT; TOKV[2] = FIN_MOD; TOKV[3] = FIN_MF; TOKV[4] = FIN_SC
         }
-        FNR == 1 { in_fm = 0; done = 0; effort_seen = 0 }
+        # A layout token that cannot mean what it renders as: joined to a word
+        # or a path around it, or an XML element closed on the same line. A
+        # module-name placeholder `<module>_update_N` rendered as the package
+        # path. Packages use tokens by design, so only project sources (under
+        # the root, outside its package store) are read, and an escaped token
+        # (`\<module>`) is literal.
+        function tok_check(l,   k, t, n, at, p, b, a) {
+            for (k = 1; k <= 4; k++) {
+                t = TOK[k]; n = length(t); at = 0
+                while ((p = index(substr(l, at + 1), t)) > 0) {
+                    at += p
+                    b = (at > 1) ? substr(l, at - 1, 1) : ""
+                    a = substr(l, at + n, 2)
+                    at += n - 1
+                    if (b == "\\") continue
+                    if (b ~ /[[:alnum:]_]/ || b == "/" || a ~ /^([[:alnum:]_-]|[.][[:alnum:]_])/ \
+                        || index(l, "</" substr(t, 2))) {
+                        printf "WARNING: %s:%d %s is part of the text around it, but sync renders this layout token as %s; write \\%s to keep it as written\n", \
+                            substr(FILENAME, length(tok_root) + 2), FNR, t, TOKV[k], t > "/dev/stderr"
+                        break
+                    }
+                }
+            }
+        }
+        FNR == 1 {
+            in_fm = 0; done = 0; effort_seen = 0
+            tok_own = tok_root != "" && index(FILENAME, tok_root "/") == 1 \
+                && index(FILENAME, tok_root "/.intelligence/") != 1
+        }
         { sub(/\r$/, "") }
+        tok_own && index($0, ">") { tok_check($0) }
         done { next }
         FNR == 1 && $0 != "---" { done = 1; next }
         FNR == 1 { in_fm = 1; next }
@@ -2442,7 +2488,7 @@ source_catalog_build() {
         # One pass reads what routing needs from every source's frontmatter
         # and, for the engine, lints it. Captured, not streamed: a short answer
         # must stop the run, not route the files it lost as always-on.
-        rows="$(source_frontmatter_scan "$lint" "${files[@]}")" || {
+        rows="$(source_frontmatter_scan "${lint:+$repo_root}" "${files[@]}")" || {
             echo "ERROR: cannot read the frontmatter of the sources — refusing to render a partial list." >&2
             exit 1
         }
@@ -2466,20 +2512,22 @@ source_catalog_build() {
     [ "${IS_SOURCE_FILES_MEMO:-0}" != 1 ] || IS_CAT_KEY="$key"
 }
 
-# source_frontmatter_scan <lint> <file>... — one row per file in argument
+# source_frontmatter_scan <lint-root> <file>... - one row per file in argument
 # order, \x1f-separated: the path; its `paths:` line count, read with
 # frontmatter_index's `paths#` semantics; then for `targets:` and for
 # `exclude_targets:` whether it is set and its ids, space-separated. Both take
 # the list syntax `paths:` takes — a block list or a flow list `[a, b]`, items
 # optionally quoted — and a bare value is a one-item list. The first
 # occurrence of a key wins, and a key with no value at all is not set
-# (`targets: []` is: it is the empty list). With <lint> = lint the same pass
-# runs lint_frontmatter_files over every file, its warnings on stderr.
+# (`targets: []` is: it is the empty list). With <lint-root>, the repository
+# root, the same pass runs lint_frontmatter_files over every file and the
+# layout-token check over the project's own; warnings go to stderr.
 source_frontmatter_scan() {
-    local do_lint=0
-    [ "$1" != lint ] || do_lint=1
+    local do_lint=0 root="$1"
+    [ -z "$root" ] || do_lint=1
     shift
-    awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "$IS_AWK_LIB"'
+    is_fin_awk_vars
+    IS_TOK_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
         function sx_items(s, k,   parts, m, j, v, q) {
             m = split(s, parts, ",")

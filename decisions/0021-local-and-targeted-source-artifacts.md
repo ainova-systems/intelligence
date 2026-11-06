@@ -2,6 +2,7 @@
 
 Date: 2026-10-11
 Status: accepted
+Amended by 0025 in the context: Claude Code 2.1.277 and later also reads `AGENTS.md` when no `CLAUDE.md` file applies, so the context's "Claude Code does not" no longer holds.
 
 ## Context
 
