@@ -39,8 +39,9 @@ adapter_contract_pi() {
 
 # Fork-free TS string escape: sets IS_PI_TS_ESCAPED.
 pi_ts_escape_var() {
-    local s="$1"
-    s="${s//\\/\\\\}"
+    local s
+    token_keep_var "$1"
+    s="${IS_TOKEN_KEPT//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\r'/}"
     s="${s//$'\n'/ }"
@@ -109,7 +110,7 @@ pi_rule_body_rows() {
         /^---$/ && !past_fm { in_fm = !in_fm; if (!in_fm) past_fm = 1; next }
         !past_fm { next }
         {
-            line = is_repl($0, "\\", "\\\\")
+            line = is_repl(fin_keep($0), "\\", "\\\\")
             line = is_repl(line, "\"", "\\\"")
             line = is_repl(line, "\t", "\\t")
             B[++n] = line

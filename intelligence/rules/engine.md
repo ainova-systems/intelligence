@@ -67,8 +67,10 @@ sync keeps decision 0020's ownership-only read.
 
 Always-on rules are inlined once into `AGENTS.md`. Cursor, Copilot, Codex, Pi and
 OpenCode consume that file, so their adapters omit always-on rules from tool-specific
-channels; path-scoped rules use native channels where those exist. Claude Code does
-not consume `AGENTS.md`, so its adapter receives every rule. An always-on rule
+channels; path-scoped rules use native channels where those exist. Claude Code
+receives every rule through its adapter; from 2.1.277 it also reads `AGENTS.md`
+when no `CLAUDE.md` applies, until the owner adds the `claudeMdExcludes` entry of
+decision 0025. An always-on rule
 `AGENTS.md` does not carry (`IS_SOURCE_IN_AGENTS` is 0: local, or targeted away
 from `agents`) takes each tool's own always-on channel instead — Codex's is
 `AGENTS.override.md`, Pi's its rules extension, and OpenCode has none.

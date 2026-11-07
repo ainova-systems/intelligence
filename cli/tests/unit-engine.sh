@@ -556,6 +556,29 @@ chk eq "$(printf '%s\n' "$warnings" | grep -c 'effort')" 2
 chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/typo.md:2 effort \"hiigh\" is not one of low, medium, high, xhigh, max, ultra")" 1
 chk eq "$(printf '%s\n' "$warnings" | grep -c "^WARNING: $L/case.md:2 effort \"High\" is not one of")" 1
 
+echo "== layout tokens: a project source's token that reads as text warns, an escaped one stays literal =="
+TK="$OUT/tokens"
+mkdir -p "$TK/intelligence/rules" "$TK/.intelligence/packages/@a/b/rules"
+printf -- '---\ndescription: "deploy/<module>_update_N"\n---\nRead `<module>/references/x.md` in `<content-dir>/`.\nKeep `\\<module>_schema()` and `<module>.info.yml`.\n<manifest></manifest>\n' > "$TK/intelligence/rules/r.md"
+cp "$TK/intelligence/rules/r.md" "$TK/.intelligence/packages/@a/b/rules/r.md"
+# The package copy is never read: packages use tokens by design.
+warnings="$(source_frontmatter_scan "$TK" "$TK/intelligence/rules/r.md" "$TK/.intelligence/packages/@a/b/rules/r.md" 2>&1 >/dev/null)"
+chk eq "$(printf '%s\n' "$warnings" | sed 's/ is part of the text.*//')" \
+    "$(printf 'WARNING: intelligence/rules/r.md:%s\n' '2 <module>' '5 <module>' '6 <manifest>')"
+chk eq "$(printf '%s\n' "$warnings" | tail -n 1)" \
+    'WARNING: intelligence/rules/r.md:6 <manifest> is part of the text around it, but sync renders this layout token as intelligence.yaml; write \<manifest> to keep it as written'
+chk eq "$(source_frontmatter_scan "" "$TK/intelligence/rules/r.md" 2>&1 >/dev/null)" ""
+cp "$TK/intelligence/rules/r.md" "$OUT/tokens-out.md"
+IS_MODULE_REL=.intelligence/packages/@s/sync IS_CONTENT_REL=brain finalize_output_file "$OUT/tokens-out.md"
+chk grep -Fqx 'Read `.intelligence/packages/@s/sync/references/x.md` in `brain/`.' "$OUT/tokens-out.md"
+chk grep -Fqx 'Keep `<module>_schema()` and `.intelligence/packages/@s/sync.info.yml`.' "$OUT/tokens-out.md"
+# A quoted value decodes to what the plain text renders as: the escape is
+# resolved before the escaper doubles the backslash.
+yaml_dq_escape_var 'Keep \<module>, \\<module> and <module>'
+printf 'description: "%s"\n' "$IS_YAML_ESCAPED" > "$OUT/tokens-yaml.md"
+IS_MODULE_REL=m finalize_output_file "$OUT/tokens-yaml.md"
+chk grep -Fqx 'description: "Keep <module>, \\<module> and m"' "$OUT/tokens-yaml.md"
+
 echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
 K="$OUT/skill-effort"
 mkdir -p "$K/src/up" "$K/src/typo" "$K/src/quoted" "$K/src/none/references"

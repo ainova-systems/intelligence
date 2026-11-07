@@ -42,7 +42,7 @@ To stop syncing a target:
 intelligence adapter disable mytool
 ```
 
-Disabling changes only target state. Generated output is deliberately kept so disabling is reversible; the adapter contract identifies its paths for review. A disabled project adapter can be deleted with `intelligence adapter remove mytool`; removal prompts by default, accepts `--apply` for explicit non-interactive use, and also keeps generated output. Built-in adapter source cannot be removed. Use `intelligence adapter list` to inspect source, state and output.
+Disabling changes only target state. Generated output is deliberately kept so disabling is reversible; the adapter contract identifies its paths for review, and `intelligence status --check` names the owned paths still on disk and the `intelligence-manage-adapters` skill that removes them. A disabled project adapter can be deleted with `intelligence adapter remove mytool`; removal prompts by default, accepts `--apply` for explicit non-interactive use, and also keeps generated output. Built-in adapter source cannot be removed. Use `intelligence adapter list` to inspect source, state and output.
 
 ## Required interface
 
@@ -218,7 +218,7 @@ Intelligence routes always-on rules once through `AGENTS.md` for tools that cons
 
 | Built-in | Always-on rules | Always-on, not in `AGENTS.md` | Scoped rules |
 |---|---|---|---|
-| `agents` | Inline in `AGENTS.md` | — | List with links |
+| `agents` | Inline in `AGENTS.md` | None | List with links; package and out-of-tree content by name |
 | `antigravity` | Omit; reads `AGENTS.md` | `.agents/rules/*.md` with `trigger: always_on` | `.agents/rules/*.md` with `trigger: glob` and `globs:` |
 | `claude` | Copy | Copy | Copy with `paths:` preserved |
 | `cursor` | Omit; reads `AGENTS.md` | `.mdc` with `alwaysApply: true` | `.mdc` with `globs:` |
@@ -305,7 +305,7 @@ Content shipped in `@ainova-systems/sync` cannot assume the project's content-di
 | `<manifest>` | `intelligence.yaml` |
 | `<sync-cmd>` | `intelligence sync` |
 
-Call `finalize_output_file` on every text file after transformation. It expands the tokens literally and converts CRLF to LF. A generated file containing an unexpanded token is an adapter bug.
+Call `finalize_output_file` on every text file after transformation. It expands the tokens literally, keeps a token escaped with a backslash as written ([Layout tokens](conventions.md#layout-tokens)), and converts CRLF to LF. A generated file containing an unexpanded token is an adapter bug.
 
 `copy_skill_bundle` already finalizes Markdown within a skill; do not run a second custom token pass.
 

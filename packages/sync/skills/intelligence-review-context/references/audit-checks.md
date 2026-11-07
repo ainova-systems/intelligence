@@ -6,7 +6,8 @@ Apply these checks to the source groups resolved by the review skill.
 |---|---|---|
 | **Duplicate content** | Two artifacts cover overlapping scope, or their descriptions share trigger phrases | `MERGE` — present both, propose one |
 | **Misplaced content** | A checklist or procedure in an agent body; a convention in an agent; a workflow in a rule; expertise in a skill (the *Pick the right artifact* table in `intelligence-authoring`) | `MOVE` — a move, not a rewrite: both files change together |
-| **Over the cap** | `SKILL.md` over 1000 lines, rule over 500, agent over 200 | `SPLIT` — two artifacts, or move detail into `references/<topic>.md` |
+| **Over the budget** | `SKILL.md` over 1,500 words, rule over 2,000, agent over 500, skill reference over 3,000, or a paragraph, list item or table row over 150 (`R7`) | `SPLIT` - two artifacts, detail into `references/<topic>.md`, or a long paragraph into the thoughts it holds |
+| **Rule repeats a gate** | A rule sentence restating what a script, test or sync already checks or refuses | `DELETE` - the gate holds the decision; a second copy in prose drifts from it and costs context in every session |
 | **Shared instruction budget** | The measured shared agents output, or `agents-md` in sync's `CONTEXT:` summary, is over 32 KiB (32,768 bytes) | `COMPACT` — this is Intelligence's recommended maximum, not an adapter rejection threshold; use the compaction procedure in `intelligence-review-context` to reduce the owning sources without teaching terse output |
 | **Rule links to a rule** | A markdown link from one rule to another (`R1`) | `UNLINK` — name the rule instead: always-on rules are inlined into `AGENTS.md` and the scoped channels carry only scoped rules, so the link is dead in at least one output |
 | **Machine facts in a rule** | OS, shell, editor or a local absolute path (`R2`) | `MOVE` — these belong in a local rule, `<content-dir>/rules/<name>.local.md`, which Git ignores and sync keeps out of committed output; a rule is committed and read by everyone, including whoever is on another platform |
@@ -14,7 +15,7 @@ Apply these checks to the source groups resolved by the review skill.
 | **Skill with no verification** | Nothing at the end proves the procedure worked (`R4`) | `FLAG` — a procedure that proves nothing is a note, or just the work: give it a verification, or delete it |
 | **Pressure marker** | A heading or section named CRITICAL / MANDATORY / HARD RULE / READ FIRST, or a density of `MUST` / `NEVER` / `ALWAYS` with no reason beside it (`R5`) | `REWRITE` - plain heading, one reason per constraint; when several instructions are each marked critical the marker stops carrying information, so keep emphasis for the one instruction demonstrably under-weighted without it |
 | **History narrative** | A PR number, incident id, commit SHA, date or "this session" inside a rule body (`R6`) | `REWRITE` - keep the causal sentence, drop the archaeology; a rule's authority is the behaviour it prescribes, and git history keeps the date |
-| **Reserved prefix** | A project artifact named `intelligence-*` | `RENAME` — the prefix belongs to the sync package and collides in generated output |
+| **Name collision** | A project artifact named `intelligence-*` or like an installed package artifact it does not mean to override, or a skill named like a built-in command or bundled skill of an enabled tool ([Claude Code commands](https://code.claude.com/docs/en/commands)) | `RENAME` - the project artifact renders in the package's place, and a Claude Code skill replaces the command of its name but not that command's aliases, so one request runs different procedures depending on the name typed |
 | **Naming** | A skill that is not `<domain>-<verb>-<noun>`, or a domain invented rather than reused | `RENAME` — or introduce the new domain deliberately |
 | **Stale** | No edits in 6+ months and nothing cross-references it | `ARCHIVE` — move to `<content-dir>/_archive/` |
 | **Negative-framed judgement call** | "Never do X" where a positive default fits, outside safety / security / output-format | `REWRITE` — state the default; reserve NEVER for true must-nots |
@@ -23,6 +24,7 @@ Apply these checks to the source groups resolved by the review skill.
 | **Weak / duplicate description** | Identical to a sibling, or too vague to choose between them | `DIFFERENTIATE` — add the distinguishing trigger |
 | **Description over budget** | Over ~250 characters (the shared registry budget); over **1024** the tools reject the artifact outright | `TRIM` — keep the distinguishing trigger, drop the rest |
 | **Missing frontmatter field** | `name` or `description` absent | `PATCH` — add it |
+| **Dead skill field** | `agent:` in a `SKILL.md` without `context: fork` (`R8`) | `PATCH` - delete `agent:`, which selects nothing without the fork, or fork the skill when the authoring conventions say it should |
 | **Orphan rule** | Nothing points at it and nothing loads it | `FLAG` — intentional, or dead? |
 
 Detection commands, portable on purpose — no `\b` and no `-P`, so the same command works in Git Bash on Windows, on macOS (BSD grep) and on Linux. Run each over the source directories resolved in step 2, never over generated output:
@@ -51,6 +53,28 @@ grep -rcE '(MUST|NEVER|ALWAYS)' <rule-dirs> <agent-dirs> <skill-dirs> | grep -vE
 # R6 - history narrative in a rule body: PR numbers, incident ids, dates, "this session", commit SHAs
 grep -rniE -e '(#|PR )[0-9]{3,}' -e '[0-9]{4}-[0-9]{2}-[0-9]{2}' -e 'this session|origin session' \
   -e '`[0-9a-f]{7,40}`' <rule-dirs>
+
+# R7 - words per file, then the longest paragraph; a list item or table row is its own paragraph
+find <rule-dirs> <agent-dirs> <skill-dirs> -name '*.md' | while IFS= read -r f; do
+  awk -v f="$f" 'BEGIN { fence = sprintf("%c%c%c", 96, 96, 96) }
+    NR == 1 && /^---[ \t\r]*$/ { fm = 1; next }
+    fm { if (/^---[ \t\r]*$/) fm = 0; next }
+    { w += NF }
+    index($1, fence) == 1 { code = !code; p = 0; next }
+    code || NF == 0 { p = 0; next }
+    /^[ \t]*(#|[-*] |[0-9]+\. |\|)/ { p = 0 }
+    { p += NF; if (p > max) max = p }
+    END { printf "%6d %4d %s\n", w, max, f }' "$f"
+done | sort -rn
+
+# R8 - a skill's agent: without context: fork, read from the frontmatter only
+find <skill-dirs> -name SKILL.md | while IFS= read -r f; do
+  awk -v f="$f" 'NR == 1 && /^---[ \t\r]*$/ { fm = 1; next }
+    fm && /^---[ \t\r]*$/ { exit }
+    fm && /^agent:/ { a = 1 }
+    fm && /^context:[ \t]*"?fork/ { c = 1 }
+    END { if (a && !c) print f }' "$f"
+done
 ```
 
 `R4` is a coarse net, not a verdict: a skill that merely *mentions* a verification command anywhere passes it. Read the final step of every skill regardless — the question is whether something at the end **proves the work landed**, not whether the word appears. So are `R5` and `R6`: a `NEVER` that carries its reason and a date inside a frontmatter template are both legitimate hits, and the row's action applies only where the marker or the id is doing no work.

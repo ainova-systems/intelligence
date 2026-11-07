@@ -158,7 +158,9 @@ at a time. The candidate assessment below is not a commitment to add every liste
 
 **Acceptance.** A host smoke test proves each advertised capability: instructions
 load once, a skill can read its resources, scoped rules activate only as intended,
-and exported agents respect the documented model/tool mapping. Unsupported channels
+and exported agents respect the documented model/tool mapping, including the
+three access values of [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md)
+once they land. Unsupported channels
 are explicit. Test project/user precedence, absent native directories, upgrade,
 removal, shared consumers and rollback. Keep Linux and Windows/Git Bash fixtures in
 the configured gate runner. Add official links when an adapter becomes supported.
@@ -257,6 +259,11 @@ before implementation. Official links for existing adapters are in
   follow adoption evidence. Preserve the existing trust and source-identity contract.
 - **Global installs and full plugin execution:** separate scope/ownership and runtime
   designs; not prerequisites for the project import roadmap.
+- **Three access values (lowest priority):** `readonly`, `runner` and `full`, rendered
+  per adapter as accepted in
+  [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md). Each adapter
+  row lands with its vendor citation and a rendered-frontmatter test; `readonly`
+  losing `Bash` in Claude Code is a breaking change and ships in its own release.
 
 ## Completion criteria
 

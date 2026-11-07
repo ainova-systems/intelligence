@@ -4,6 +4,28 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.25.0]
+
+### Added
+
+- `status --check` notes a disabled adapter whose owned output is still on disk and names the `intelligence-manage-adapters` skill that reviews and removes it.
+- `status --check` prints the `claudeMdExcludes` entry for `.claude/settings.json` that keeps Claude Code from loading the always-on rules a second time through `AGENTS.md` (decision 0025).
+- A backslash keeps a layout token as written (`\<module>` renders as `<module>`), and sync prints a `WARNING:` line with file and line when a project source holds a token joined to the text around it or used as an XML element.
+- `intelligence-learn-from-session` reconciles a folder of lesson records against the current sources, drops the records already applied, and drafts a sanitized upstream issue for a lesson about installed package content or the CLI.
+
+### Changed
+
+- `AGENTS.md` lists package artifacts by name instead of linking into the ignored `.intelligence/` store, where a link is dead in a fresh clone.
+- `intelligence-sync` waits for its forked result (`background: false`), so its caller reads `IS_STATUS` in the same turn, and asks nothing: on a probable Intelligence defect it ends its result with the versions, the command, the expected and actual behavior and safe error text, plus an issue draft built from them, and files nothing. The opt-out questions are gone.
+- `intelligence-review-context` runs as a forked `intelligence-architect` subagent and waits for it. It returns the punch-list with the items to decide and its recommendation; the caller passes the accepted items to `intelligence-update-context`, which runs the compaction checks they carry.
+- `intelligence-learn-from-session`, `intelligence-update-context`, `intelligence-manage-adapters` and `intelligence-upgrade` no longer set `agent:`, which selects nothing without `context: fork`; they run in the conversation as before.
+- Authoring size limits count words: `SKILL.md` 1,500, rule 2,000, agent 500, skill reference 3,000, and 150 for any paragraph, list item or table row. `intelligence-review-context` measures them and also flags a rule that repeats a gate, a name that collides with a package artifact or a tool's built-in command, and a skill's `agent:` without `context: fork`.
+- The authoring conventions document `context: fork`, `background`, `agent` and `model` for skills and when to fork: a skill that works from files and arguments, asks nothing on the way and does heavy reading or judging forks and returns the person's decision with a recommendation, and a skill that works from the conversation or with the person stays inline. They keep `disable-model-invocation` for a skill that starts a named person's decision and say a Git worktree needs its own sync.
+
+### Fixed
+
+- The references no longer say Claude Code ignores `AGENTS.md`, or that Codex gives an `access: readonly` agent a read-only sandbox: Codex ignores `sandbox_mode` in a custom agent file, so the agent runs in the parent session's sandbox. The adapter change is decision 0026, accepted with the lowest priority and left for a later release.
+
 ## [0.24.0]
 
 ### Added

@@ -142,6 +142,8 @@ Expansion applies to frontmatter and bodies. Thus `paths: ["<content-dir>/**"]` 
 
 Project-authored artifacts normally use their known project paths directly. Tokens are useful only when the same artifact must work under different content-directory or package-store locations.
 
+The four tokens are reserved in every source, so a placeholder that means something else, such as a module name, needs a backslash: `\<module>` renders as `<module>`. Sync prints a `WARNING:` line with the file and line when a project source holds a token joined to the text around it (`<module>_update_N`, `modules/<module>.md`) or used as an XML element closed on the same line (`<manifest></manifest>`).
+
 ## Naming
 
 Rule filenames, agent names and skill names share a domain prefix such as `backend-`, `frontend-`, `devops-`, `core-`, `tests-`, a project codename or a monorepo component. Pick the domain from repository structure and reuse it.
@@ -251,7 +253,7 @@ Skills take the same field. `.claude/skills/` receives Claude's level, the share
 
 ### Access mappings
 
-`access: full` inherits ordinary tool permissions. `access: readonly` is transformed into the target's native restriction: for example Claude receives read/search/bash tools with writes disallowed, Cursor receives `readonly: true`, and Codex receives a read-only sandbox.
+`access: full` inherits ordinary tool permissions. `access: readonly` is transformed into the target's native restriction, and the targets differ on commands. Claude keeps `Bash` beside its read and search tools, with `Write` and `Edit` disallowed. Cursor receives `readonly: true`, which its documentation says blocks edits and state-changing shell commands. Copilot, OpenCode and Antigravity receive read and search tools only, and Pi receives the restriction as an instruction. Codex receives `sandbox_mode = "read-only"`, which its [subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) says a custom agent file cannot set, so a Codex agent runs in the parent session's sandbox.
 
 Use only `full` or `readonly` in source agents. Tool-specific permission syntax belongs in adapters.
 
@@ -283,7 +285,7 @@ Rule content in Markdown.
 | Always-on | copied | omitted | omitted | omitted | inlined once into `AGENTS.md` |
 | Always-on, not in `AGENTS.md` | copied | `.mdc` with `alwaysApply: true` | `.md` with `trigger: always_on` | `.instructions.md` with `applyTo: "**"` | Codex: `AGENTS.override.md`; Pi: added to the system prompt by its extension; OpenCode: none |
 
-Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude does not consume `AGENTS.md`, so it receives the full rule set. Codex's override lists scoped patterns and source links with an instruction to read matching rules on demand; this depends on the model following the instruction, not native glob-triggered loading. OpenCode users may configure `instructions:` globs themselves. See [adapter routing](adapters.md#rules) for delivery details.
+Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude receives the full rule set in `.claude/rules/`. Claude Code 2.1.277 and later also reads `AGENTS.md` when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it ([memory docs](https://code.claude.com/docs/en/memory#agents-md)), so the always-on rules load twice until `.claude/settings.json` carries `"claudeMdExcludes": ["**/AGENTS.md"]`. Sync never edits that file; `intelligence status --check` prints the entry when it is missing. Codex's override lists scoped patterns and source links with an instruction to read matching rules on demand; this depends on the model following the instruction, not native glob-triggered loading. OpenCode users may configure `instructions:` globs themselves. See [adapter routing](adapters.md#rules) for delivery details.
 
 An always-on rule `AGENTS.md` does not carry — a local one, or one whose set leaves `agents` out (see [Selecting adapters](#selecting-adapters)) — reaches each tool in its set through that tool's own channel instead, the last row. Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the file holds the whole `AGENTS.md` plus scoped routing and additional always-on rules; it is ignored, exists while either needs it, and one Intelligence did not generate is never touched. Antigravity's `trigger: always_on` belongs to the same undocumented key family as its `trigger: glob`. OpenCode reads instructions only from `AGENTS.md` or its committed `opencode.json`, so it can receive neither a local nor a tool-targeted always-on rule.
 
@@ -308,9 +310,15 @@ argument-hint: "<route-name>"
 4. Report the changed route and verification.
 ```
 
-Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. A tool ignores fields it does not understand. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes. `targets:` and `exclude_targets:` select the adapters that receive the skill and are removed from every copy ([Selecting adapters](#selecting-adapters)).
+Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) and tool extensions pass through unchanged. `effort:` is the exception: sync renders it per tool, as [Effort mappings](#effort-mappings) describes. `targets:` and `exclude_targets:` select the adapters that receive the skill and are removed from every copy ([Selecting adapters](#selecting-adapters)).
 
-`disable-model-invocation: true` makes a skill one only the owner starts, as a slash command: use it for a procedure that changes versions, the lock or generated outputs, where an agent selecting it unasked is the failure. Claude Code, Cursor and Copilot read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
+`disable-model-invocation: true` makes a skill one only a person starts, as a slash command. The flag hides the procedure, not the act: Claude Code keeps the skill's description out of the model's context, so a request in words such as "commit this" never reaches the skill and is carried out without its checks. Keep the flag for a skill that starts a named person's decision, such as approving a plan, moving versions or changing adapters; the person typing the command after seeing what it acts on is the yes, so the skill does not ask again. A skill with side effects stays model-invocable, and its description names the requests that should reach it.
+
+Claude Code, Cursor, Copilot, OpenCode and Pi read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
+
+`context: fork`, `agent`, `background` and `model` are Claude Code fields, and sync copies them unchanged. A forked skill runs as a subagent of the `agent` type that receives the skill as its prompt, sees none of the conversation and has no `AskUserQuestion` tool. In an interactive session it runs in the background by default, so the caller's turn goes on before the result arrives, and a skill whose result its caller needs in the same turn sets `background: false` ([skills](https://code.claude.com/docs/en/skills#run-skills-in-a-subagent), [subagents](https://code.claude.com/docs/en/sub-agents#available-tools)). Without `context: fork`, `agent` selects nothing, and `model` switches the session's model for the rest of the turn, which then re-reads the whole conversation without the prompt cache ([prompt caching](https://code.claude.com/docs/en/prompt-caching#switching-models)). Of the other targets, only Copilot in VS Code documents `context: fork`, as experimental, and none documents `agent`, `background` or `model` for a skill (checked 2026-11-07).
+
+Fork a skill whose inputs are files and arguments, that asks nothing on the way, and whose work is heavy reading, auditing or judging: the caller's context stays small and the work gets an independent reader. Keep a skill inline, with no `agent`, when its input is the conversation or its job is a dialogue or an approval with the person. A forked skill never asks. When it reaches a decision that belongs to the person, it stops before the write and ends its result with the decision, the options and its recommendation, so the caller asks.
 
 These limits reject a skill instead of degrading it:
 
@@ -351,14 +359,15 @@ The engine copies the complete skill directory. Promote a helper outside the ski
 
 A symlink inside a skills source renders as the file or directory it points at when that stays inside the same source, so one source can alias a skill or share a resource between skills. A link that leaves its source, dangles or points at a directory enclosing it is left out with a `WARNING:` line; a skill whose directory or `SKILL.md` is such a link is left out entirely. Add a skill kept elsewhere as its own source or package instead of linking it in. Generated skill directories never contain symlinks.
 
-Size limits are backstops, not quotas:
+Size limits are backstops, not quotas. They count words, because a paragraph written as one long line passes any line cap:
 
-| Artifact | Hard cap | Response |
+| Artifact | Budget | Response |
 |---|---|---|
-| `SKILL.md` body | 1000 lines | Move detail to `references/` |
-| Reference file | 500 lines | Add a contents list past 300; split if still oversized |
-| Rule | 500 lines | Split by scope or move examples behind a skill reference |
-| Agent | 200 lines | Move procedures and constraints into skills/rules |
+| `SKILL.md` | 1,500 words | Move detail to `references/` |
+| Reference file | 3,000 words | Add a contents list past 1,500; split if still oversized |
+| Rule | 2,000 words | Split by scope or move examples behind a skill reference |
+| Agent | 500 words | Move procedures and constraints into skills/rules |
+| Paragraph, list item or table row | 150 words | Split it into the thoughts it holds |
 
 ## Writing discipline
 
@@ -447,6 +456,8 @@ targets:
 `commit_output` accepts `true` or `false`; omitting it means `false`, and any other value makes sync refuse. Turning it off again restores the patterns on the next `intelligence init`.
 
 `AGENTS.md` stays committed by default: it is the tool-neutral fallback every tool reads, and a fresh clone has it only when it is committed, before anyone has synced.
+
+Claude Code loads project skills from the checkout a session starts in, and from 2.1.277 a Git worktree without its own `.claude/skills`, such as one not yet synced, gets the main checkout's ([skills docs](https://code.claude.com/docs/en/skills#load-skills-in-monorepos-and-subdirectories)), so a task in a worktree runs in a session started there after `intelligence sync` there.
 
 Git tracking and release packaging are separate policies. When a project
 already has `.vscodeignore`, `.npmignore`, or `.dockerignore`, the CLI appends a

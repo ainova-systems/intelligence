@@ -17,50 +17,50 @@ Source of truth: `intelligence/` | Sync: `intelligence sync`
 
 | Agent | Tier | Access | Description |
 |-------|------|--------|-------------|
-| [dev-code-reviewer](.intelligence/packages/@ainova-systems/core/agents/dev-code-reviewer.md) | standard | readonly | Reviews pending changes and pull requests for correctness, conventions, boundaries, tests, and security. Read-only. |
-| [dev-qa-verifier](.intelligence/packages/@ainova-systems/core/agents/dev-qa-verifier.md) | standard | readonly | Executes a change's declared verification steps against the running software and reports what was observed. Read-only. |
-| [dev-test-engineer](.intelligence/packages/@ainova-systems/core/agents/dev-test-engineer.md) | standard | full | Test strategy and coverage across unit, integration, contract, and end-to-end levels. Builds the net that makes AI-paced change safe. |
-| [intelligence-architect](.intelligence/packages/@ainova-systems/sync/agents/intelligence-architect.md) | heavy | full | Design and prune the intelligence layer - rule vs skill vs agent, split what grew, remove duplication and hardcoded paths |
-| [intelligence-operator](.intelligence/packages/@ainova-systems/sync/agents/intelligence-operator.md) | standard | full | Interpret CLI plans and operate sync, update, and adapter flows |
+| dev-code-reviewer | standard | readonly | Reviews pending changes and pull requests for correctness, conventions, boundaries, tests, and security. Read-only. |
+| dev-qa-verifier | standard | readonly | Executes a change's declared verification steps against the running software and reports what was observed. Read-only. |
+| dev-test-engineer | standard | full | Test strategy and coverage across unit, integration, contract, and end-to-end levels. Builds the net that makes AI-paced change safe. |
+| intelligence-architect | heavy | full | Design and prune the intelligence layer - rule vs skill vs agent, split what grew, remove duplication and hardcoded paths |
+| intelligence-operator | standard | full | Interpret CLI plans and operate sync, update, and adapter flows |
 
 ### Skills
 
 | Skill | Description |
 |-------|-------------|
-| [dev-deliver](.intelligence/packages/@ainova-systems/core/skills/dev-deliver/SKILL.md) | Runs one task from the owner's first sentence to a released change through whichever skills the project ships for each phase, pausing only at phase boundaries. Executing an already-planned spec, and stopping at the pull request, is spec-execute. |
-| [dev-handoff](.intelligence/packages/@ainova-systems/core/skills/dev-handoff/SKILL.md) | Writes a self-contained prompt a fresh session pastes to continue this work, for when context runs short or a session ends. |
-| [dev-init](.intelligence/packages/@ainova-systems/core/skills/dev-init/SKILL.md) | Sets up a repository to follow the core pack after install: project profile, PR labels, PR template, and harness permission rules. Docs substrate is `spec-init`. |
-| [dev-review-changes](.intelligence/packages/@ainova-systems/core/skills/dev-review-changes/SKILL.md) | Reviews pending changes against the project's rules and reports findings with a severity verdict. Read-only - never edits, stages, or commits. |
-| [dev-run-tests](.intelligence/packages/@ainova-systems/core/skills/dev-run-tests/SKILL.md) | Runs typecheck, lint and tests scoped to what changed, then analyses the failures. The gate every commit passes first. |
-| [git-commit-push](.intelligence/packages/@ainova-systems/core/skills/git-commit-push/SKILL.md) | Commits pending work as one verified milestone and pushes it. Stops at the push - opening the pull request is git-open-pr. |
-| [git-complete-pr](.intelligence/packages/@ainova-systems/core/skills/git-complete-pr/SKILL.md) | Answers and resolves every review thread on a pull request, then records exactly one outcome for the run. The fix and review rounds that get it there are git-finalize-pr. |
-| [git-create-release](.intelligence/packages/@ainova-systems/core/skills/git-create-release/SKILL.md) | Cuts a release - pending-step review, owner gate, version, changelog, tag - per the project's release policy. Runs only on the owner's authorization; release timing is not the model's call. |
-| [git-finalize-pr](.intelligence/packages/@ainova-systems/core/skills/git-finalize-pr/SKILL.md) | Drives an open pull request through rounds of fix, verification and review until every success factor holds on one commit, and ends only at an outcome label. Opening it is git-open-pr; recording the outcome is git-complete-pr. |
-| [git-merge-pr](.intelligence/packages/@ainova-systems/core/skills/git-merge-pr/SKILL.md) | Merges an accepted pull request behind guard checks, then syncs the base branch and cleans up. Runs only on the owner's accept - merge timing is not the model's call. |
-| [git-open-pr](.intelligence/packages/@ainova-systems/core/skills/git-open-pr/SKILL.md) | Opens a pull request for the current branch against its target, filling the repo's template. Driving it to green afterwards is git-finalize-pr. |
-| [git-resolve-conflicts](.intelligence/packages/@ainova-systems/core/skills/git-resolve-conflicts/SKILL.md) | Resolves merge or rebase conflicts by what each side intended, never by picking a hunk, then re-runs the full gates. |
-| [git-review-pr](.intelligence/packages/@ainova-systems/core/skills/git-review-pr/SKILL.md) | Reviews an open pull request's diff against the project rules and against what the PR claims about itself, and records the verdict on the PR. Answering other people's review threads is git-complete-pr. |
-| [git-scan-secrets](.intelligence/packages/@ainova-systems/core/skills/git-scan-secrets/SKILL.md) | Scans a diff, the working tree, or branch history for credentials before they reach a remote, and classifies every hit. |
-| [git-verify-pr](.intelligence/packages/@ainova-systems/core/skills/git-verify-pr/SKILL.md) | Executes a pull request's own verification steps against the running change and records what was observed. Behavioral QA - CI and the fix rounds are git-finalize-pr. |
-| [intelligence-learn-from-repository](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-repository/SKILL.md) | Recover and complete first-time Intelligence repository onboarding |
-| [intelligence-learn-from-session](.intelligence/packages/@ainova-systems/sync/skills/intelligence-learn-from-session/SKILL.md) | Capture session lessons and workflows in project context |
-| [intelligence-manage-adapters](.intelligence/packages/@ainova-systems/sync/skills/intelligence-manage-adapters/SKILL.md) | Enable, disable, or remove adapters and assess generated-output cleanup |
-| [intelligence-review-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-review-context/SKILL.md) | Audit rules, agents, and skills and propose behavior-preserving reductions |
-| [intelligence-sync](.intelligence/packages/@ainova-systems/sync/skills/intelligence-sync/SKILL.md) | Sync intelligence to enabled adapters |
-| [intelligence-update-context](.intelligence/packages/@ainova-systems/sync/skills/intelligence-update-context/SKILL.md) | Create, revise, or remove project rules, agents, and skills |
-| [intelligence-upgrade](.intelligence/packages/@ainova-systems/sync/skills/intelligence-upgrade/SKILL.md) | Upgrade Intelligence and installed packages with migration checks |
+| dev-deliver | Runs one task from the owner's first sentence to a released change through whichever skills the project ships for each phase, pausing only at phase boundaries. Executing an already-planned spec, and stopping at the pull request, is spec-execute. |
+| dev-handoff | Writes a self-contained prompt a fresh session pastes to continue this work, for when context runs short or a session ends. |
+| dev-init | Sets up a repository to follow the core pack after install: project profile, PR labels, PR template, and harness permission rules. Docs substrate is `spec-init`. |
+| dev-review-changes | Reviews pending changes against the project's rules and reports findings with a severity verdict. Read-only - never edits, stages, or commits. |
+| dev-run-tests | Runs typecheck, lint and tests scoped to what changed, then analyses the failures. The gate every commit passes first. |
+| git-commit-push | Commits pending work as one verified milestone and pushes it. Stops at the push - opening the pull request is git-open-pr. |
+| git-complete-pr | Answers and resolves every review thread on a pull request, then records exactly one outcome for the run. The fix and review rounds that get it there are git-finalize-pr. |
+| git-create-release | Cuts a release - pending-step review, owner gate, version, changelog, tag - per the project's release policy. Runs only on the owner's authorization; release timing is not the model's call. |
+| git-finalize-pr | Drives an open pull request through rounds of fix, verification and review until every success factor holds on one commit, and ends only at an outcome label. Opening it is git-open-pr; recording the outcome is git-complete-pr. |
+| git-merge-pr | Merges an accepted pull request behind guard checks, then syncs the base branch and cleans up. Runs only on the owner's accept - merge timing is not the model's call. |
+| git-open-pr | Opens a pull request for the current branch against its target, filling the repo's template. Driving it to green afterwards is git-finalize-pr. |
+| git-resolve-conflicts | Resolves merge or rebase conflicts by what each side intended, never by picking a hunk, then re-runs the full gates. |
+| git-review-pr | Reviews an open pull request's diff against the project rules and against what the PR claims about itself, and records the verdict on the PR. Answering other people's review threads is git-complete-pr. |
+| git-scan-secrets | Scans a diff, the working tree, or branch history for credentials before they reach a remote, and classifies every hit. |
+| git-verify-pr | Executes a pull request's own verification steps against the running change and records what was observed. Behavioral QA - CI and the fix rounds are git-finalize-pr. |
+| intelligence-learn-from-repository | Recover and complete first-time Intelligence repository onboarding |
+| intelligence-learn-from-session | Capture session lessons and workflows in project context |
+| intelligence-manage-adapters | Enable, disable, or remove adapters and assess generated-output cleanup |
+| intelligence-review-context | Audit rules, agents, and skills and propose behavior-preserving reductions |
+| intelligence-sync | Sync intelligence to enabled adapters |
+| intelligence-update-context | Create, revise, or remove project rules, agents, and skills |
+| intelligence-upgrade | Upgrade Intelligence and installed packages with migration checks |
 | [dev-build-adapter](intelligence/skills/dev-build-adapter/SKILL.md) | Implement and verify built-in or project-owned Intelligence adapters |
 | [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) | Implement one roadmap batch through a merge-ready PR |
 
 ### Rules
 
-- [dev-context-engineering](.intelligence/packages/@ainova-systems/core/rules/dev-context-engineering.md) (global)
-- [dev-rollback-safety](.intelligence/packages/@ainova-systems/core/rules/dev-rollback-safety.md) (global)
-- [dev-skill-first](.intelligence/packages/@ainova-systems/core/rules/dev-skill-first.md) (global)
-- [dev-verification-gates](.intelligence/packages/@ainova-systems/core/rules/dev-verification-gates.md) (global)
-- [git-commit-conventions](.intelligence/packages/@ainova-systems/core/rules/git-commit-conventions.md) (global)
-- [git-workflow](.intelligence/packages/@ainova-systems/core/rules/git-workflow.md) (global)
-- [intelligence-authoring](.intelligence/packages/@ainova-systems/sync/rules/intelligence-authoring.md) (scoped)
+- dev-context-engineering (global)
+- dev-rollback-safety (global)
+- dev-skill-first (global)
+- dev-verification-gates (global)
+- git-commit-conventions (global)
+- git-workflow (global)
+- intelligence-authoring (scoped)
 - [cli](intelligence/rules/cli.md) (scoped)
 - [dev-project-profile](intelligence/rules/dev-project-profile.md) (global)
 - [docs](intelligence/rules/docs.md) (scoped)

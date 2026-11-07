@@ -6,7 +6,7 @@ workflows; ordinary `intelligence ...` commands are deterministic CLI operations
 | Skill | Use it when |
 |---|---|
 | `intelligence-update-context` | Create, revise, or remove rules, agents, and skills. |
-| `intelligence-learn-from-session` | Save a session lesson or turn an observed workflow into a skill. |
+| `intelligence-learn-from-session` | Save a session lesson, turn an observed workflow into a skill, or reconcile a folder of lesson records; a lesson about installed content becomes an upstream issue draft. |
 | `intelligence-review-context` | Audit the intelligence layer and propose reductions that preserve behavior. |
 | `intelligence-learn-from-repository` | Complete initial onboarding, migrate preserved instructions, or recover interrupted setup. |
 | `intelligence-manage-adapters` | Enable, disable, or remove existing adapters and assess generated-output cleanup. |
@@ -14,10 +14,15 @@ workflows; ordinary `intelligence ...` commands are deterministic CLI operations
 | `intelligence-upgrade` | Upgrade Intelligence and installed packages, verifying migrations and breaking post-conditions. |
 
 Session learning identifies and generalizes evidence; context updating owns the
-artifact-writing procedure. Review is read-only until changes are accepted, then
-uses that same authoring procedure. Compaction retains its behavior ledger,
-measurement, and evaluation requirements. Initial onboarding keeps its separate
-backup migration and recovery checks.
+artifact-writing procedure. Review is read-only and returns its proposals; the
+accepted ones go through that same authoring procedure. Compaction proposals carry
+their behavior ledger, measurement, and evaluation requirements into it. Initial
+onboarding keeps its separate backup migration and recovery checks.
+
+In Claude Code, `intelligence-review-context` and `intelligence-sync` run as
+subagents of the package agents and the caller waits for their result. Neither
+sees the conversation or asks a question, so whatever the person has to decide
+comes back in that result. The other skills run in the conversation.
 
 For example, "remember the workflow we just used" belongs to
 `intelligence-learn-from-session`; "add a rule for the API" belongs to

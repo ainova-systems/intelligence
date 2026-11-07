@@ -2,7 +2,6 @@
 name: intelligence-manage-adapters
 description: "Enable, disable, or remove adapters and assess generated-output cleanup"
 argument-hint: "<enable|disable|remove> <adapter-name>"
-agent: intelligence-operator
 disable-model-invocation: true
 ---
 
@@ -42,5 +41,6 @@ scaffolding, and sync. Adapter implementation follows the public adapter guide.
 5. Verify with `intelligence adapter list` and `intelligence status --check`:
    requested target state is correct, retained files are intact, and only approved
    adapter-owned output was deleted. Report state, output paths, and any remaining
-   implementation or cleanup work. Preserve CLI refusals instead of recreating
-   lifecycle mechanics manually.
+   implementation or cleanup work, with each settings change a check note names
+   as the owner's step and its exact JSON. Preserve CLI refusals instead of
+   recreating lifecycle mechanics manually.

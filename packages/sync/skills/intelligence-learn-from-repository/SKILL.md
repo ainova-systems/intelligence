@@ -104,10 +104,13 @@ explains itself well.
     back. Completion requires
     `IS_STATUS=ok`, a clean final check, and no `onboarding is pending` header
     after accepted migration.
-11. Report what was created, updated, removed, or deliberately kept. Remind the
-    user to commit source, manifest, lock and `AGENTS.md` changes, plus Copilot's
-    `.github/` output only when `targets.copilot.commit_output` is `true`. Keep or
-    remove the initial backup only by separate user approval.
+11. Report what was created, updated, removed, or deliberately kept. A
+    `status --check` note that names a tool settings change is the owner's step:
+    show it with the exact JSON it prints and leave the settings file to the
+    owner. Remind the user to commit source, manifest, lock and `AGENTS.md`
+    changes, plus Copilot's `.github/` output only when
+    `targets.copilot.commit_output` is `true`. Keep or remove the initial backup
+    only by separate user approval.
 
 ## Later learning
 

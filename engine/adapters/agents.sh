@@ -34,6 +34,17 @@ agents_md_module_rel() {
     printf '%s' "${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
 }
 
+# agents_md_link_var <repo_root> <path>: the link target AGENTS.md gives an
+# artifact in IS_REPO_REL, "" for its bare name. The package store is ignored,
+# so a link into .intelligence/ is dead in every clone before a sync and on the
+# forge: store content is listed by name, like content outside the root.
+agents_md_link_var() {
+    repo_rel_link_var "$1" "$2"
+    case "$IS_REPO_REL" in
+        .intelligence/*) IS_REPO_REL="" ;;
+    esac
+}
+
 # Append the static header block from config.yaml (or a fallback).
 agents_md_append_header() {
     local output="$1"
@@ -73,7 +84,7 @@ agents_md_append_agents_table() {
         while IFS=$'\x1f' read -r path tier access desc; do
             name="${names[i]}"
             i=$((i + 1))
-            repo_rel_link_var "$repo_root" "$path"
+            agents_md_link_var "$repo_root" "$path"
             if [ -n "$IS_REPO_REL" ]; then
                 rows+="| [$name]($IS_REPO_REL) | ${tier:--} | ${access:--} | ${desc:--} |"$'\n'
             else
@@ -118,7 +129,7 @@ agents_md_append_skills_table() {
         while IFS=$'\x1f' read -r path desc; do
             name="${names[i]}"
             i=$((i + 1))
-            repo_rel_link_var "$repo_root" "$path"
+            agents_md_link_var "$repo_root" "$path"
             if [ -n "$IS_REPO_REL" ]; then
                 rows+="| [$name]($IS_REPO_REL) | ${desc:--} |"$'\n'
             else
@@ -162,7 +173,7 @@ agents_md_append_rules_list() {
         else
             global_rule_files+=("$path")
         fi
-        repo_rel_link_var "$repo_root" "$path"
+        agents_md_link_var "$repo_root" "$path"
         if [ -n "$IS_REPO_REL" ]; then
             lines+="- [$name]($IS_REPO_REL) ($scope)"$'\n'
         else

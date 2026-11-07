@@ -2,7 +2,6 @@
 name: intelligence-update-context
 description: "Create, revise, or remove project rules, agents, and skills"
 argument-hint: "[rule|agent|skill] [request or accepted proposals]"
-agent: intelligence-architect
 ---
 
 # Update project context
@@ -74,3 +73,6 @@ the same procedure. Updating the layer can create a new artifact.
 9. Report the created, updated, removed, or archived artifacts and their checks.
    Return control to the originating workflow for its additional semantic,
    compaction, migration, or packaging verification; those checks remain required.
+   Review proposals carry their verification steps instead, because the review
+   has already returned: run each at the point it names, before or after editing,
+   and report the results here.

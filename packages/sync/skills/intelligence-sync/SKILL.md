@@ -3,6 +3,7 @@ name: intelligence-sync
 description: "Sync intelligence to enabled adapters"
 agent: intelligence-operator
 context: fork
+background: false
 ---
 
 # Sync intelligence
@@ -19,13 +20,12 @@ context: fork
    `IS_STATUS=needs-update` (exit 6) means the project needs a migration only
    `intelligence update` applies; report that, and never edit the manifest or
    lock by hand to get past it. A frozen restore refusal means the
-   manifest and lock disagree or the locked commit cannot be verified/restored—report it without
-   hand-copying package content.
-4. On a probable Intelligence defect, first ask whether to collect a sanitized
-   issue draft; collect nothing before approval and never use telemetry. Include
-   only approved CLI/version, expected/actual behavior, and safe error details—
-   no confidential or project-specific data. Show the draft and obtain separate
-   approval before filing. If declined, ask whether the opt-out is for this
-   session, a user/gitignored dev-project profile, or a shared team policy; save
-   it only with separate approval. Put team policy in a project-owned rule, and
-   never invent a profile path or infer the intended scope.
+   manifest and lock disagree or the locked commit cannot be verified or restored;
+   report it without hand-copying package content.
+4. On a probable Intelligence defect, end the result with a block headed
+   `Probable Intelligence defect` that holds only safe facts: the CLI and engine
+   versions from `intelligence version`, the command, the expected and the actual
+   behavior, and error text with nothing confidential or specific to the project.
+   Follow it with an issue draft built from those facts alone. The result is the
+   only place they go: send and file nothing, and use no telemetry. Filing the
+   draft is a separate request the person makes.
