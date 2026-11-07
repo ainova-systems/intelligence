@@ -336,7 +336,7 @@ printf -- '---\nname: verbose\ndescription: "%s"\n---\n\n# Verbose\n' "$long_des
 REJECTED="description is 1100 chars — over the 1024-char limit; the skill/agent will be REJECTED at load time"
 xok "$REJECTED" "$P6" sync --compact --force
 compact_contract_ok "$OUTPUT" || { echo "FAIL: forced compact output broke its contract"; printf '%s\n' "$OUTPUT"; fail=1; }
-printf '%s\n' "$OUTPUT" | grep -q "^WARNING: .*verbose.md:3 $REJECTED" \
+printf '%s\n' "$OUTPUT" | grep -q "^WARNING: intelligence/agents/verbose.md:3 $REJECTED" \
     || { echo "FAIL: the rejection warning is not a WARNING: line"; printf '%s\n' "$OUTPUT"; fail=1; }
 xok "$REJECTED" "$P6" sync --compact
 compact_contract_ok "$OUTPUT" || { echo "FAIL: replayed compact output broke its contract"; printf '%s\n' "$OUTPUT"; fail=1; }

@@ -578,6 +578,64 @@ yaml_dq_escape_var 'Keep \<module>, \\<module> and <module>'
 printf 'description: "%s"\n' "$IS_YAML_ESCAPED" > "$OUT/tokens-yaml.md"
 IS_MODULE_REL=m finalize_output_file "$OUT/tokens-yaml.md"
 chk grep -Fqx 'description: "Keep <module>, \\<module> and m"' "$OUT/tokens-yaml.md"
+# A value renders as written: a backslash in it is not an escape sequence.
+printf '%s\n' 'see <content-dir>/x' > "$OUT/tokens-backslash.md"
+IS_CONTENT_REL='we\ird\new\\dir' finalize_output_file "$OUT/tokens-backslash.md" 2>/dev/null
+chk grep -Fqx 'see we\ird\new\\dir/x' "$OUT/tokens-backslash.md"
+
+echo "== source lint: every warning names its source relative to the root =="
+LR="$OUT/lint-root"
+mkdir -p "$LR/intelligence/agents" "$LR/.intelligence/packages/@a/b/agents" "$OUT/lint-shared"
+printf '%s\n' '---' 'description: a: b' 'effort: hiigh' '---' 'Body <module>_x' > "$LR/intelligence/agents/fm.md"
+cp "$LR/intelligence/agents/fm.md" "$LR/.intelligence/packages/@a/b/agents/fm.md"
+cp "$LR/intelligence/agents/fm.md" "$OUT/lint-shared/fm.md"
+warnings="$(source_frontmatter_scan "$LR" "$LR/intelligence/agents/fm.md" \
+    "$LR/.intelligence/packages/@a/b/agents/fm.md" "$LR/../lint-shared/fm.md" 2>&1 >/dev/null)"
+chk eq "$(printf '%s\n' "$warnings" | cut -d ' ' -f 1-3)" "$(printf 'WARNING: %s\n' \
+    'intelligence/agents/fm.md:2 unquoted' 'intelligence/agents/fm.md:3 effort' \
+    'intelligence/agents/fm.md:5 <module>' \
+    '.intelligence/packages/@a/b/agents/fm.md:2 unquoted' '.intelligence/packages/@a/b/agents/fm.md:3 effort' \
+    '../lint-shared/fm.md:2 unquoted' '../lint-shared/fm.md:3 effort' '../lint-shared/fm.md:5 <module>')"
+chk eq "$(printf '%s\n' "$warnings" | head -n 1)" \
+    'WARNING: intelligence/agents/fm.md:2 unquoted colon in value at column 15 — wrap value in quotes'
+
+echo "== layout tokens: one row in IS_LAYOUT_TOKENS reaches expansion, every escape and the lint =="
+# A copy of the library whose only change is a probe row in the declaration:
+# whatever still names the tokens itself leaves <probe> behind somewhere.
+P="$OUT/probe-token"
+mkdir -p "$P/lib" "$P/intelligence/rules"
+awk -v row="    'probe IS_PROBE PROBE_VALUE'" '
+    $0 == "IS_LAYOUT_TOKENS=(" { decl = 1 }
+    decl && $0 == ")" { print row; decl = 0 }
+    { print }
+' "$REPO/engine/lib/common.sh" > "$P/lib/common.sh"
+chk eq "$(diff "$REPO/engine/lib/common.sh" "$P/lib/common.sh" | grep '^[<>]' || :)" \
+    ">     'probe IS_PROBE PROBE_VALUE'"
+printf '%s\n' 'see <probe>, \<probe> and <probe>_x in <content-dir>' > "$P/intelligence/rules/probe.md"
+printf '%s\n' '---' 'description: uses \<probe> and <probe>' '---' > "$P/quoted-src.md"
+(
+    # shellcheck source=/dev/null
+    source "$P/lib/common.sh"
+    unset IS_PROBE IS_CONTENT_REL
+    cp "$P/intelligence/rules/probe.md" "$P/plain.md"
+    finalize_output_file "$P/plain.md"
+    printf '%s\n' '<probe>' > "$P/env.md"
+    IS_PROBE=elsewhere finalize_output_file "$P/env.md"
+    yaml_dq_escape_var 'uses \<probe>, \\<probe> and <probe>'
+    printf 'description: "%s"\n' "$IS_YAML_ESCAPED" > "$P/yaml.md"
+    toml_escape_var 'uses \<probe> and <probe>'
+    printf 'description = "%s"\n' "$IS_TOML_ESCAPED" > "$P/toml.md"
+    copy_md_with_quoted_frontmatter "$P/quoted-src.md" "$P/quoted.md"
+    finalize_output_files "$P/yaml.md" "$P/toml.md" "$P/quoted.md"
+    source_frontmatter_scan "$P" "$P/intelligence/rules/probe.md" 2> "$P/warnings" >/dev/null
+)
+chk grep -Fqx 'see PROBE_VALUE, <probe> and PROBE_VALUE_x in intelligence' "$P/plain.md"
+chk grep -Fqx 'elsewhere' "$P/env.md"
+chk grep -Fqx 'description: "uses <probe>, \\<probe> and PROBE_VALUE"' "$P/yaml.md"
+chk grep -Fqx 'description = "uses <probe> and PROBE_VALUE"' "$P/toml.md"
+chk grep -Fqx 'description: "uses <probe> and PROBE_VALUE"' "$P/quoted.md"
+chk eq "$(cat "$P/warnings")" \
+    'WARNING: intelligence/rules/probe.md:1 <probe> is part of the text around it, but sync renders this layout token as PROBE_VALUE; write \<probe> to keep it as written'
 
 echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
 K="$OUT/skill-effort"

@@ -51,7 +51,9 @@ a Git argument or a filesystem operation. These are untrusted inputs that end up
 A warning is one unindented line on stderr that starts `WARNING:`. `sync --compact`
 — the sync `init` runs — and the replay of an unchanged sync keep exactly those lines
 and drop anything indented as progress, so a warning written in any other form
-vanishes from the output a user or an agent actually reads.
+vanishes from the output a user or an agent actually reads. A warning about a
+source names it by its repository-relative path: an absolute one names the
+checkout, or the private copy `sync --check` renders in, instead of the file.
 
 Reuse the parsers and helpers in `engine/lib/common.sh` and `cli/lib/`. A second YAML
 or frontmatter parser inside a command or an adapter is a drift source, not a

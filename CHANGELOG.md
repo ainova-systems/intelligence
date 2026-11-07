@@ -4,6 +4,17 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.25.1]
+
+### Changed
+
+- The engine declares the layout tokens once, in `IS_LAYOUT_TOKENS`, and their expansion, backslash escape, quoted-value escapers and source warning all read that list.
+
+### Fixed
+
+- A layout token value holding a backslash, such as a content directory, renders as written; the backslash was read as an escape sequence and lost.
+- Every sync warning about a source's frontmatter names the file by its repository-relative path, as the layout-token warning does, instead of its absolute path.
+
 ## [0.25.0]
 
 ### Added

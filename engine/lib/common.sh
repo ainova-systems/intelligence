@@ -18,19 +18,34 @@ normalize_file_to_lf() {
 #
 # The content directory is named by the project (`intelligence/`,
 # `Intelligence/`, a codename), so package-shipped artifacts cannot hardcode
-# it. Layout-sensitive paths and commands use tokens expanded at output time:
+# it. Layout-sensitive paths and commands use tokens expanded at output time,
+# in EVERY generated file, frontmatter and body alike, so a scoped rule reaches
+# Claude's `paths:`, Cursor's `globs:` and Copilot's `applyTo:` already
+# carrying the project's real folder name.
 #
-#   <content-dir> -> the repo-relative project content dir (e.g. `Intelligence`)
-#   <module>      -> the repo-relative sync package store path
-#
-# A backslash in front keeps a token literal, and the source lint warns about a
-# token in a project source that reads as ordinary text (_IS_AWK_LINT).
-#
-# Values come from IS_CONTENT_REL / IS_MODULE_REL, which the CLI derives from
-# the detected layout (never hardcoded) and exports before any adapter runs.
-# Expansion happens in EVERY generated file, frontmatter and body alike, so a
-# scoped rule reaches Claude's `paths:`, Cursor's `globs:` and Copilot's
-# `applyTo:` already carrying the project's real folder name.
+# IS_LAYOUT_TOKENS is the one declaration of them, a `<name> <variable>
+# <default>` row per token: `<name>` renders as the value of <variable>, which
+# the CLI derives from the detected layout (never hardcoded) and exports
+# before any adapter runs, or as <default>, the rest of the row, while that
+# variable is unset or empty. Expansion (fin_line), the backslash that keeps a
+# token as written (fin_keep, token_keep_var) and the source lint that warns
+# about a token reading as ordinary text (_IS_AWK_LINT) all derive from these
+# rows, so a new token is one row here plus its entry in the reference tables
+# (packages/sync/references/conventions.md and adapters.md). A name is
+# lowercase letters, digits and `-`: it is spliced into awk text and a Bash
+# pattern.
+IS_LAYOUT_TOKENS=(
+    'content-dir IS_CONTENT_REL intelligence'
+    'module IS_MODULE_REL .intelligence/packages/@ainova-systems/sync'
+    'manifest IS_MANIFEST_NAME intelligence.yaml'
+    'sync-cmd IS_SYNC_CMD intelligence sync'
+)
+IS_LAYOUT_NAMES=()
+_is_names=""
+for _is_row in "${IS_LAYOUT_TOKENS[@]}"; do
+    IS_LAYOUT_NAMES+=("${_is_row%% *}")
+    _is_names="$_is_names${_is_names:+ }${_is_row%% *}"
+done
 
 # Process spawns dominate sync time on Git Bash for Windows: one fork costs
 # tens of milliseconds against ~1ms on Linux, so a helper that runs awk per
@@ -42,8 +57,10 @@ normalize_file_to_lf() {
 #
 # fin_line() uses literal (index-based) substitution, not gsub: a regex
 # replacement would give `&` in a path its special meaning, and POSIX awk has
-# no way to pass a replacement string verbatim. Token values arrive via the
-# -v args produced by is_fin_awk_vars.
+# no way to pass a replacement string verbatim. The token names are part of
+# the program text, so fin_keep works in every program that includes this
+# library; the values are read in BEGIN from the environment variable that
+# is_fin_awk_vars fills and names in IS_FIN_V.
 IS_AWK_LIB='
     function is_repl(s, from, to,   out, i) {
         out = ""
@@ -53,23 +70,35 @@ IS_AWK_LIB='
         }
         return out s
     }
+    # FIN_TOK[k] is the k-th token of IS_LAYOUT_TOKENS, FIN_VAL[k] its value,
+    # FIN_ESC[k] the token escaped and FIN_HOLD[k] what fin_keep turns that into.
+    BEGIN {
+        FIN_N = split("'"$_is_names"'", is_tn, " ")
+        if (FIN_ENV != "") split(ENVIRON[FIN_ENV], FIN_VAL, sprintf("%c", 31))
+        for (is_tk = 1; is_tk <= FIN_N; is_tk++) {
+            FIN_TOK[is_tk] = "<" is_tn[is_tk] ">"
+            FIN_ESC[is_tk] = "\\" FIN_TOK[is_tk]
+            FIN_HOLD[is_tk] = "\034" is_tn[is_tk] ">"
+        }
+    }
     # A backslash keeps a token as written: `\<module>` renders as `<module>`.
     # The escaped token waits on a control character while the others expand.
     # A writer that doubles backslashes for YAML or TOML calls fin_keep (or
     # token_keep_var) first: once escaped, `\\<module>` no longer reads as one.
-    function fin_keep(s) {
+    function fin_keep(s,   k) {
         if (!index(s, "\\<")) return s
-        s = is_repl(s, "\\<sync-cmd>", "\034sync-cmd>")
-        s = is_repl(s, "\\<manifest>", "\034manifest>")
-        s = is_repl(s, "\\<module>", "\034module>")
-        return is_repl(s, "\\<content-dir>", "\034content-dir>")
+        for (k = 1; k <= FIN_N; k++) s = is_repl(s, FIN_ESC[k], FIN_HOLD[k])
+        return s
     }
-    function fin_line(s) {
-        s = fin_keep(s)
-        s = is_repl(s, "<sync-cmd>", FIN_SC)
-        s = is_repl(s, "<manifest>", FIN_MF)
-        s = is_repl(s, "<module>", FIN_MOD)
-        s = is_repl(s, "<content-dir>", FIN_CONTENT)
+    # Every line of every rendered file passes here, and most hold no `<`, so
+    # those skip the token loop. Tokens expand from the last declared to the
+    # first, the order the engine has always used: a value that itself holds a
+    # token renders as it always did.
+    function fin_line(s,   k) {
+        if (index(s, "<")) {
+            s = fin_keep(s)
+            for (k = FIN_N; k > 0; k--) s = is_repl(s, FIN_TOK[k], FIN_VAL[k])
+        }
         if (index(s, "\034")) s = is_repl(s, "\034", "<")
         return s
     }
@@ -128,17 +157,28 @@ IS_AWK_LIB='
         return 1
     }
 '
+unset _is_row _is_names
 
-# is_fin_awk_vars — fill the global IS_FIN_V array with the -v bindings the
-# IS_AWK_LIB fin_line() function needs. Rebuilt on every call: the IS_* env
-# contract is exported after this file is sourced.
+# is_fin_awk_vars — export IS_LAYOUT_VALUES, every token's value in
+# IS_LAYOUT_TOKENS order, \x1f-separated, and set the global IS_FIN_V to the
+# -v binding that points IS_AWK_LIB at it; a program run without IS_FIN_V
+# expands every token to nothing, as it always did. The values travel through
+# the environment, which awk reads verbatim: a -v value has its backslashes
+# read as escapes, and BSD awk refuses one that holds a newline. Rebuilt on
+# every call: the IS_* env contract is exported after this file is sourced,
+# and a caller may set one variable for a single call.
 is_fin_awk_vars() {
-    IS_FIN_V=(
-        -v "FIN_SC=${IS_SYNC_CMD:-intelligence sync}"
-        -v "FIN_MF=${IS_MANIFEST_NAME:-intelligence.yaml}"
-        -v "FIN_MOD=${IS_MODULE_REL:-.intelligence/packages/@ainova-systems/sync}"
-        -v "FIN_CONTENT=${IS_CONTENT_REL:-intelligence}"
-    )
+    local row rest var def values="" sep=""
+    for row in "${IS_LAYOUT_TOKENS[@]}"; do
+        rest="${row#* }"
+        var="${rest%% *}"
+        def=""
+        case "$rest" in *' '*) def="${rest#* }" ;; esac
+        values="$values$sep${!var:-$def}"
+        sep=$'\x1f'
+    done
+    export IS_LAYOUT_VALUES="$values"
+    IS_FIN_V=(-v FIN_ENV=IS_LAYOUT_VALUES)
 }
 
 # finalize_output_files <file>...
@@ -311,7 +351,7 @@ token_keep_var() {
     local s="$1" fs=$'\034' t
     case "$s" in
         *'\<'*)
-            for t in sync-cmd manifest module content-dir; do
+            for t in "${IS_LAYOUT_NAMES[@]}"; do
                 s="${s//\\<$t>/$fs$t>}"
             done
             ;;
@@ -1107,6 +1147,9 @@ enforce_authored_invocation_policies() {
 # warning names the source exactly once however many tools render it. Unlike
 # the lint notes it is an unindented `WARNING:` line, because `sync --compact`
 # (and so `init`) keeps only those (decision 0015).
+# This form takes no repository root, so its warnings name each file as the
+# caller passed it; the engine's pass, source_frontmatter_scan, names it
+# relative to the root.
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
     [ "$#" -gt 0 ] || return 0
@@ -1115,7 +1158,10 @@ lint_frontmatter_files() {
 
 # The lint rules, shared with source_frontmatter_scan, which runs them in the
 # same pass that reads routing fields. Every rule may end with `next`, so a
-# program that joins them puts its own rules first.
+# program that joins them puts its own rules first. Every warning names the
+# source as lint_src: relative to ENVIRON["IS_LINT_ROOT"] when the file lies
+# under it, so a warning reads the same from any checkout, from the private
+# copy `sync --check` renders in, and in the replay of an unchanged sync.
 _IS_AWK_LINT='
         BEGIN {
             nl = split(levels, LV, " ")
@@ -1124,19 +1170,17 @@ _IS_AWK_LINT='
                 LEVEL[LV[li]] = 1
                 allowed = allowed (li > 1 ? ", " : "") LV[li]
             }
-            tok_root = ENVIRON["IS_TOK_ROOT"]
-            split("<content-dir> <module> <manifest> <sync-cmd>", TOK, " ")
-            TOKV[1] = FIN_CONTENT; TOKV[2] = FIN_MOD; TOKV[3] = FIN_MF; TOKV[4] = FIN_SC
+            lint_root = ENVIRON["IS_LINT_ROOT"]
         }
         # A layout token that cannot mean what it renders as: joined to a word
         # or a path around it, or an XML element closed on the same line. A
         # module-name placeholder `<module>_update_N` rendered as the package
         # path. Packages use tokens by design, so only project sources (under
         # the root, outside its package store) are read, and an escaped token
-        # (`\<module>`) is literal.
+        # (`\<module>`) is literal. The tokens are FIN_TOK from IS_AWK_LIB.
         function tok_check(l,   k, t, n, at, p, b, a) {
-            for (k = 1; k <= 4; k++) {
-                t = TOK[k]; n = length(t); at = 0
+            for (k = 1; k <= FIN_N; k++) {
+                t = FIN_TOK[k]; n = length(t); at = 0
                 while ((p = index(substr(l, at + 1), t)) > 0) {
                     at += p
                     b = (at > 1) ? substr(l, at - 1, 1) : ""
@@ -1146,7 +1190,7 @@ _IS_AWK_LINT='
                     if (b ~ /[[:alnum:]_]/ || b == "/" || a ~ /^([[:alnum:]_-]|[.][[:alnum:]_])/ \
                         || index(l, "</" substr(t, 2))) {
                         printf "WARNING: %s:%d %s is part of the text around it, but sync renders this layout token as %s; write \\%s to keep it as written\n", \
-                            substr(FILENAME, length(tok_root) + 2), FNR, t, TOKV[k], t > "/dev/stderr"
+                            lint_src, FNR, t, FIN_VAL[k], t > "/dev/stderr"
                         break
                     }
                 }
@@ -1154,8 +1198,9 @@ _IS_AWK_LINT='
         }
         FNR == 1 {
             in_fm = 0; done = 0; effort_seen = 0
-            tok_own = tok_root != "" && index(FILENAME, tok_root "/") == 1 \
-                && index(FILENAME, tok_root "/.intelligence/") != 1
+            lint_under = lint_root != "" && index(FILENAME, lint_root "/") == 1
+            lint_src = lint_under ? substr(FILENAME, length(lint_root) + 2) : FILENAME
+            tok_own = lint_under && index(FILENAME, lint_root "/.intelligence/") != 1
         }
         { sub(/\r$/, "") }
         tok_own && index($0, ">") { tok_check($0) }
@@ -1166,11 +1211,11 @@ _IS_AWK_LINT='
         in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
             effort = fm_value_strip(substr($0, 8))
             if (effort != "" && !(effort in LEVEL)) {
-                printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", FILENAME, FNR, effort, allowed > "/dev/stderr"
+                printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", lint_src, FNR, effort, allowed > "/dev/stderr"
             }
         }
         in_fm && /^\t/ {
-            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
+            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", lint_src, FNR > "/dev/stderr"
         }
         in_fm && /^[a-zA-Z0-9_-]+:[[:space:]]+[^"\047|>[{]/ {
             value_start = index($0, ":") + 1
@@ -1178,10 +1223,10 @@ _IS_AWK_LINT='
             sub(/^[[:space:]]+/, "", value)
             if (value ~ /:[[:space:]]/ || value ~ /:$/) {
                 col = index(value, ":") + value_start
-                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
+                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", lint_src, FNR, col > "/dev/stderr"
             }
             if (value ~ /"/) {
-                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
+                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", lint_src, FNR > "/dev/stderr"
             }
         }
         # Field-length limits. Both Claude Code and the Agent Skills standard
@@ -1200,7 +1245,7 @@ _IS_AWK_LINT='
             }
             limit = (key == "name") ? 64 : 1024
             if (length(val) > limit) {
-                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
+                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", lint_src, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
 '
@@ -2542,13 +2587,14 @@ source_catalog_build() {
 # occurrence of a key wins, and a key with no value at all is not set
 # (`targets: []` is: it is the empty list). With <lint-root>, the repository
 # root, the same pass runs lint_frontmatter_files over every file and the
-# layout-token check over the project's own; warnings go to stderr.
+# layout-token check over the project's own; warnings go to stderr and name
+# each source relative to that root.
 source_frontmatter_scan() {
     local do_lint=0 root="$1"
     [ -z "$root" ] || do_lint=1
     shift
     is_fin_awk_vars
-    IS_TOK_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+    IS_LINT_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
         function sx_items(s, k,   parts, m, j, v, q) {
             m = split(s, parts, ",")
