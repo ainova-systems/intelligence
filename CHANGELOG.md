@@ -4,6 +4,8 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.25.2]
+
 ## [0.25.1]
 
 ### Changed

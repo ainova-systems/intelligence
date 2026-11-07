@@ -218,6 +218,41 @@ proposal for digest verification, durable retrieval, size/time limits, extractio
 containment and complete-bundle failure behavior. Do not couple the engine to a
 hosted discovery/download service.
 
+## Known defects
+
+Found and still open. Each is independent of the delivery order above.
+
+### 10. A sync-lock test that races its own timing
+
+**Problem.** The `e2e-sync-lock` case "each ownerless moment gets its own grace,
+however long the wait" drives the lock with fixed sleeps: each ownerless window
+lasts two seconds, against the three seconds `sync_lock_acquire` grants an
+ownerless lock, counted in whole `SECONDS` and polled once a second. On a loaded
+host the window plus scheduling delay reads as three, the command refuses with
+"another intelligence sync is starting", and the case fails; a rerun passes.
+
+**Deliver.** Drive the case from events the test controls, or size its windows
+from the grace with a margin the one-second measurement cannot consume, without
+lengthening the suite noticeably.
+
+**Acceptance.** The case still fails when a later ownerless moment inherits the
+first one's start, and passes repeatedly while other suites run alongside it.
+
+### 11. Byte 0x1c renders as `<`
+
+**Problem.** The token escape holds `\<token>` on byte 0x1c while the other
+tokens expand, and `fin_line` then turns every 0x1c in the line into `<`.
+`token_keep_var` uses the same placeholder for the YAML, TOML and Pi string
+escapers. A 0x1c already present in a source line or in a layout token value
+therefore renders as `<` instead of itself.
+
+**Deliver.** Restore only the placeholders the escape created, keeping
+`fin_line`'s path for lines without `<` free of added work.
+
+**Acceptance.** A source line and a token value holding 0x1c render it unchanged
+in plain lines and in quoted YAML, TOML and Pi values; `\<module>` still renders
+as `<module>`; output for sources without 0x1c stays byte-identical.
+
 ## Adapter candidates
 
 Assessment date: September 5, 2026. “Existing” refers to current Intelligence code;
