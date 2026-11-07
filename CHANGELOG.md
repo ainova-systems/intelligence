@@ -9,7 +9,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 ### Added
 
 - `status --check` notes a disabled adapter whose owned output is still on disk and names the `intelligence-manage-adapters` skill that reviews and removes it.
-- `status --check` prints the `claudeMdExcludes` entry for `.claude/settings.json` when the `claude` and `agents` targets are both enabled and the project has no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md`, because Claude Code 2.1.277 and later then reads `AGENTS.md` beside `.claude/rules/` and loads the always-on rules twice. Both notes leave the exit status alone, and sync never edits the settings file (decision 0025).
+- `status --check` prints the `claudeMdExcludes` entry for `.claude/settings.json` when the `claude` and `agents` targets are both enabled and no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the project or above it, because Claude Code 2.1.277 and later then reads `AGENTS.md` beside `.claude/rules/` and loads the always-on rules twice. Both notes leave the exit status alone, and sync never edits the settings file (decision 0025).
 - A backslash keeps a layout token as written (`\<module>` renders as `<module>`), and sync prints a `WARNING:` line with file and line when a project source holds a token joined to the text around it or used as an XML element.
 - `intelligence-learn-from-session` reconciles a folder of lesson records against the current sources, drops the records already applied, and drafts a sanitized upstream issue for a lesson about installed package content or the CLI.
 

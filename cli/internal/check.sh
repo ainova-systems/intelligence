@@ -62,6 +62,20 @@ claude_md_excluded() {
     return 1
 }
 
+# claude_md_above <dir> - whether <dir> or a directory above it holds a
+# CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md, any of which keeps Claude
+# Code from reading AGENTS.md. The user's own ~/.claude/CLAUDE.md does not.
+claude_md_above() {
+    local d="$1" up
+    while :; do
+        [ ! -e "$d/CLAUDE.md" ] && [ ! -e "$d/CLAUDE.local.md" ] || return 0
+        if [ -e "$d/.claude/CLAUDE.md" ] && ! [ "$d" -ef "${HOME:-}" ]; then return 0; fi
+        up="${d%/*}"
+        [ -n "$d" ] && [ "$up" != "$d" ] || return 1
+        d="$up"
+    done
+}
+
 echo "environment:"
 command -v git >/dev/null 2>&1 && ok "git $(git --version | awk '{print $3}')" || warn "git not found"
 command -v awk >/dev/null 2>&1 && ok "awk present" || warn "awk not found"
@@ -290,10 +304,10 @@ while IFS=$'\t' read -r target value; do
 done <<< "$disabled_owned"
 
 # Claude Code 2.1.277 and later reads AGENTS.md as project instructions when no
-# CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md exists, and keeps loading
-# .claude/rules/ beside it (code.claude.com/docs/en/memory). With both targets
-# enabled every always-on rule then loads twice. The contract preserves
-# settings.json, so the exclude is the owner's to add.
+# CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md exists in the project or above
+# it, and keeps loading .claude/rules/ beside it (code.claude.com/docs/en/memory).
+# With both targets enabled every always-on rule then loads twice. The contract
+# preserves settings.json, so the exclude is the owner's to add.
 if [ -n "$claude_out" ] && [ -n "$agents_out" ]; then
     agents_output_path_var "$agents_out"
     adapter_contract_rel_path "$IS_AGENTS_OUTPUT_PATH"
@@ -303,8 +317,7 @@ if [ -n "$claude_out" ] && [ -n "$agents_out" ]; then
     case "/$agents_md" in
         */.agents/*) ;;
         */AGENTS.md)
-            if [ ! -e "$IP_ROOT/CLAUDE.md" ] && [ ! -e "$IP_ROOT/CLAUDE.local.md" ] \
-                && [ ! -e "$IP_ROOT/$claude_out/CLAUDE.md" ] \
+            if ! claude_md_above "$IP_ROOT" && [ ! -e "$IP_ROOT/$claude_out/CLAUDE.md" ] \
                 && ! claude_md_excluded "$IP_ROOT/$agents_md" \
                     "$IP_ROOT/$claude_out/settings.json" "$IP_ROOT/$claude_out/settings.local.json"; then
                 note "Claude Code 2.1.277 and later reads $agents_md when there is no CLAUDE.md, $claude_out/CLAUDE.md or CLAUDE.local.md, so the always-on rules load twice: from $claude_out/rules/ and from $agents_md. Sync never edits settings; put this key in $claude_out/settings.json:"

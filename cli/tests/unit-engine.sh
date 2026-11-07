@@ -572,6 +572,12 @@ cp "$TK/intelligence/rules/r.md" "$OUT/tokens-out.md"
 IS_MODULE_REL=.intelligence/packages/@s/sync IS_CONTENT_REL=brain finalize_output_file "$OUT/tokens-out.md"
 chk grep -Fqx 'Read `.intelligence/packages/@s/sync/references/x.md` in `brain/`.' "$OUT/tokens-out.md"
 chk grep -Fqx 'Keep `<module>_schema()` and `.intelligence/packages/@s/sync.info.yml`.' "$OUT/tokens-out.md"
+# A quoted value decodes to what the plain text renders as: the escape is
+# resolved before the escaper doubles the backslash.
+yaml_dq_escape_var 'Keep \<module>, \\<module> and <module>'
+printf 'description: "%s"\n' "$IS_YAML_ESCAPED" > "$OUT/tokens-yaml.md"
+IS_MODULE_REL=m finalize_output_file "$OUT/tokens-yaml.md"
+chk grep -Fqx 'description: "Keep <module>, \\<module> and m"' "$OUT/tokens-yaml.md"
 
 echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
 K="$OUT/skill-effort"

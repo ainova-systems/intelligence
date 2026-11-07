@@ -55,20 +55,22 @@ IS_AWK_LIB='
     }
     # A backslash keeps a token as written: `\<module>` renders as `<module>`.
     # The escaped token waits on a control character while the others expand.
-    function fin_line(s,   kept) {
-        if (index(s, "\\<")) {
-            kept = s
-            s = is_repl(s, "\\<sync-cmd>", "\034sync-cmd>")
-            s = is_repl(s, "\\<manifest>", "\034manifest>")
-            s = is_repl(s, "\\<module>", "\034module>")
-            s = is_repl(s, "\\<content-dir>", "\034content-dir>")
-            kept = (s != kept)
-        }
+    # A writer that doubles backslashes for YAML or TOML calls fin_keep (or
+    # token_keep_var) first: once escaped, `\\<module>` no longer reads as one.
+    function fin_keep(s) {
+        if (!index(s, "\\<")) return s
+        s = is_repl(s, "\\<sync-cmd>", "\034sync-cmd>")
+        s = is_repl(s, "\\<manifest>", "\034manifest>")
+        s = is_repl(s, "\\<module>", "\034module>")
+        return is_repl(s, "\\<content-dir>", "\034content-dir>")
+    }
+    function fin_line(s) {
+        s = fin_keep(s)
         s = is_repl(s, "<sync-cmd>", FIN_SC)
         s = is_repl(s, "<manifest>", FIN_MF)
         s = is_repl(s, "<module>", FIN_MOD)
         s = is_repl(s, "<content-dir>", FIN_CONTENT)
-        if (kept) s = is_repl(s, "\034", "<")
+        if (index(s, "\034")) s = is_repl(s, "\034", "<")
         return s
     }
     function fm_value_strip(val,   n, first, last) {
@@ -302,12 +304,28 @@ frontmatter_index() {
     ' "$@"
 }
 
+# token_keep_var <s> — fin_keep for the shell escapers below, whose output
+# fin_line finalizes later: an escaped layout token gives up its backslash
+# before they double backslashes. Sets IS_TOKEN_KEPT.
+token_keep_var() {
+    local s="$1" fs=$'\034' t
+    case "$s" in
+        *'\<'*)
+            for t in sync-cmd manifest module content-dir; do
+                s="${s//\\<$t>/$fs$t>}"
+            done
+            ;;
+    esac
+    IS_TOKEN_KEPT="$s"
+}
+
 # Escape a string for safe interpolation into a TOML basic string ("..").
 # Backslash and double-quote are escaped; control chars stripped.
 # Fork-free form: sets IS_TOML_ESCAPED; the printing form wraps it.
 toml_escape_var() {
-    local s="$1"
-    s="${s//\\/\\\\}"
+    local s
+    token_keep_var "$1"
+    s="${IS_TOKEN_KEPT//\\/\\\\}"
     s="${s//\"/\\\"}"
     # Strip any literal newline / carriage return — TOML basic strings
     # do not allow them; multi-line content belongs in `"""..."""`.
@@ -324,8 +342,9 @@ toml_escape() {
 # Escape a string for safe interpolation into a YAML double-quoted scalar.
 # Fork-free form: sets IS_YAML_ESCAPED; the printing form wraps it.
 yaml_dq_escape_var() {
-    local s="$1"
-    s="${s//\\/\\\\}"
+    local s
+    token_keep_var "$1"
+    s="${IS_TOKEN_KEPT//\\/\\\\}"
     s="${s//\"/\\\"}"
     s="${s//$'\n'/ }"
     s="${s//$'\r'/}"
@@ -483,7 +502,7 @@ emit_wrapped_bodies() {
             else if (!past_fm) next
             line = $0
             if (ESC[cur] == "toml") {
-                line = is_repl(line, "\\", "\\\\")
+                line = is_repl(fin_keep(line), "\\", "\\\\")
                 line = is_repl(line, "\"\"\"", "\"\"\\\"")
             }
             body[++body_n] = line
@@ -528,13 +547,15 @@ emit_rule_bodies() {
 # When wrapping an unquoted value, literal `\` and `"` inside it are escaped
 # (`\\`, `\"`) so an inner quote — e.g. `Use as a quick "what do we have" view`
 # — cannot prematurely terminate the generated double-quoted scalar. Values the
-# author already wrapped (in `"` or `'`) pass through untouched.
+# author already wrapped (in `"` or `'`) pass through untouched. An escaped
+# layout token is resolved first (fin_keep), so <dst> still needs
+# finalize_output_file, as every emitted file does.
 #
 # Usage: copy_md_with_quoted_frontmatter "src.md" "dst.md"
 copy_md_with_quoted_frontmatter() {
     local src="$1"
     local dst="$2"
-    awk '
+    awk "$IS_AWK_LIB"'
         function yamlq(s,    out, i, c) {
             out = ""
             for (i = 1; i <= length(s); i++) {
@@ -564,7 +585,7 @@ copy_md_with_quoted_frontmatter() {
             first = substr(val, 1, 1)
             last = substr(val, length(val), 1)
             if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) { print; next }
-            print key ": \"" yamlq(val) "\""
+            print key ": \"" yamlq(fin_keep(val)) "\""
             next
         }
         state == "after" { print }
@@ -846,7 +867,7 @@ _skill_bundles_flush() {
                             first = substr(val, 1, 1)
                             last = substr(val, length(val), 1)
                             if (!((first == "\"" && last == "\"") || (first == "\047" && last == "\047"))) {
-                                $0 = key ": \"" yamlq(val) "\""
+                                $0 = key ": \"" yamlq(fin_keep(val)) "\""
                             }
                         }
                     }

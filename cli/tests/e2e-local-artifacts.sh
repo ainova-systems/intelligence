@@ -61,6 +61,19 @@ printf '{\n  "claudeMdExcludes": [\n    "**/AGENTS.md"\n  ]\n}\n' > "$P/.claude/
 run "$P" status --check
 chknot grep -Fq claudeMdExcludes "$LOG"
 rm "$P/.claude/settings.local.json"
+# A CLAUDE.md above the project counts as well; the user's ~/.claude/CLAUDE.md
+# does not.
+printf '# Parent\n' > "$OUT/CLAUDE.md"
+run "$P" status --check
+chknot grep -Fq claudeMdExcludes "$LOG"
+rm "$OUT/CLAUDE.md"
+mkdir -p "$OUT/.claude"
+printf '# Parent\n' > "$OUT/.claude/CLAUDE.md"
+run "$P" status --check
+chknot grep -Fq claudeMdExcludes "$LOG"
+HOME="$OUT" run "$P" status --check
+chk grep -Fq '{ "claudeMdExcludes": ["**/AGENTS.md"] }' "$LOG"
+rm -r "$OUT/.claude"
 
 echo "== status --check reports a missing local pattern; init restores it =="
 grep -Fvx 'intelligence/agents/*.local.md' "$P/.gitignore" > "$OUT/gitignore" && cp "$OUT/gitignore" "$P/.gitignore"
@@ -410,6 +423,25 @@ run "$Q" status --check
 is "scoped project status" 0 "$RC"
 run "$Q" sync --check
 is "scoped project check" 0 "$RC"
+
+echo "== an escaped layout token stays literal in quoted values and in the override =="
+printf '# Tok\n\nTOK_RULE \\<module> and <module>\n' > "$Q/intelligence/rules/tok.md"
+printf -- '---\ndescription: Reads \\<module> docs\ntier: standard\n---\n\nTOK_AGENT \\<module> "q" \\ back\n' > "$Q/intelligence/agents/tok-agent.md"
+mkdir -p "$Q/intelligence/skills/tok-skill"
+printf -- '---\nname: tok-skill\ndescription: Ships \\<module> notes\n---\n\nTOK_SKILL\n' > "$Q/intelligence/skills/tok-skill/SKILL.md"
+run "$Q" sync
+is "sync with escaped tokens" 0 "$RC"
+store='.intelligence/packages/@ainova-systems/sync'
+chk grep -Fqx "TOK_RULE <module> and $store" "$Q/AGENTS.md"
+chk grep -Fqx "TOK_RULE <module> and $store" "$Q/AGENTS.override.md"
+chk grep -Fqx 'description = "Reads <module> docs"' "$Q/.codex/agents/tok-agent.toml"
+chk grep -Fqx 'TOK_AGENT <module> "q" \\ back' "$Q/.codex/agents/tok-agent.toml"
+chk grep -Fqx 'description: "Reads <module> docs"' "$Q/.opencode/agents/tok-agent.md"
+chk grep -Fqx 'description: "Ships <module> notes"' "$Q/.agents/skills/tok-skill/SKILL.md"
+is "outputs holding an escaped token" "" "$(cd "$Q" && grep -rlF -e '\<module>' -e "$(printf '\034')" AGENTS.md AGENTS.override.md .claude .cursor .codex .github .agents .opencode .pi 2>/dev/null)"
+rm -r "$Q/intelligence/rules/tok.md" "$Q/intelligence/agents/tok-agent.md" "$Q/intelligence/skills/tok-skill"
+run "$Q" sync
+is "sync without escaped tokens" 0 "$RC"
 
 echo "== scoped routing preserves a hand-written override and rolls back =="
 printf '# Personal override\n' > "$Q/AGENTS.override.md"

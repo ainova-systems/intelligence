@@ -32,7 +32,8 @@ The Claude adapter's contract preserves `.claude/settings.json`, and the managed
    `.claude/settings.json`. Sync, `init` and the adapter never write that file.
 2. `status --check` prints a note with the entry when both targets are enabled,
    the agents output is an `AGENTS.md` Claude Code reads, none of the three
-   `CLAUDE.md` files exists, and no `claudeMdExcludes` entry in
+   `CLAUDE.md` files exists in the project or above it (the user's own
+   `~/.claude/CLAUDE.md` does not count), and no `claudeMdExcludes` entry in
    `.claude/settings.json` or `.claude/settings.local.json` matches it. It is a
    note and leaves the exit status alone, because the check cannot see the
    Claude Code version, the user's settings or the **Project instructions** value.

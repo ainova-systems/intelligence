@@ -526,9 +526,10 @@ adapter whose owned output is still on disk; it names the
 `intelligence-manage-adapters` skill, which reviews that output and removes what
 the owner approves. The second applies when the `claude` and `agents` targets are
 both enabled and there is no `CLAUDE.md`, `.claude/CLAUDE.md` or
-`CLAUDE.local.md`: Claude Code 2.1.277 and later then reads `AGENTS.md` beside
-`.claude/rules/` and loads the always-on rules twice, so the note prints the
-`claudeMdExcludes` entry the owner adds to `.claude/settings.json`.
+`CLAUDE.local.md` in the project or above it (the user's own
+`~/.claude/CLAUDE.md` does not count): Claude Code 2.1.277 and later then reads
+`AGENTS.md` beside `.claude/rules/` and loads the always-on rules twice, so the
+note prints the `claudeMdExcludes` entry the owner adds to `.claude/settings.json`.
 
 ### `intelligence registry`
 

@@ -88,12 +88,10 @@ sync_codex_override() {
             i=$((i + 1))
         done <<< "$rows"
     fi
+    # Only the Codex section is finalized: AGENTS.md already is, and a second
+    # pass would expand the tokens its rules escaped.
+    local section=""
     {
-        if [ -f "$agents_file" ]; then
-            cat "$agents_file"
-        else
-            printf '%s\n\n' "$CODEX_OVERRIDE_MARKER"
-        fi
         echo "---"
         echo ""
         echo "## Codex Project Context"
@@ -108,6 +106,15 @@ sync_codex_override() {
         [ "${#files[@]}" -eq 0 ] || emit_rule_bodies "${files[@]}"
     } > "$override"
     finalize_output_file "$override"
+    IFS= read -r -d '' section < "$override" || true
+    {
+        if [ -f "$agents_file" ]; then
+            cat "$agents_file"
+        else
+            printf '%s\n\n' "$CODEX_OVERRIDE_MARKER"
+        fi
+        printf '%s' "$section"
+    } > "$override"
     for ((i = 0; i < ${#names[@]}; i++)); do
         echo "  rule: ${names[i]} (AGENTS.override.md)"
     done
