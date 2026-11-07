@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.25.1]
+
+### Changed
+
+- The engine declares the layout tokens once, in `IS_LAYOUT_TOKENS`, and their expansion, backslash escape, quoted-value escapers and source warning all read that list; generated output is unchanged.
+
 ## [0.25.0]
 
 ### Added
