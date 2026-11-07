@@ -397,7 +397,7 @@ hit
 check has 'unquoted colon'
 run --compact
 check test "$RC" -eq 0
-check grep -q '^WARNING: .*warning.md:2 unquoted colon' <<< "$OUTPUT"
+check grep -q '^WARNING: intelligence/rules/warning.md:2 unquoted colon' <<< "$OUTPUT"
 hit
 rm "$PROJECT/intelligence/rules/warning.md"
 miss

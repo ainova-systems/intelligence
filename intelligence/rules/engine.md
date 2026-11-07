@@ -107,10 +107,14 @@ caller that applies or checks Git policy passes it.
 
 Every emitted text file passes through `finalize_output_file`; skill directories are
 copied with `copy_skill_bundle`; adapters sharing `.agents/skills/` use
-`sync_open_skill_dirs`. `validate_output_path` is the mandatory guard against writes
-into a source, the store, the repository root, or outside the repository. Never
-delete a whole tool root when the adapter owns only subpaths — hand-authored sibling
-files live there. A full sync is transactional across every selected adapter path.
+`sync_open_skill_dirs`. The layout tokens they expand are the rows of
+`IS_LAYOUT_TOKENS` in `engine/lib/common.sh`: expansion, the backslash escape, the
+YAML, TOML and TypeScript escapers and the source lint all derive from that list, so
+a token is added there and is never named in a consumer. `validate_output_path` is
+the mandatory guard against writes into a source, the store, the repository root, or
+outside the repository. Never delete a whole tool root when the adapter owns only
+subpaths — hand-authored sibling files live there. A full sync is transactional
+across every selected adapter path.
 
 A symlink in a skills source renders as the file or directory it points at while it
 stays inside that source, and is left out with a `WARNING:` line otherwise; no
