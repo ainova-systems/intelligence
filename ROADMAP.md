@@ -253,6 +253,21 @@ therefore renders as `<` instead of itself.
 in plain lines and in quoted YAML, TOML and Pi values; `\<module>` still renders
 as `<module>`; output for sources without 0x1c stays byte-identical.
 
+### 12. A failed dist-tag read moves `next` over a newer preview
+
+**Problem.** `npm/align-dist-tags.sh` reads the current tag with
+`npm view ... 2>/dev/null || true`, so a read that fails - a registry error, the
+network, authentication - looks exactly like a tag that is unset. On a stable
+release the script then points `next` at the stable version even when `next`
+holds a newer preview, the one case it exists to leave alone.
+
+**Deliver.** Tell an unset tag from a failed read, and fail the step on a failed
+one before any tag moves.
+
+**Acceptance.** With the read failing, the step fails and both tags stay as they
+were; with `next` unset, a stable release still points it at that version; with a
+newer preview on `next`, a stable release still leaves it alone.
+
 ## Adapter candidates
 
 Assessment date: September 5, 2026. “Existing” refers to current Intelligence code;

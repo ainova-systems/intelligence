@@ -337,8 +337,10 @@ a bumped VERSION with an un-bumped example turns the smoke job into a confusing
 exit 6 instead of a clear failure.
 
 `npm/build.sh` assembles the distribution from `cli/`, `engine/` and `packages/sync/`.
-npm publishes with provenance, so `npm/package.json` repository metadata must keep
-naming this repository.
+npm publishes with provenance, and `release-npm` authenticates through npm trusted
+publishing (decision 0027), with no npm token: `npm/package.json` repository
+metadata, this repository and the workflow file name `release-npm.yml` must keep
+matching the trusted publisher configured on npmjs.com.
 
 Publishing a GitHub Release is the only release action — there is no separate npm
 workflow to trigger. `release-npm` runs on `release.published`:

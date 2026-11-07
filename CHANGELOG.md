@@ -6,6 +6,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 ## [0.25.2]
 
+### Changed
+
+- npm releases are published through npm trusted publishing from this repository's release workflow, with provenance and no long-lived npm token (decision 0027).
+
 ## [0.25.1]
 
 ### Changed

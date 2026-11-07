@@ -9,8 +9,12 @@ name: release-npm
 # The tag's base X.Y.Z must match engine/VERSION, and its commit must be in
 # main. engine/VERSION and schema_version never carry the npm RC suffix.
 #
-# Needs the NPM_TOKEN repo secret (granular token with publish rights on the
-# ainova-systems npm org).
+# Authenticates through npm trusted publishing (GitHub Actions OIDC, decision
+# 0027): no npm token is stored or passed. It depends on the trusted publisher
+# configured for the package on npmjs.com - owner ainova-systems, repository
+# intelligence, workflow file release-npm.yml, no environment - with direct
+# `npm publish` and `npm dist-tag` both allowed. Renaming this file breaks
+# publishing until that configuration names the new file.
 
 on:
   release:
@@ -22,7 +26,7 @@ concurrency:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing (OIDC) and provenance
 
 jobs:
   publish:
@@ -37,6 +41,14 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm 11.5.1 or later and `npm dist-tag` through
+      # it 11.21.0 or later; the runner's Node 24 ships an older npm. Installed
+      # before the smoke test, so the npm that packs the package publishes it.
+      - name: Install npm 11.21.1
+        run: |
+          set -euo pipefail
+          npm install -g npm@11.21.1
+          npm --version
 
       - name: Determine version
         id: ver
@@ -100,10 +112,6 @@ jobs:
 
       - name: Publish
         run: cd npm/dist && npm publish --tag "${{ steps.ver.outputs.tag }}" --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Align npm dist-tags after publish
         run: bash npm/align-dist-tags.sh "${{ steps.ver.outputs.tag }}" "${{ steps.ver.outputs.version }}"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
