@@ -1147,6 +1147,9 @@ enforce_authored_invocation_policies() {
 # warning names the source exactly once however many tools render it. Unlike
 # the lint notes it is an unindented `WARNING:` line, because `sync --compact`
 # (and so `init`) keeps only those (decision 0015).
+# This form takes no repository root, so its warnings name each file as the
+# caller passed it; the engine's pass, source_frontmatter_scan, names it
+# relative to the root.
 # Usage: lint_frontmatter_files "a.md" "b.md" ...
 lint_frontmatter_files() {
     [ "$#" -gt 0 ] || return 0
@@ -1155,7 +1158,10 @@ lint_frontmatter_files() {
 
 # The lint rules, shared with source_frontmatter_scan, which runs them in the
 # same pass that reads routing fields. Every rule may end with `next`, so a
-# program that joins them puts its own rules first.
+# program that joins them puts its own rules first. Every warning names the
+# source as lint_src: relative to ENVIRON["IS_LINT_ROOT"] when the file lies
+# under it, so a warning reads the same from any checkout, from the private
+# copy `sync --check` renders in, and in the replay of an unchanged sync.
 _IS_AWK_LINT='
         BEGIN {
             nl = split(levels, LV, " ")
@@ -1164,7 +1170,7 @@ _IS_AWK_LINT='
                 LEVEL[LV[li]] = 1
                 allowed = allowed (li > 1 ? ", " : "") LV[li]
             }
-            tok_root = ENVIRON["IS_TOK_ROOT"]
+            lint_root = ENVIRON["IS_LINT_ROOT"]
         }
         # A layout token that cannot mean what it renders as: joined to a word
         # or a path around it, or an XML element closed on the same line. A
@@ -1184,7 +1190,7 @@ _IS_AWK_LINT='
                     if (b ~ /[[:alnum:]_]/ || b == "/" || a ~ /^([[:alnum:]_-]|[.][[:alnum:]_])/ \
                         || index(l, "</" substr(t, 2))) {
                         printf "WARNING: %s:%d %s is part of the text around it, but sync renders this layout token as %s; write \\%s to keep it as written\n", \
-                            substr(FILENAME, length(tok_root) + 2), FNR, t, FIN_VAL[k], t > "/dev/stderr"
+                            lint_src, FNR, t, FIN_VAL[k], t > "/dev/stderr"
                         break
                     }
                 }
@@ -1192,8 +1198,9 @@ _IS_AWK_LINT='
         }
         FNR == 1 {
             in_fm = 0; done = 0; effort_seen = 0
-            tok_own = tok_root != "" && index(FILENAME, tok_root "/") == 1 \
-                && index(FILENAME, tok_root "/.intelligence/") != 1
+            lint_under = lint_root != "" && index(FILENAME, lint_root "/") == 1
+            lint_src = lint_under ? substr(FILENAME, length(lint_root) + 2) : FILENAME
+            tok_own = lint_under && index(FILENAME, lint_root "/.intelligence/") != 1
         }
         { sub(/\r$/, "") }
         tok_own && index($0, ">") { tok_check($0) }
@@ -1204,11 +1211,11 @@ _IS_AWK_LINT='
         in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
             effort = fm_value_strip(substr($0, 8))
             if (effort != "" && !(effort in LEVEL)) {
-                printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", FILENAME, FNR, effort, allowed > "/dev/stderr"
+                printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", lint_src, FNR, effort, allowed > "/dev/stderr"
             }
         }
         in_fm && /^\t/ {
-            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", FILENAME, FNR > "/dev/stderr"
+            printf "WARNING: %s:%d leading tab in frontmatter (use spaces)\n", lint_src, FNR > "/dev/stderr"
         }
         in_fm && /^[a-zA-Z0-9_-]+:[[:space:]]+[^"\047|>[{]/ {
             value_start = index($0, ":") + 1
@@ -1216,10 +1223,10 @@ _IS_AWK_LINT='
             sub(/^[[:space:]]+/, "", value)
             if (value ~ /:[[:space:]]/ || value ~ /:$/) {
                 col = index(value, ":") + value_start
-                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", FILENAME, FNR, col > "/dev/stderr"
+                printf "WARNING: %s:%d unquoted colon in value at column %d — wrap value in quotes\n", lint_src, FNR, col > "/dev/stderr"
             }
             if (value ~ /"/) {
-                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", FILENAME, FNR > "/dev/stderr"
+                printf "WARNING: %s:%d literal double quote in unquoted value — wrap value in single quotes or escape as \\\" so strict-YAML targets accept it\n", lint_src, FNR > "/dev/stderr"
             }
         }
         # Field-length limits. Both Claude Code and the Agent Skills standard
@@ -1238,7 +1245,7 @@ _IS_AWK_LINT='
             }
             limit = (key == "name") ? 64 : 1024
             if (length(val) > limit) {
-                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", FILENAME, FNR, key, length(val), limit > "/dev/stderr"
+                printf "WARNING: %s:%d %s is %d chars — over the %d-char limit; the skill/agent will be REJECTED at load time\n", lint_src, FNR, key, length(val), limit > "/dev/stderr"
             }
         }
 '
@@ -2580,13 +2587,14 @@ source_catalog_build() {
 # occurrence of a key wins, and a key with no value at all is not set
 # (`targets: []` is: it is the empty list). With <lint-root>, the repository
 # root, the same pass runs lint_frontmatter_files over every file and the
-# layout-token check over the project's own; warnings go to stderr.
+# layout-token check over the project's own; warnings go to stderr and name
+# each source relative to that root.
 source_frontmatter_scan() {
     local do_lint=0 root="$1"
     [ -z "$root" ] || do_lint=1
     shift
     is_fin_awk_vars
-    IS_TOK_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+    IS_LINT_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
         function sx_items(s, k,   parts, m, j, v, q) {
             m = split(s, parts, ",")
