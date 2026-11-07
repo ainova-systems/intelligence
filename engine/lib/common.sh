@@ -59,7 +59,7 @@ done
 # replacement would give `&` in a path its special meaning, and POSIX awk has
 # no way to pass a replacement string verbatim. The token names are part of
 # the program text, so fin_keep works in every program that includes this
-# library; the values are read in BEGIN from the environment variable that
+# library; the values are read in BEGIN from the environment variables that
 # is_fin_awk_vars fills and names in IS_FIN_V.
 IS_AWK_LIB='
     function is_repl(s, from, to,   out, i) {
@@ -74,11 +74,11 @@ IS_AWK_LIB='
     # FIN_ESC[k] the token escaped and FIN_HOLD[k] what fin_keep turns that into.
     BEGIN {
         FIN_N = split("'"$_is_names"'", is_tn, " ")
-        if (FIN_ENV != "") split(ENVIRON[FIN_ENV], FIN_VAL, sprintf("%c", 31))
         for (is_tk = 1; is_tk <= FIN_N; is_tk++) {
             FIN_TOK[is_tk] = "<" is_tn[is_tk] ">"
             FIN_ESC[is_tk] = "\\" FIN_TOK[is_tk]
             FIN_HOLD[is_tk] = "\034" is_tn[is_tk] ">"
+            if (FIN_ENV != "") FIN_VAL[is_tk] = ENVIRON[FIN_ENV is_tk]
         }
     }
     # A backslash keeps a token as written: `\<module>` renders as `<module>`.
@@ -159,26 +159,26 @@ IS_AWK_LIB='
 '
 unset _is_row _is_names
 
-# is_fin_awk_vars — export IS_LAYOUT_VALUES, every token's value in
-# IS_LAYOUT_TOKENS order, \x1f-separated, and set the global IS_FIN_V to the
-# -v binding that points IS_AWK_LIB at it; a program run without IS_FIN_V
+# is_fin_awk_vars — export each token's value as IS_LAYOUT_VALUE_<k>, <k> its
+# row in IS_LAYOUT_TOKENS, and set the global IS_FIN_V to the -v binding that
+# points IS_AWK_LIB at those variables; a program run without IS_FIN_V
 # expands every token to nothing, as it always did. The values travel through
 # the environment, which awk reads verbatim: a -v value has its backslashes
-# read as escapes, and BSD awk refuses one that holds a newline. Rebuilt on
-# every call: the IS_* env contract is exported after this file is sourced,
-# and a caller may set one variable for a single call.
+# read as escapes, and BSD awk refuses one that holds a newline. One variable
+# per token, so no byte a value holds can split it into two. Rebuilt on every
+# call: the IS_* env contract is exported after this file is sourced, and a
+# caller may set one variable for a single call.
 is_fin_awk_vars() {
-    local row rest var def values="" sep=""
+    local row rest var def k=0
     for row in "${IS_LAYOUT_TOKENS[@]}"; do
         rest="${row#* }"
         var="${rest%% *}"
         def=""
         case "$rest" in *' '*) def="${rest#* }" ;; esac
-        values="$values$sep${!var:-$def}"
-        sep=$'\x1f'
+        k=$((k + 1))
+        export "IS_LAYOUT_VALUE_$k=${!var:-$def}"
     done
-    export IS_LAYOUT_VALUES="$values"
-    IS_FIN_V=(-v FIN_ENV=IS_LAYOUT_VALUES)
+    IS_FIN_V=(-v FIN_ENV=IS_LAYOUT_VALUE_)
 }
 
 # finalize_output_files <file>...

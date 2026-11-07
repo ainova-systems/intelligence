@@ -582,6 +582,11 @@ chk grep -Fqx 'description: "Keep <module>, \\<module> and m"' "$OUT/tokens-yaml
 printf '%s\n' 'see <content-dir>/x' > "$OUT/tokens-backslash.md"
 IS_CONTENT_REL='we\ird\new\\dir' finalize_output_file "$OUT/tokens-backslash.md" 2>/dev/null
 chk grep -Fqx 'see we\ird\new\\dir/x' "$OUT/tokens-backslash.md"
+# Each value reaches awk on its own: one holding the unit separator stays one
+# value, and the token after it keeps its own.
+printf '%s\n' '<content-dir> <module>' > "$OUT/tokens-separator.md"
+IS_CONTENT_REL=$'brain\x1fnotes' IS_MODULE_REL=m finalize_output_file "$OUT/tokens-separator.md"
+chk eq "$(cat "$OUT/tokens-separator.md")" $'brain\x1fnotes m'
 
 echo "== source lint: every warning names its source relative to the root =="
 LR="$OUT/lint-root"
