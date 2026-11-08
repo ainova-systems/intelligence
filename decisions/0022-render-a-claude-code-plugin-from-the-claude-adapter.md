@@ -2,6 +2,7 @@
 
 Date: 2026-10-18
 Status: accepted
+Superseded by 0028 in part: point 1's `version` = `engine/VERSION` and the consequence that the plugin's `version` moves with it. The plugin carries the project's `schema_version`.
 
 ## Context
 

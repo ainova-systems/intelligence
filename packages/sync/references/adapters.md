@@ -134,8 +134,8 @@ when `targets.claude.plugin` is `true` (decision 0022): a mod that checks
 `intelligence sync --check` at session start and every five minutes, shows the
 verdict in a line above the prompt and runs sync from a button there or
 `/intelligence sync`.
-The template is `engine/adapters/claude-plugin/`, copied with the engine version
-stamped into `plugin.json`. It lives inside the owned `skills` path, so it needs
+The template is `engine/adapters/claude-plugin/`, copied with the project's
+`schema_version` stamped into `plugin.json`. It lives inside the owned `skills` path, so it needs
 no contract record of its own. The field's values, the name collision it refuses
 and the plugin's limits are defined in the
 [CLI reference](https://github.com/ainova-systems/intelligence/blob/main/docs/cli.md#intelligence-sync).
