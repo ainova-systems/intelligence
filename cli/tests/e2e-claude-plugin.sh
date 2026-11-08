@@ -2,7 +2,7 @@
 # e2e: the Claude Code plugin the Claude adapter renders behind
 # targets.claude.plugin (decision 0022). The flag is off by default, takes only
 # true or false, renders the mod from engine/adapters/claude-plugin/ with the
-# engine version stamped, stays idempotent, is removed when the flag goes, is
+# project's schema_version stamped (decision 0028), stays idempotent, is removed when the flag goes, is
 # ignored by Git through the existing `.claude/*` policy, and refuses a source
 # skill that would render under the plugin's directory name.
 set -euo pipefail
@@ -88,7 +88,7 @@ rm -f "$PROJ/intelligence/skills/demo/notes.md"
 run_in "$PROJ" sync
 chk test "$RC" -eq 0
 
-echo "== plugin: true renders the mod with the engine version stamped =="
+echo "== plugin: true renders the mod with the project's version stamped =="
 set_claude_target ', plugin: true'
 run_in "$PROJ" sync
 chk test "$RC" -eq 0
@@ -156,6 +156,68 @@ has 'IS_STATUS=out-of-date'
 run_in "$PROJ" sync
 chk test "$RC" -eq 0
 chk cmp -s "$TEMPLATE/hooks/register.js" "$PLUGIN/hooks/register.js"
+
+echo "== the plugin carries the project's version, not the CLI's (decision 0028) =="
+# A newer CLI renders the same plugin: its engine version reaches no byte, so
+# upgrading the CLI alone never makes a project read "sync needed".
+IFS=. read -r MAJ MIN PAT <<< "$VERSION"
+NEWER="$OUT/newer-cli"
+mkdir -p "$NEWER/packages"
+cp -R "$REPO/cli" "$REPO/engine" "$NEWER/"
+cp -R "$REPO/packages/sync" "$NEWER/packages/"
+printf '%s\n' "$MAJ.$MIN.$((PAT + 1))" > "$NEWER/engine/VERSION"
+generated_digest > "$OUT/digest-before-newer"
+RC=0
+OUTPUT="$( (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$NEWER/cli/intelligence" sync --check) 2>&1 )" || RC=$?
+chk test "$RC" -eq 0
+has 'IS_STATUS=ok'
+RC=0
+OUTPUT="$( (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$NEWER/cli/intelligence" sync --force) 2>&1 )" || RC=$?
+chk test "$RC" -eq 0
+has "plugin: intelligence (Claude Code mod $VERSION)"
+generated_digest > "$OUT/digest-after-newer"
+chk cmp -s "$OUT/digest-before-newer" "$OUT/digest-after-newer"
+# A project stamped an older patch renders that stamp, behind the warning
+# every command prints for it.
+set_schema_version() {
+    awk -v v="$1" '{ sub(/\r$/, ""); if ($0 ~ /^schema_version:/) print "schema_version: \"" v "\""; else print }' \
+        "$PROJ/intelligence.yaml" > "$PROJ/intelligence.yaml.tmp"
+    mv "$PROJ/intelligence.yaml.tmp" "$PROJ/intelligence.yaml"
+}
+OLDER="$MAJ.$MIN.0"
+[ "$PAT" -gt 0 ] || OLDER="$MAJ.0.0"
+if [ "$OLDER" != "$VERSION" ]; then
+    set_schema_version "$OLDER"
+    run_in "$PROJ" sync
+    chk test "$RC" -eq 0
+    has "plugin: intelligence (Claude Code mod $OLDER)"
+    chk grep -Fq "\"version\": \"$OLDER\"" "$PLUGIN/.claude-plugin/plugin.json"
+    set_schema_version "$VERSION"
+    run_in "$PROJ" sync
+    chk test "$RC" -eq 0
+fi
+chk grep -Fq "\"version\": \"$VERSION\"" "$PLUGIN/.claude-plugin/plugin.json"
+# The stamp reaches JSON, so the engine takes only a plain X.Y.Z, even from a
+# caller that skipped the CLI's checks.
+(
+    set -euo pipefail
+    # shellcheck source=../../engine/lib/common.sh
+    source "$REPO/engine/lib/common.sh"
+    # shellcheck source=../../engine/lib/contract.sh
+    source "$REPO/engine/lib/contract.sh"
+    # shellcheck source=../../engine/adapters/claude.sh
+    source "$REPO/engine/adapters/claude.sh"
+    bad="$OUT/bad-stamp.yaml"
+    for stamp in '0.25' '0.25.0-rc.1' '0.25.0", "x": "y' '&'; do
+        printf 'schema_version: "%s"\n' "$stamp" > "$bad"
+        if claude_plugin_version_var "$bad"; then echo "FAIL: stamp '$stamp' accepted"; exit 1; fi
+        mkdir -p "$OUT/bad-out/skills"
+        if render_claude_plugin "$OUT/bad-out" "$bad" 2>/dev/null; then echo "FAIL: stamp '$stamp' rendered"; exit 1; fi
+        if [ -e "$OUT/bad-out/skills/intelligence" ]; then echo "FAIL: stamp '$stamp' left a plugin"; exit 1; fi
+    done
+    printf 'schema_version: "%s"\n' "$VERSION" > "$bad"
+    claude_plugin_version_var "$bad" || { echo "FAIL: stamp '$VERSION' refused"; exit 1; }
+) || fail=1
 
 echo "== plugin: false removes the directory; omission does the same =="
 set_claude_target ', plugin: false'

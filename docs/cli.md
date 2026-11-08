@@ -127,7 +127,8 @@ and [selecting adapters](../packages/sync/references/conventions.md#selecting-ad
 
 `targets.claude.plugin: true` makes the Claude adapter render a Claude Code
 plugin into `<output>/skills/intelligence/` (decision 0022): a
-`.claude-plugin/plugin.json` whose `version` is the engine version, a
+`.claude-plugin/plugin.json` whose `version` is the project's `schema_version`
+(decision 0028), so upgrading the CLI alone leaves the plugin unchanged, a
 `hooks/hooks.json` naming the hooks module `hooks/register.js`, and a README.
 The module is a Claude Code *mod*: at session start and every five minutes it
 runs `intelligence sync --check` in the session's root without delaying the

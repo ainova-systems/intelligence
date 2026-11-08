@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.25.3]
+
+### Fixed
+
+- The Claude Code plugin's `plugin.json` carries the project's `schema_version` instead of the CLI's version, so upgrading the CLI no longer makes `sync --check` report "sync needed" in an unchanged project (decision 0028).
+
 ## [0.25.2]
 
 ### Changed

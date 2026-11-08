@@ -48,26 +48,40 @@ claude_plugin_var() {
 # rendered under this name would be overwritten, so sync refuses the pair.
 IS_CLAUDE_PLUGIN_NAME=intelligence
 
-# render_claude_plugin <output_dir> — copy the plugin template byte for byte,
-# stamp the engine version into its manifest and normalize line endings. The
-# template is in the engine's adapter directory, never in the content package:
-# it is executable tooling, and the bundle copies all of engine/. It is found
-# through the engine root, so a project's own claude.sh renders it too.
+# claude_plugin_version_var <manifest> — set IS_CLAUDE_PLUGIN_VERSION to the
+# project's schema_version, the version the plugin manifest carries (decision
+# 0028); returns 1 when it is not a plain X.Y.Z. The engine's own version would
+# make every CLI upgrade a "sync needed" in a project that did not change.
+claude_plugin_version_var() {
+    read_schema_version_var "$1"
+    IS_CLAUDE_PLUGIN_VERSION="$IS_SCHEMA_VERSION"
+    [[ "$IS_CLAUDE_PLUGIN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+}
+
+# render_claude_plugin <output_dir> [manifest] — copy the plugin template byte
+# for byte, stamp the project's version into its manifest and normalize line
+# endings. The manifest defaults to the exported CONFIG_FILE. The template is in
+# the engine's adapter directory, never in the content package: it is
+# executable tooling, and the bundle copies all of engine/. It is found through
+# the engine root, so a project's own claude.sh renders it too.
 render_claude_plugin() {
-    local output_dir="$1" tpl
+    local output_dir="$1" config_file="${2:-${CONFIG_FILE:-}}" tpl
     local dst="$output_dir/skills/$IS_CLAUDE_PLUGIN_NAME"
     # Rendered beside the destination, under a name no skill can take, and
     # swapped in only when it differs: a running session reloads the mod on
     # every file change, and announces each reload in its transcript.
     local tmp="$output_dir/skills/.$IS_CLAUDE_PLUGIN_NAME.render.$$"
+    claude_plugin_version_var "$config_file" || {
+        echo "ERROR: the Claude Code plugin takes its version from schema_version, which must be X.Y.Z; found '$IS_CLAUDE_PLUGIN_VERSION'." >&2
+        return 1
+    }
     engine_root_var
     tpl="$IS_ENGINE_ROOT/adapters/claude-plugin"
-    engine_version_var
     rm -rf "$tmp"
     mkdir -p "$tmp/.claude-plugin" "$tmp/hooks"
     cp "$tpl/hooks/hooks.json" "$tpl/hooks/register.js" "$tmp/hooks/"
     cp "$tpl/README.md" "$tmp/README.md"
-    awk -v v="$IS_ENGINE_VERSION" '{ sub(/__INTELLIGENCE_VERSION__/, v); print }' \
+    awk -v v="$IS_CLAUDE_PLUGIN_VERSION" '{ sub(/__INTELLIGENCE_VERSION__/, v); print }' \
         "$tpl/.claude-plugin/plugin.json" > "$tmp/.claude-plugin/plugin.json"
     finalize_output_files "$tmp/.claude-plugin/plugin.json" "$tmp/hooks/hooks.json" \
         "$tmp/hooks/register.js" "$tmp/README.md"
@@ -77,7 +91,7 @@ render_claude_plugin() {
         rm -rf "$dst"
         mv "$tmp" "$dst"
     fi
-    echo "  plugin: $IS_CLAUDE_PLUGIN_NAME (Claude Code mod $IS_ENGINE_VERSION)"
+    echo "  plugin: $IS_CLAUDE_PLUGIN_NAME (Claude Code mod $IS_CLAUDE_PLUGIN_VERSION)"
 }
 
 # Sync rules to Claude format (copy as-is, normalize LF)
@@ -258,7 +272,7 @@ sync_to_claude() {
     # The skills renderer has refused a skill of the plugin's name by now, so
     # the plugin never lands on top of one. Cleared above with every other
     # skill directory, it exists only while the flag says so.
-    [ "$IS_CLAUDE_PLUGIN" = 0 ] || render_claude_plugin "$output_dir"
+    [ "$IS_CLAUDE_PLUGIN" = 0 ] || render_claude_plugin "$output_dir" "$config_file"
 
     count_matching_files "$output_dir/rules" "*.md" \
         "$output_dir/skills" "SKILL.md" "$output_dir/agents" "*.md"
