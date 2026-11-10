@@ -354,6 +354,55 @@ if [ "${#local_specs[@]}" -gt 0 ] \
     fi
 fi
 
+# source_label <repo-relative path> — a path in the package store as that
+# package's name and the version intelligence.lock pins, any other as written.
+source_label() {
+    local rest name ref resolved sha
+    case "$1" in
+        .intelligence/packages/@*/*/*) ;;
+        *) printf '%s' "$1"; return 0 ;;
+    esac
+    rest="${1#.intelligence/packages/}"
+    name="${rest%%/*}"
+    rest="${rest#*/}"
+    name="$name/${rest%%/*}"
+    resolved=""
+    [ "$lock_valid" -ne 1 ] || resolved="$(qmap_field "$lock" "packages" "$name" "resolved")"
+    if [ -z "$resolved" ]; then
+        printf '%s' "$name"
+        return 0
+    fi
+    ref="$(qmap_field "$manifest" "packages" "$name" "ref")"
+    sha="$(qmap_field "$lock" "packages" "$name" "sha")"
+    printf '%s %s' "$name" "$(pin_label "$ref" "$resolved" "$sha")"
+}
+
+# A later source overrides a package's artifact of the same name (decision
+# 0021): the package's copy never renders, so a fix its package ships never
+# reaches this project. Each row names only the hidden copies in the package
+# store. A note, never a problem: an override is often deliberate, and sync's
+# warning only reminds that the package's fixes stop there. The catalog is
+# sync's own, so sources sync refuses are left to sync.
+if overrides="$(source_catalog_overrides "$IP_ROOT" "$manifest" 2>/dev/null)"; then
+    while IFS=$'\037' read -r -a row; do
+        [ "${#row[@]}" -ge 4 ] || continue
+        hidden=""
+        for ((i = 3; i < ${#row[@]}; i++)); do
+            label="$(source_label "${row[i]}")"
+            if [ "$i" -eq 3 ]; then
+                hidden="$label"
+            elif [ "$i" -eq $((${#row[@]} - 1)) ]; then
+                hidden="$hidden and $label"
+            else
+                hidden="$hidden, $label"
+            fi
+        done
+        note "${row[0]} '${row[1]}': $(source_label "${row[2]}") overrides $hidden, so a change to the hidden copy never renders"
+    done <<< "$overrides"
+else
+    note "source overrides unchecked: sync refuses these sources — 'intelligence sync' names why"
+fi
+
 if [ "$problems" -eq 0 ]; then
     echo "all good."
 else

@@ -276,12 +276,23 @@ manifest_intelligence_dir_var() {
     IS_CONTENT_DIR="${IS_YAML_FIELD:-intelligence}"
 }
 
+# default_target_output <target> — the output of a manifest entry without
+# `output:`, the engine's one answer (target_default_output_var): a reader of
+# an existing entry names what a sync writes.
 default_target_output() {
+    target_default_output_var "$1"
+    printf '%s' "$IS_TGT_DEFAULT_OUTPUT"
+}
+
+# init_target_output <target> — the output `init` and `adapter enable` write
+# for a target they add to the manifest: where that tool reads its files. It
+# is always written out, so the engine never needs it (decision 0031).
+init_target_output() {
     case "$1" in
         agents) printf '%s' "AGENTS.md" ;;
         antigravity) printf '%s' ".agents" ;;
         copilot) printf '%s' ".github" ;;
-        *) printf '.%s' "$1" ;;
+        *) default_target_output "$1" ;;
     esac
 }
 

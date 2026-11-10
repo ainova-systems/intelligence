@@ -357,10 +357,33 @@ chknot grep -q 'pinned commit' <<< "$pv_gone"
 
 echo "== project file overrides a same-named package file =="
 printf '# Project override\n\nPROJECT_WINS\n' > "$PROJ/intelligence/rules/pack-rule.md"
-(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync >/dev/null)
+# A project skill of the package skill's name, in a project source added last.
+mkdir -p "$PROJ/intelligence/skills/pack-do-thing"
+printf -- '---\nname: pack-do-thing\ndescription: Project thing\n---\nPROJECT_SKILL\n' > "$PROJ/intelligence/skills/pack-do-thing/SKILL.md"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" source add skills intelligence/skills >/dev/null 2>&1) \
+    || { echo "FAIL: source add of the project skills"; fail=1; }
+ov_sync="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync 2>&1)"
 chk grep -q 'PROJECT_WINS' "$PROJ/.claude/rules/pack-rule.md"
 chknot grep -q 'PACK_RULE_MARKER' "$PROJ/.claude/rules/pack-rule.md"
-rm -f "$PROJ/intelligence/rules/pack-rule.md"
+chk grep -q 'PROJECT_SKILL' "$PROJ/.claude/skills/pack-do-thing/SKILL.md"
+grep -Fqx "WARNING: 2 package artifact(s) never render: a later source overrides them by name — 'intelligence status --check' names them" <<< "$ov_sync" \
+    || { echo "FAIL: sync did not count the overridden package rule and skill"; grep '^WARNING' <<< "$ov_sync"; fail=1; }
+is "the line sync ends on" '=== Sync complete ===' "$(tail -1 <<< "$ov_sync")"
+# status --check names the package and the version its lock pins, and the
+# exit stays what the project's checks decide.
+ov_rc=0
+ov_check="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check 2>&1)" || ov_rc=$?
+grep -Fqx "  ! rule 'pack-rule': intelligence/rules/pack-rule.md overrides @acme/shared v2.2.0, so a change to the hidden copy never renders" <<< "$ov_check" \
+    || { echo "FAIL: status --check did not name the overridden package rule"; printf '%s\n' "$ov_check" | tail -5; fail=1; }
+grep -Fqx "  ! skill 'pack-do-thing': intelligence/skills/pack-do-thing overrides @acme/shared v2.2.0, so a change to the hidden copy never renders" <<< "$ov_check" \
+    || { echo "FAIL: status --check did not name the overridden package skill"; printf '%s\n' "$ov_check" | tail -5; fail=1; }
+rm -rf "$PROJ/intelligence/rules/pack-rule.md" "$PROJ/intelligence/skills"
+(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" source remove skills intelligence/skills >/dev/null 2>&1) \
+    || { echo "FAIL: source remove of the project skills"; fail=1; }
+ov_rc2=0
+ov_check2="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check 2>&1)" || ov_rc2=$?
+is "status --check exit with and without the override" "$ov_rc2" "$ov_rc"
+chknot grep -Fq ' overrides ' <<< "$ov_check2"
 
 echo "== registry binding =="
 REG="$OUT/registry"
@@ -393,6 +416,89 @@ chknot grep -q 'PACK_RULE_MARKER' "$PROJ/AGENTS.md"
 echo "== idempotent second sync =="
 out2="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync)"
 grep -q '^IS_STATUS=ok' <<< "$out2" || { echo "FAIL: final sync not ok"; fail=1; }
+
+echo "== <package-dir> names the package an artifact came from, in every tool =="
+# The package ships references/labels.md beside its rules; only rules, agents
+# and skills render, so its artifacts reach the file through the store, wired
+# here by alias.
+TPK="$OUT/token-pack"
+mkdir -p "$TPK/references" "$TPK/rules" "$TPK/agents" "$TPK/skills/tok-skill/references"
+printf 'labels\n' > "$TPK/references/labels.md"
+printf '# Tok\n\nTOK_ALWAYS <package-dir>/references/labels.md and \\<package-dir>\n' > "$TPK/rules/tok-always.md"
+printf -- '---\npaths:\n  - "src/**"\n  - "<package-dir>/**"\n---\n\nTOK_SCOPED <package-dir>/references/labels.md\n' > "$TPK/rules/tok-scoped.md"
+printf -- '---\nexclude_targets: [agents]\n---\n\nTOK_SOLO <package-dir>/references/labels.md\n' > "$TPK/rules/tok-solo.md"
+printf -- '---\nname: tok-agent\ndescription: Reads <package-dir>/references/labels.md\ntier: standard\naccess: readonly\n---\n\nTOK_AGENT <package-dir>/references/labels.md\n' \
+    > "$TPK/agents/tok-agent.md"
+printf -- '---\nname: tok-skill\ndescription: Reads <package-dir>/references/labels.md\n---\n\nTOK_SKILL <package-dir>/references/labels.md\n' \
+    > "$TPK/skills/tok-skill/SKILL.md"
+printf 'TOK_REF <package-dir>/references/labels.md\n' > "$TPK/skills/tok-skill/references/use.md"
+# The word-budget case below reads this sync: a rule of 2,001 words and a
+# SKILL.md with a list item of 151, in the package and in the project alike.
+long_words() { local i out=""; for ((i = 1; i <= $1; i++)); do out+="w$i "; done; printf '%s' "${out% }"; }
+budget_sources() {
+    mkdir -p "$1/rules" "$1/skills/long-skill"
+    { for ((p = 0; p < 20; p++)); do printf '%s\n\n' "$(long_words 100)"; done; printf 'one\n'; } > "$1/rules/long-rule.md"
+    printf -- '---\nname: long-skill\ndescription: Long item\n---\n\n- %s\n' "$(long_words 150)" > "$1/skills/long-skill/SKILL.md"
+}
+budget_sources "$TPK"
+git -C "$TPK" init --quiet
+git -C "$TPK" -c user.email=t@t -c user.name=t -c core.autocrlf=false add -A
+git -C "$TPK" -c user.email=t@t -c user.name=t commit --quiet -m v1
+git -C "$TPK" tag v1.0.0
+TP="$OUT/token-proj"
+mkdir -p "$TP"
+git -C "$TP" init --quiet
+git -C "$TP" config core.autocrlf false
+(cd "$TP" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" init --bare --targets agents,claude,cursor,codex,copilot,opencode) >/dev/null 2>&1
+(cd "$TP" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" adapter enable antigravity) >/dev/null 2>&1
+(cd "$TP" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" adapter enable pi) >/dev/null 2>&1
+mkdir -p "$TP/intelligence/rules"
+printf '# Own\n\nTOK_OWN <package-dir>/rules\n' > "$TP/intelligence/rules/own.md"
+budget_sources "$TP/intelligence"
+(cd "$TP" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+file://$TPK" --name @acme/tok --alias tok --no-sync) >/dev/null 2>&1
+awk '{ sub(/"\.intelligence\/packages\/@acme\/tok\//, "\"tok:"); print }' "$TP/intelligence.yaml" > "$TP/manifest.tmp"
+mv "$TP/manifest.tmp" "$TP/intelligence.yaml"
+chk grep -Fq '"tok:rules"' "$TP/intelligence.yaml"
+tok_out="$(cd "$TP" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync 2>&1)" || { echo "FAIL: sync of <package-dir> content"; fail=1; }
+grep -q '^IS_STATUS=ok' <<< "$tok_out" || { echo "FAIL: sync of <package-dir> content not ok"; fail=1; }
+root='.intelligence/packages/@acme/tok'
+outputs=(AGENTS.md AGENTS.override.md .claude .cursor .codex .github .agents .opencode .pi)
+# Every channel carries the package's path; only the escaped token is left.
+is "paths the token rendered as" "$root/references/labels.md" \
+    "$(cd "$TP" && grep -rhoE '[^ "]*references/labels\.md' "${outputs[@]}" 2>/dev/null | LC_ALL=C sort -u)"
+is "lines holding the token" "TOK_ALWAYS $root/references/labels.md and <package-dir>" \
+    "$(cd "$TP" && grep -rhF '<package-dir>' "${outputs[@]}" 2>/dev/null | LC_ALL=C sort -u)"
+chk grep -Fqx "TOK_ALWAYS $root/references/labels.md and <package-dir>" "$TP/AGENTS.md"
+chk grep -Fqx "| tok-agent | standard | readonly | Reads $root/references/labels.md |" "$TP/AGENTS.md"
+chk grep -Fqx "| tok-skill | Reads $root/references/labels.md |" "$TP/AGENTS.md"
+chk grep -Fqx "TOK_SOLO $root/references/labels.md" "$TP/AGENTS.override.md"
+chk grep -Fqx "TOK_SCOPED $root/references/labels.md" "$TP/.claude/rules/tok-scoped.md"
+chk grep -Fqx "TOK_AGENT $root/references/labels.md" "$TP/.claude/agents/tok-agent.md"
+chk grep -Fqx "TOK_REF $root/references/labels.md" "$TP/.claude/skills/tok-skill/references/use.md"
+chk grep -Fqx "TOK_SOLO $root/references/labels.md" "$TP/.cursor/rules/tok-solo.mdc"
+chk grep -Fqx "TOK_SKILL $root/references/labels.md" "$TP/.cursor/skills/tok-skill/SKILL.md"
+chk grep -Fqx "TOK_SOLO $root/references/labels.md" "$TP/.github/instructions/tok-solo.instructions.md"
+chk grep -Fqx "description: \"Reads $root/references/labels.md\"" "$TP/.github/agents/tok-agent.agent.md"
+chk grep -Fqx "description = \"Reads $root/references/labels.md\"" "$TP/.codex/agents/tok-agent.toml"
+chk grep -Fqx "TOK_REF $root/references/labels.md" "$TP/.agents/skills/tok-skill/references/use.md"
+chk grep -Fqx "TOK_SCOPED $root/references/labels.md" "$TP/.agents/rules/tok-scoped.md"
+chk grep -Fqx "description: \"Reads $root/references/labels.md\"" "$TP/.opencode/commands/tok-skill.md"
+chk grep -Fq "body: \"TOK_SOLO $root/references/labels.md\"" "$TP/.pi/extensions/intelligence-sync-rules.ts"
+chk grep -Fqx "TOK_SCOPED $root/references/labels.md" "$TP/.pi/intelligence-sync/rules/tok-scoped.md"
+# A scoped rule's patterns, in its own copies and where several rules share one file.
+chk grep -Fqx "  - \"$root/**\"" "$TP/.claude/rules/tok-scoped.md"
+chk grep -Fqx "  - \"$root/**\"" "$TP/.cursor/rules/tok-scoped.mdc"
+chk grep -Fqx "applyTo: \"src/**,$root/**\"" "$TP/.github/instructions/tok-scoped.instructions.md"
+chk grep -Fq "patterns: [\"src/**\", \"$root/**\"]" "$TP/.pi/extensions/intelligence-sync-rules.ts"
+chk grep -Fq "\`\"src/**\" \"$root/**\"\` → [tok-scoped]" "$TP/AGENTS.override.md"
+# A project artifact takes the content directory, as <content-dir> does.
+chk grep -Fqx 'TOK_OWN intelligence/rules' "$TP/AGENTS.md"
+
+echo "== word budgets: sync warns about the project's own sources, never a package's =="
+is "budget warnings" "$(printf 'WARNING: %s\n' \
+    'intelligence/rules/long-rule.md is 2001 words, over the rule budget of 2000' \
+    'intelligence/skills/long-skill/SKILL.md:6 has a 151-word paragraph, over the budget of 150')" \
+    "$(grep -E '^WARNING: .*(budget|-word)' <<< "$tok_out")"
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E: ALL OK"
 exit "$fail"

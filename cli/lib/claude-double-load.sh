@@ -143,11 +143,16 @@ claude_double_load_var() {
     target_enabled_var "$manifest" agents
     [ "$IS_TGT_ENABLED" = 1 ] || return 0
     target_output_var "$manifest" agents
-    agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+    agents_output_path_var "$IS_TGT_OUTPUT"
     adapter_contract_rel_path "$IS_AGENTS_OUTPUT_PATH"
     agents_md="$IS_ADAPTER_REL_PATH"
     target_output_var "$manifest" claude
-    adapter_contract_rel_path "${IS_TGT_OUTPUT:-.claude}"
+    claude_out="$IS_TGT_OUTPUT"
+    if [ -z "$claude_out" ]; then
+        target_default_output_var claude
+        claude_out="$IS_TGT_DEFAULT_OUTPUT"
+    fi
+    adapter_contract_rel_path "$claude_out"
     claude_out="$IS_ADAPTER_REL_PATH"
     case "/$agents_md" in
         */.agents/*) return 0 ;;

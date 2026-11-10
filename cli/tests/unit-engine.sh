@@ -489,18 +489,22 @@ cursor      inherit                     inherit                    inherit      
 copilot     gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
 codex       gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
 antigravity pro                         pro                        flash                       flash
-opencode    anthropic/claude-fable-5-1  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-haiku-5-5
+opencode    anthropic/claude-fable-5-2  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-haiku-5-5
 EOF
 # A project keeps the earlier light model with one override, and sync's drift
-# report names it against the new default.
-printf '%s\n' 'models:' '  claude:' '    light: sonnet' '  opencode:' '    light: "anthropic/claude-sonnet-5-5"' > "$OUT/light-pin.yaml"
+# report names it against the new default. The earlier OpenCode frontier model
+# is kept the same way.
+printf '%s\n' 'models:' '  claude:' '    light: sonnet' '  opencode:' '    light: "anthropic/claude-sonnet-5-5"' \
+    '    frontier: "anthropic/claude-fable-5-1"' > "$OUT/light-pin.yaml"
 load_model_tiers "$OUT/light-pin.yaml" claude
 chk eq "$IS_MODEL_LIGHT" "sonnet"
 load_model_tiers "$OUT/light-pin.yaml" opencode
 chk eq "$IS_MODEL_LIGHT" "anthropic/claude-sonnet-5-5"
+chk eq "$IS_MODEL_FRONTIER" "anthropic/claude-fable-5-1"
 drift="$(report_model_drift "$OUT/light-pin.yaml")"
 chk grep -Eq '^  claude +light +config="sonnet" +default="haiku"$' <<< "$drift"
 chk grep -Eq '^  opencode +light +config="anthropic/claude-sonnet-5-5" +default="anthropic/claude-haiku-5-5"$' <<< "$drift"
+chk grep -Eq '^  opencode +frontier +config="anthropic/claude-fable-5-1" +default="anthropic/claude-fable-5-2"$' <<< "$drift"
 
 echo "== every built-in agent target has a default for every standard tier =="
 # An adapter writes whatever the tier resolves to, so a tier one tool has no
@@ -675,6 +679,27 @@ chk eq "$(cat "$SL/.claude/agents/open.md")" "$(printf '%s\n' '---' 'name: open'
 chk eq "$(cat "$SL/.claude/agents/bare.md")" "$(printf '%s\n' '---' 'name: bare' 'description: w' 'model: haiku' '---' 'Body')"
 chk eq "$(cat "$SL/.cursor/agents/bare.md")" "$(printf '%s\n' '---' 'name: bare' 'description: w' 'model: inherit' '---' 'Body')"
 
+echo "== agent transforms: a block list at the key's own indent goes with it, and an agent without frontmatter is all body =="
+# YAML lets a block list sit at its key's indentation; the items of a key the
+# transform drops go with it. Only a --- on line 1 opens frontmatter, so an
+# agent without one keeps every line, a later --- pair included, and gains no
+# key the adapter writes.
+FT="$OUT/transform-edges"
+mkdir -p "$FT/intelligence/agents" "$FT/.claude/agents" "$FT/.cursor/agents"
+printf 'sources:\n  agents:\n    - "intelligence/agents"\ntargets:\n  claude: { enabled: true, output: ".claude" }\n  cursor: { enabled: true, output: ".cursor" }\n' \
+    > "$FT/intelligence.yaml"
+printf '%s\n' '---' 'name: flat' 'description: f' 'access: readonly' 'tools:' '- Read' '- Grep' 'model:' '- x' \
+    'readonly:' '- true' 'exclude_targets:' '- codex' '---' 'Body' '- a body item' > "$FT/intelligence/agents/flat.md"
+printf '%s\n' 'No frontmatter' '' '---' 'key: value' '---' '' 'after the pair' > "$FT/intelligence/agents/nofm.md"
+sync_claude_agents "$FT" "$FT/intelligence.yaml" "$FT/.claude" > /dev/null 2>&1
+sync_cursor_agents "$FT" "$FT/intelligence.yaml" "$FT/.cursor" > /dev/null 2>&1
+chk eq "$(cat "$FT/.claude/agents/flat.md")" "$(printf '%s\n' '---' 'name: flat' 'description: f' 'readonly:' '- true' \
+    'tools: Read, Grep, Glob, Bash' 'disallowedTools: Write, Edit' 'model: opus' '---' 'Body' '- a body item')"
+chk eq "$(cat "$FT/.cursor/agents/flat.md")" "$(printf '%s\n' '---' 'name: flat' 'description: f' \
+    'model: inherit' 'readonly: true' '---' 'Body' '- a body item')"
+chk eq "$(cat "$FT/.claude/agents/nofm.md")" "$(cat "$FT/intelligence/agents/nofm.md")"
+chk eq "$(cat "$FT/.cursor/agents/nofm.md")" "$(cat "$FT/intelligence/agents/nofm.md")"
+
 echo "== source lint: an access value outside full, readonly and runner =="
 # One warning per file, naming the value and the vocabulary (decision 0026).
 # The value is matched exactly, as the adapters match it; runner is in the
@@ -704,6 +729,105 @@ IS_SOURCE_FILES_MEMO=0 source_catalog_build "$SA" "$SA/off.yaml" lint 2> "$OUT/l
 chk eq "$(cat "$OUT/lint-access-off.err")" "$(printf 'WARNING: %s\n' \
     'intelligence/agents/cased.md:4 access "Runner" is not one of full, readonly, runner — every tool renders it as full access' \
     'intelligence/agents/typo.md:3 access "read-only" is not one of full, readonly, runner — every tool renders it as full access')"
+
+echo "== a comment after a keyword value is no part of it, for the readers and the lint alike =="
+# tier, access and effort are keywords to every renderer, context, agent and
+# model to the lint as well, and disable-model-invocation to the Codex skill
+# policy: a YAML comment after one (a # after
+# whitespace, outside quotes) is not read, a # inside quotes is the value's,
+# and a free-text key such as description keeps every character.
+KC="$OUT/keyword-comment"
+mkdir -p "$KC/intelligence/agents" "$KC/intelligence/skills/cfork" "$KC/intelligence/skills/eff"
+printf 'sources:\n  agents:\n    - "intelligence/agents"\n  skills:\n    - "intelligence/skills"\ntargets:\n  claude: { enabled: true, output: ".claude" }\n' \
+    > "$KC/intelligence.yaml"
+printf '%s\n' '---' 'name: noted' 'description: Noted # kept' 'tier: light # cheap' 'access: runner # note' \
+    $'effort: high\t# deep' '---' 'Body' > "$KC/intelligence/agents/noted.md"
+printf '%s\n' '---' 'name: quoted' 'access: "runner # not a comment"' '---' > "$KC/intelligence/agents/quoted.md"
+printf '%s\n' '---' 'name: closed' 'access: "runner" # note' "tier: 'light' # x" 'effort: run#1' '---' \
+    > "$KC/intelligence/agents/closed.md"
+printf '%s\r\n' '---' 'name: bare' 'access: # to be decided' '---' > "$KC/intelligence/agents/bare.md"
+printf '%s\n' '---' 'name: cfork' 'context: fork # runs alone' 'agent: noted' 'model: haiku # cheap' '---' \
+    > "$KC/intelligence/skills/cfork/SKILL.md"
+printf '%s\n' '---' 'name: eff' 'effort: hiigh # a typo' 'tier: # none' '---' > "$KC/intelligence/skills/eff/SKILL.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$KC" "$KC/intelligence.yaml" lint 2> "$OUT/keyword-comment.err"
+chk eq "$(cat "$OUT/keyword-comment.err")" "$(printf 'WARNING: %s\n' \
+    'intelligence/agents/closed.md:5 effort "run#1" is not one of low, medium, high, xhigh, max, ultra — ignored, so no tool receives an effort from this file' \
+    'intelligence/agents/quoted.md:3 access "runner # not a comment" is not one of full, readonly, runner — every tool renders it as full access' \
+    'intelligence/skills/eff/SKILL.md:3 effort "hiigh" is not one of low, medium, high, xhigh, max, ultra — ignored, so no tool receives an effort from this file')"
+KA="$KC/intelligence/agents"
+chk eq "$(frontmatter_index 'tier,access,effort,description' "$KA/noted.md" "$KA/quoted.md" "$KA/closed.md" "$KA/bare.md")" \
+    "$(printf '%s\x1f%s\x1f%s\x1f%s\x1f%s\n' "$KA/noted.md" light runner high 'Noted # kept' \
+        "$KA/quoted.md" '' 'runner # not a comment' '' '' "$KA/closed.md" light runner 'run#1' '' "$KA/bare.md" '' '' '' '')"
+chk eq "$(get_frontmatter_value access "$KA/noted.md")|$(get_frontmatter_value tier "$KA/closed.md")" "runner|light"
+chk eq "$(get_frontmatter_value description "$KA/noted.md")" "Noted # kept"
+# disable-model-invocation is a keyword too: a skill whose `true` carries a
+# comment still gets the Codex policy that keeps the model from selecting it.
+mkdir -p "$KC/open/owner"
+printf '%s\n' '---' 'name: owner' 'disable-model-invocation: true # owner only' '---' 'Body' > "$KC/open/owner/SKILL.md"
+chk eq "$(frontmatter_index 'disable-model-invocation' "$KC/open/owner/SKILL.md")" "$KC/open/owner/SKILL.md"$'\x1f'"true"
+open_skill_invocation_policies "$KC/open"
+chk grep -Fqx '  allow_implicit_invocation: false' "$KC/open/owner/agents/openai.yaml"
+
+echo "== word budgets: the authoring rule and the audit name the numbers the engine holds =="
+budget() { local k; for k in $IS_WORD_BUDGETS; do [ "${k%%=*}" != "$1" ] || printf '%s' "${k#*=}"; done; }
+AUTH="$REPO/packages/sync/rules/intelligence-authoring.md"
+AUDIT="$REPO/packages/sync/skills/intelligence-review-context/references/audit-checks.md"
+# The Size table, one `<label> <words>` line per row.
+size_table="$(awk -F'|' '/^\| Type \| Budget \|/ { t = 1; next } t && !/^\|/ { exit }
+    t && !/^\|---/ { l = $2; v = $3; gsub(/^ +| +$/, "", l); gsub(/[^0-9]/, "", v); print l " " v }' "$AUTH")"
+chk eq "$size_table" "$(printf '%s\n' "Rule $(budget rule)" "Agent $(budget agent)" "\`SKILL.md\` $(budget skill)" \
+    "Paragraph, list item or table row $(budget paragraph)")"
+r7_row="$(grep -F '(`R7`)' "$AUDIT" | tr -d ',')"
+for want in "\`SKILL.md\` over $(budget skill) words" "rule over $(budget rule)" "agent over $(budget agent)" \
+    "table row over $(budget paragraph)"; do
+    chk grep -Fq "$want" <<< "$r7_row"
+done
+
+echo "== word budgets: sync counts a project source as the audit does, never a package one =="
+WB="$OUT/word-budgets"
+words() { local i out=""; for ((i = $1; i <= $2; i++)); do out+="w$i "; done; printf '%s' "${out% }"; }
+for dir in intelligence .intelligence/packages/@a/b; do
+    mkdir -p "$WB/$dir/rules" "$WB/$dir/agents" "$WB/$dir/skills/long"
+    # 2,001 words in paragraphs of 100.
+    { printf -- '---\ndescription: Long\n---\n'
+      for ((p = 0; p < 20; p++)); do printf '%s\n\n' "$(words $((p * 100 + 1)) $((p * 100 + 100)))"; done
+      printf 'one\n'; } > "$WB/$dir/rules/long.md"
+    # Exactly 2,000 words, and a paragraph of exactly 150: a heading starts one.
+    { printf -- '# Even\n%s\n\n' "$(words 1 148)"
+      for ((p = 0; p < 18; p++)); do printf '%s\n\n' "$(words 1 100)"; done
+      printf '%s\n' "$(words 1 50)"; } > "$WB/$dir/rules/even.md"
+    # 501 words, 200 of them in a code block, which belongs to no paragraph.
+    { printf -- '---\nname: long\ndescription: Long\n---\n'
+      printf '%s\n\n%s\n\n%s\n\n```text\n%s\n```\n' "$(words 1 100)" "$(words 1 100)" "$(words 1 101)" "$(words 1 198)"; } \
+        > "$WB/$dir/agents/long.md"
+    # A list item of 151 words, its marker included, continued on a second line.
+    printf -- '---\nname: long\ndescription: Long item\n---\n\nIntro.\n\n- %s\n  %s\n- short item\n' \
+        "$(words 1 100)" "$(words 101 150)" > "$WB/$dir/skills/long/SKILL.md"
+done
+while IFS= read -r line; do printf '%s\r\n' "$line"; done < "$WB/intelligence/rules/long.md" > "$WB/intelligence/rules/long-crlf.md"
+printf 'sources:\n  rules:\n    - ".intelligence/packages/@a/b/rules"\n    - "intelligence/rules"\n  agents:\n    - ".intelligence/packages/@a/b/agents"\n    - "intelligence/agents"\n  skills:\n    - ".intelligence/packages/@a/b/skills"\n    - "intelligence/skills"\n' \
+    > "$WB/intelligence.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$WB" "$WB/intelligence.yaml" lint 2> "$OUT/word-budgets.err"
+chk eq "$(cat "$OUT/word-budgets.err")" "$(printf 'WARNING: %s\n' \
+    'intelligence/rules/long-crlf.md is 2001 words, over the rule budget of 2000' \
+    'intelligence/rules/long.md is 2001 words, over the rule budget of 2000' \
+    'intelligence/agents/long.md is 501 words, over the agent budget of 500' \
+    'intelligence/skills/long/SKILL.md:8 has a 151-word paragraph, over the budget of 150')"
+# The numbers are the audit's own count, run as the audit runs it.
+r7_prog="$(awk -v start="awk -v f=\"\$f\" '" -v stop="' \"\$f\"" '
+    !p && (i = index($0, start)) { p = 1; $0 = substr($0, i + length(start)) }
+    p && (i = index($0, stop)) { print substr($0, 1, i - 1); exit }
+    p { print }' "$AUDIT")"
+r7() { awk -v f="$1" "$r7_prog" "$1" | awk '{ print $1 " " $2 }'; }
+chk eq "$(r7 "$WB/intelligence/rules/long.md")" "2001 100"
+chk eq "$(r7 "$WB/intelligence/rules/even.md")" "2000 150"
+chk eq "$(r7 "$WB/intelligence/agents/long.md")" "501 101"
+chk eq "$(r7 "$WB/intelligence/skills/long/SKILL.md")" "155 151"
+# The audit counts a CRLF file as the engine does: a blank line ends a paragraph.
+sed 's/$/\r/' "$WB/intelligence/rules/long.md" > "$OUT/long-crlf.md"
+chk eq "$(r7 "$OUT/long-crlf.md")" "2001 100"
+# The form without a repository root lints no file as a project source.
+chk eq "$(lint_frontmatter_files "$WB/intelligence/rules/long.md" "$WB/intelligence/skills/long/SKILL.md" 2>&1)" ""
 
 echo "== layout tokens: one row in IS_LAYOUT_TOKENS reaches expansion, every escape and the lint =="
 # A copy of the library whose only change is a probe row in the declaration:
@@ -743,6 +867,82 @@ chk grep -Fqx 'description: "uses <probe> and PROBE_VALUE"' "$P/quoted.md"
 chk eq "$(cat "$P/warnings")" \
     'WARNING: intelligence/rules/probe.md:1 <probe> is part of the text around it, but sync renders this layout token as PROBE_VALUE; write \<probe> to keep it as written'
 
+echo "== layout tokens: <package-dir> renders as the root of the package an artifact came from =="
+# A package artifact gets its own package root, a project artifact the content
+# directory, in every helper that renders an artifact: copied rules, skill
+# bundles with their bundled files, rule bodies inlined into one shared file
+# and the frontmatter values read for one.
+PD="$OUT/package-dir"
+PKG="$PD/.intelligence/packages/@acme/core"
+ROOT=.intelligence/packages/@acme/core
+mkdir -p "$PKG/rules" "$PKG/skills/do/references" "$PD/intelligence/rules" \
+    "$PD/intelligence/skills/mine/references" "$PD/out/rules"
+printf -- '---\ndescription: "Read <package-dir>/references/a.md"\n---\nSee <package-dir>/references/a.md, \\<package-dir> and <module>.\n' \
+    > "$PKG/rules/pkg.md"
+printf -- '---\ndescription: "Read <package-dir>/a.md"\n---\nSee <package-dir>/a.md, \\<package-dir> and <module>.\n' \
+    > "$PD/intelligence/rules/own.md"
+printf 'Old <module>, <content-dir>, \\<module>, <manifest> and <sync-cmd>.\n' > "$PKG/rules/old.md"
+printf -- '---\nname: do\ndescription: Uses <package-dir>/x\n---\nBody <package-dir>/references/r.md\n' > "$PKG/skills/do/SKILL.md"
+printf 'Ref <package-dir>/y and \\<package-dir>\n' > "$PKG/skills/do/references/r.md"
+printf -- '---\nname: mine\n---\nMine <package-dir>\n' > "$PD/intelligence/skills/mine/SKILL.md"
+printf 'Mine ref <package-dir>\n' > "$PD/intelligence/skills/mine/references/n.md"
+(
+    export IS_CONTENT_REL=brain IS_MODULE_REL=.intelligence/packages/@s/sync
+    finalize_copy_named "$PD/out/rules" "" "$PKG/rules/pkg.md" "$PD/intelligence/rules/own.md" "$PKG/rules/old.md"
+    copy_skill_bundle_dirs_for open "$PD/out/skills" "$PKG/skills/do" "$PD/intelligence/skills/mine"
+    copy_skill_bundle "$PKG/skills/do" "$PD/out/single/do"
+    emit_rule_bodies "$PKG/rules/pkg.md" "$PD/intelligence/rules/own.md" > "$PD/out/shared.md"
+    finalize_output_file "$PD/out/shared.md"
+    frontmatter_index description "$PKG/rules/pkg.md" "$PD/intelligence/rules/own.md" > "$PD/out/index"
+    # Each wrapped file is written once the next source has started, and an
+    # empty source only at the end.
+    : > "$PKG/rules/empty.md"
+    printf 'Second <package-dir>\n' > "$PD/intelligence/rules/second.md"
+    emit_wrapped_bodies "$(printf '%s\x1f%s\x1fstrip\x1f0\x1fnone\x1f\x1eHEAD <package-dir>\x1f\n' \
+        "$PKG/rules/pkg.md" "$PD/out/w1.md" "$PD/intelligence/rules/own.md" "$PD/out/w2.md" \
+        "$PKG/rules/old.md" "$PD/out/w3.md" "$PD/intelligence/rules/second.md" "$PD/out/w4.md" \
+        "$PKG/rules/empty.md" "$PD/out/w5.md")"
+    # The single-file readers a project adapter renders with.
+    get_frontmatter_value description "$PKG/rules/pkg.md" > "$PD/out/value"
+    strip_frontmatter "$PKG/rules/pkg.md" > "$PD/out/body"
+    copy_md_with_quoted_frontmatter "$PKG/skills/do/SKILL.md" "$PD/out/quoted.md"
+    finalize_output_file "$PD/out/quoted.md"
+)
+chk eq "$(cat "$PD/out/rules/pkg.md")" "$(printf '%s\n' '---' "description: \"Read $ROOT/references/a.md\"" '---' \
+    "See $ROOT/references/a.md, <package-dir> and .intelligence/packages/@s/sync.")"
+chk eq "$(cat "$PD/out/rules/own.md")" "$(printf '%s\n' '---' 'description: "Read brain/a.md"' '---' \
+    'See brain/a.md, <package-dir> and .intelligence/packages/@s/sync.')"
+# The other tokens render as they always did, wherever the artifact lives.
+chk eq "$(cat "$PD/out/rules/old.md")" 'Old .intelligence/packages/@s/sync, brain, <module>, intelligence.yaml and intelligence sync.'
+for tree in skills single; do
+    chk grep -Fqx "description: \"Uses $ROOT/x\"" "$PD/out/$tree/do/SKILL.md"
+    chk grep -Fqx "Body $ROOT/references/r.md" "$PD/out/$tree/do/SKILL.md"
+    chk eq "$(cat "$PD/out/$tree/do/references/r.md")" "Ref $ROOT/y and <package-dir>"
+done
+chk grep -Fqx 'Mine brain' "$PD/out/skills/mine/SKILL.md"
+chk eq "$(cat "$PD/out/skills/mine/references/n.md")" 'Mine ref brain'
+chk grep -Fqx "See $ROOT/references/a.md, <package-dir> and .intelligence/packages/@s/sync." "$PD/out/shared.md"
+chk grep -Fqx 'See brain/a.md, <package-dir> and .intelligence/packages/@s/sync.' "$PD/out/shared.md"
+# A value read for a file several artifacts share arrives expanded for a
+# package artifact, and keeps the token for the content directory otherwise.
+chk eq "$(cat "$PD/out/index")" "$(printf '%s\x1f%s\n' "$PKG/rules/pkg.md" "Read $ROOT/references/a.md" \
+    "$PD/intelligence/rules/own.md" 'Read <package-dir>/a.md')"
+chk eq "$(cat "$PD/out/w1.md")" "$(printf '%s\n' "HEAD $ROOT" "See $ROOT/references/a.md, <package-dir> and .intelligence/packages/@s/sync.")"
+chk eq "$(cat "$PD/out/w2.md")" "$(printf '%s\n' 'HEAD brain' 'See brain/a.md, <package-dir> and .intelligence/packages/@s/sync.')"
+chk grep -Fqx "HEAD $ROOT" "$PD/out/w3.md"
+chk eq "$(cat "$PD/out/w4.md")" "$(printf '%s\n' 'HEAD brain' 'Second brain')"
+chk eq "$(cat "$PD/out/w5.md")" "HEAD $ROOT"
+chk eq "$(cat "$PD/out/value")" "Read $ROOT/references/a.md"
+chk eq "$(cat "$PD/out/body")" "See $ROOT/references/a.md, \\<package-dir> and <module>."
+chk grep -Fqx "description: \"Uses $ROOT/x\"" "$PD/out/quoted.md"
+# Joined to the text around it in a project source, it warns like the others,
+# naming the value it renders as there; a package source is never read.
+printf 'Joined x<package-dir> and <package-dir>/ok and \\<package-dir>_kept\n' > "$PD/intelligence/rules/joined.md"
+cp "$PD/intelligence/rules/joined.md" "$PKG/rules/joined.md"
+warnings="$(IS_CONTENT_REL=brain source_frontmatter_scan "$PD" "$PD/intelligence/rules/joined.md" "$PKG/rules/joined.md" 2>&1 >/dev/null)"
+chk eq "$warnings" \
+    'WARNING: intelligence/rules/joined.md:1 <package-dir> is part of the text around it, but sync renders this layout token as brain; write \<package-dir> to keep it as written'
+
 echo "== copy_skill_bundle_dirs_for: effort rendered for the tree's tool =="
 K="$OUT/skill-effort"
 mkdir -p "$K/src/up" "$K/src/typo" "$K/src/quoted" "$K/src/none/references"
@@ -771,6 +971,13 @@ chk eq "$(skill_fm "$K/copilot/quoted/SKILL.md")" ""
 copy_skill_bundle_dirs "$K/plain" "$K/src/up" "$K/src/typo"
 chk eq "$(skill_fm "$K/plain/up/SKILL.md")" "effort: ultra"
 chk eq "$(skill_fm "$K/plain/typo/SKILL.md")" ""
+# A comment after the level is no part of it: the copy reads as the level alone.
+mkdir -p "$K/src/noted"
+printf '%s\n' '---' 'name: noted' 'effort: ultra # the deepest' '---' > "$K/src/noted/SKILL.md"
+for tool in claude open copilot; do copy_skill_bundle_dirs_for "$tool" "$K/noted-$tool" "$K/src/noted"; done
+chk eq "$(skill_fm "$K/noted-claude/noted/SKILL.md")" "effort: max"
+chk eq "$(skill_fm "$K/noted-open/noted/SKILL.md")" "effort: ultra"
+chk eq "$(skill_fm "$K/noted-copilot/noted/SKILL.md")" ""
 
 echo "== count_matching_files: what find | wc -l reports per directory =="
 C="$OUT/counts"
@@ -926,6 +1133,46 @@ printf -- '---\nname: review\n---\n' > "$S/b/skills/review/SKILL.md"
 IS_SOURCE_FILES_MEMO=0 source_catalog_build "$S" "$S/intelligence.yaml" 2> "$OUT/catalog.err"
 chk eq "$(cat "$OUT/catalog.err")" ""
 chk eq "$IS_CAT_NEED_COMMITTED" 1
+# The later style hides the earlier one, but both are the project's own: a
+# project directory overriding another is reported nowhere.
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/intelligence.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 0
+chk eq "$IS_CAT_OVERRIDES" ""
+# A copy in the package store is reported, whichever source hides it, and the
+# row names only the store copies: style hides one package's copy and a project
+# one, lint one package's under another's. A package hiding a project copy
+# (edge) is not reported. A skill is named by its directory.
+K=".intelligence/packages/@acme"
+mkdir -p "$S/$K/one/rules" "$S/$K/two/rules" "$S/$K/one/skills/review"
+printf 'package style\n' > "$S/$K/one/rules/style.md"
+printf 'package lint\n' > "$S/$K/one/rules/lint.md"
+printf 'later package lint\n' > "$S/$K/two/rules/lint.md"
+printf 'package edge\n' > "$S/$K/two/rules/edge.md"
+printf 'project edge\n' > "$S/a/rules/edge.md"
+printf -- '---\nname: review\n---\n' > "$S/$K/one/skills/review/SKILL.md"
+printf 'sources:\n  rules:\n    - "%s/one/rules"\n    - "a/rules"\n    - "%s/two/rules"\n    - "b/rules"\n  skills:\n    - "%s/one/skills"\n    - "b/skills"\n' \
+    "$K" "$K" "$K" > "$S/store.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/store.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 3
+US=$'\x1f'
+chk eq "$IS_CAT_OVERRIDES" "rule${US}lint${US}$K/two/rules/lint.md${US}$K/one/rules/lint.md"$'\n'"rule${US}style${US}b/rules/style.md${US}$K/one/rules/style.md"$'\n'"skill${US}review${US}b/skills/review${US}$K/one/skills/review"$'\n'
+# One store directory listed again hides nothing of its own.
+printf 'sources:\n  rules:\n    - "%s/one/rules"\n    - "%s/one/rules/"\n' "$K" "$K" > "$S/store-twice.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/store-twice.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 0
+chk eq "$IS_CAT_OVERRIDES" ""
+# The count is of hidden store copies, not of names: lint hides two.
+printf 'project lint\n' > "$S/b/rules/lint.md"
+printf 'sources:\n  rules:\n    - "%s/one/rules"\n    - "%s/two/rules"\n    - "b/rules"\n' "$K" "$K" > "$S/store-chain.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/store-chain.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 3
+chk eq "$IS_CAT_OVERRIDES" "rule${US}lint${US}b/rules/lint.md${US}$K/one/rules/lint.md${US}$K/two/rules/lint.md"$'\n'"rule${US}style${US}b/rules/style.md${US}$K/one/rules/style.md"$'\n'
+# A store path that sources: spells with a leading ./ is still the store.
+printf 'sources:\n  rules:\n    - "./%s/one/rules"\n    - "./b/rules"\n' "$K" > "$S/store-dot.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/store-dot.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 2
+chk eq "$IS_CAT_OVERRIDES" "rule${US}lint${US}b/rules/lint.md${US}$K/one/rules/lint.md"$'\n'"rule${US}style${US}b/rules/style.md${US}$K/one/rules/style.md"$'\n'
+rm -r "$S/.intelligence" "$S/a/rules/edge.md" "$S/b/rules/lint.md"
 # A render that would need Git policy without the engine having read it stops.
 rc=0
 (IS_SOURCE_FILES_MEMO=0 source_artifacts_var "$S" "$S/intelligence.yaml" rules claude ".claude/rules/{}.md") \
@@ -982,6 +1229,9 @@ rm "$S/b/rules/style.local.md"
 printf 'sources:\n  rules:\n    - "a/rules"\n    - "a/rules/"\n' > "$S/twice.yaml"
 IS_SOURCE_FILES_MEMO=0 source_catalog_winners_var "$S" "$S/twice.yaml" rules
 chk eq "${#IS_SOURCE_FILES[@]}" 1
+IS_SOURCE_FILES_MEMO=0 source_catalog_overrides_var "$S" "$S/twice.yaml"
+chk eq "$IS_CAT_OVERRIDE_N" 0
+chk eq "$IS_CAT_OVERRIDES" ""
 
 echo "== source_frontmatter_scan: targets and exclude_targets in the list syntax paths: takes =="
 T="$OUT/targets"
@@ -995,6 +1245,7 @@ tcase() {
 tcase flow 'targets: [claude, cursor]' '1|claude cursor|0|'
 tcase quoted 'targets: ["claude", '"'"'codex'"'"']' '1|claude codex|0|'
 tcase block 'targets:\n  - claude\n  - "pi"\ndescription: x' '1|claude pi|0|'
+tcase unindented 'targets:\n- claude\n- "pi"\nexclude_targets:\n- codex\ndescription: x' '1|claude pi|1|codex'
 tcase empty 'targets: []' '1||0|'
 tcase null 'targets:\ndescription: x' '0||0|'
 tcase scalar 'targets: claude # only Claude' '1|claude|0|'
@@ -1018,6 +1269,10 @@ echo "== rendered copies drop targets and exclude_targets, from the frontmatter 
 printf -- '---\ndescription: x\ntargets:\n  - claude\n  - cursor\nexclude_targets: [pi,\n  codex]\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]\n' > "$T/strip.md"
 finalize_copy_named "$OUT" "" "$T/strip.md"
 chk eq "$(cat "$OUT/strip.md")" "$(printf -- '---\ndescription: x\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]')"
+# A block list at its key's own indent goes with the key too.
+printf -- '---\ntargets:\n- claude\n- cursor\npaths:\n- "src/**"\n---\n- a body item\n' > "$T/strip-flat.md"
+finalize_copy_named "$OUT" "" "$T/strip-flat.md"
+chk eq "$(cat "$OUT/strip-flat.md")" "$(printf -- '---\npaths:\n- "src/**"\n---\n- a body item')"
 
 echo "== rule bodies: only a --- on line 1 opens frontmatter =="
 # A rule without frontmatter that shows a YAML header in a code fence keeps
@@ -1026,7 +1281,7 @@ RB="$OUT/rule-bodies"
 mkdir -p "$RB"
 printf '%s\n' '# Wiki pages' '' '```yaml' '---' 'concern: wiki-page' '---' '```' 'After the block' > "$RB/nofm.md"
 printf '%s\n' '---' 'description: x' '---' 'Body' '---' 'kept' '---' > "$RB/fm.md"
-printf '%s\n' 'Agent text' '---' 'between' '---' > "$RB/agent.md"
+printf '%s\n' 'Agent text' '---' 'between' '---' 'after the pair' > "$RB/agent.md"
 chk eq "$(emit_rule_bodies "$RB/nofm.md" "$RB/fm.md")" \
     "$(printf '%s\n' '# Wiki pages' '' '```yaml' '---' 'concern: wiki-page' '---' '```' 'After the block' '' 'Body' '---' 'kept' '---')"
 wrap_rec() { printf '%s\x1f%s\x1f%s\x1f0\x1fnone\x1f%s\x1f\n' "$RB/$1.md" "$RB/$1.out" "$2" "${3:-}"; }
@@ -1103,6 +1358,30 @@ chk eq "$(frontmatter_index 'paths[]' "$F/empty.md")" "$F/empty.md"$'\x1f''[]'
 chk eq "$(frontmatter_index 'paths[]' "$F/body.md")" "$F/body.md"$'\x1f'
 chknot grep -Fq body-only <<< "$rows"
 chknot grep -Fq ignored-duplicate <<< "$rows"
+
+echo "== a scoped rule's patterns: one reader for every paths: shape =="
+# `paths*` is every pattern of the first paths list, unquoted and
+# \x1d-separated, read in the same pass as the display above: a block list at
+# either indent, one holding a comment line or a trailing comment, a flow list
+# on one line or several, and a single value.
+GS=$'\x1d'
+printf -- '---\npaths:\n  - "a/**"\n  # a note\n  - b/** # trailing\n  - '"'"'c d/**'"'"'\n---\n' > "$F/commented.md"
+printf -- '---\npaths: [\n  "x,y/**",  # one\n  z/**\n] # done\n---\n' > "$F/flow-comment.md"
+printf -- '---\npaths: "solo/**" # one\n---\n' > "$F/scalar.md"
+chk eq "$(frontmatter_index 'paths*' "$F/block.md")" "$F/block.md"$'\x1f'"src with spaces/**${GS}src/{one,two}/**"
+chk eq "$(frontmatter_index 'paths*,description' "$F/indentless.md")" "$F/indentless.md"$'\x1f'"src/**${GS}tests/**"$'\x1f''scope'
+chk eq "$(frontmatter_index 'paths*' "$F/inline.md")" "$F/inline.md"$'\x1f'"*.ts${GS}src/{one,two}/**"
+chk eq "$(frontmatter_index 'paths*' "$F/multiline.md")" "$F/multiline.md"$'\x1f'"one/**${GS}two/**"
+chk eq "$(frontmatter_index 'paths*' "$F/commented.md")" "$F/commented.md"$'\x1f'"a/**${GS}b/**${GS}c d/**"
+chk eq "$(frontmatter_index 'paths*' "$F/flow-comment.md")" "$F/flow-comment.md"$'\x1f'"x,y/**${GS}z/**"
+chk eq "$(frontmatter_index 'paths*' "$F/scalar.md")" "$F/scalar.md"$'\x1f'"solo/**"
+chk eq "$(frontmatter_index 'paths*' "$F/empty.md")" "$F/empty.md"$'\x1f'
+chk eq "$(frontmatter_index 'paths*' "$F/body.md")" "$F/body.md"$'\x1f'
+chk eq "$(frontmatter_index 'paths[],paths*' "$F/inline.md")" "$F/inline.md"$'\x1f''["*.ts", "src/{one,two}/**"]'$'\x1f'"*.ts${GS}src/{one,two}/**"
+# The display Codex routes with drops each comment and keeps the quotes.
+chk eq "$(frontmatter_index 'paths[]' "$F/commented.md")" "$F/commented.md"$'\x1f'"\"a/**\" b/** 'c d/**'"
+chk eq "$(frontmatter_index 'paths[]' "$F/flow-comment.md")" "$F/flow-comment.md"$'\x1f''[ "x,y/**", z/** ]'
+chk eq "$(frontmatter_index 'paths[]' "$F/scalar.md")" "$F/scalar.md"$'\x1f''"solo/**"'
 
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

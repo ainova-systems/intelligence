@@ -105,6 +105,7 @@ cannot prove unchanged state. Unsafe or unknown dependencies use ordinary sync.
 Publish cache state only for a successful render with stable inputs, and preserve
 failure exit codes and rollback. `sync --force` refreshes output and repository
 discovery; a cache hit retains useful diagnostics from the last full run.
+
 The record keeps tooling, inputs and outputs apart (decision 0018), so
 `sync --check` answers "sync needed" only from a record its own tooling made
 (the CLI and engine code and the adapter filter; never where the project
@@ -133,6 +134,7 @@ store strictly from `intelligence.lock`, never re-resolving a version during res
 Present is not installed: every write of a package records its lock row in
 `.intelligence/packages/.installed` (decision 0012), and a package whose record is
 absent or differs from the lock is restored and reported by `status --check`.
+
 `intelligence update` always prints the installed-CLI, project and package plan;
 `--preview` stops without writing, the bare form asks, `--apply` proceeds and syncs.
 The CLI step it names is `intelligence upgrade`, the one command that writes to an
@@ -141,12 +143,14 @@ only when npm's own shim at that prefix points at this tree, hands it to npm
 explicitly, asks the registry in that same global configuration, installs the exact
 version its plan showed, and refuses any tree npm did not lay out (checkout, `npx`,
 `npm link`, a project dependency, another package manager) before any network call,
-with the command that upgrades that installation where it lives. Never ask npm where
-its global root is to decide this: it answers for the current config, not for the
-running tree, and redacts UUID-like path segments. Never trust the layout alone: a
-project's `node_modules/<pkg>` is laid out like the Windows prefix. The launcher
-exports the installed package name, version, shim name and launcher path; nothing in
-`cli/` names the npm package. The shared mechanics live in `cli/lib/cli-install.sh`.
+with the command that upgrades that installation where it lives.
+
+Never ask npm where its global root is to decide this: it answers for the current
+config, not for the running tree, and redacts UUID-like path segments. Never trust
+the layout alone: a project's `node_modules/<pkg>` is laid out like the Windows
+prefix. The launcher exports the installed package name, version, shim name and
+launcher path; nothing in `cli/` names the npm package. The shared mechanics live in
+`cli/lib/cli-install.sh`.
 
 ## Tests
 

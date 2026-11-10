@@ -25,6 +25,7 @@ Apply these checks to the source groups resolved by the review skill.
 | **Description over budget** | Over ~250 characters (the shared registry budget); over **1024** the tools reject the artifact outright | `TRIM` — keep the distinguishing trigger, drop the rest |
 | **Missing frontmatter field** | `name` or `description` absent | `PATCH` — add it |
 | **Dead skill field** | `agent:` or `model:` in a `SKILL.md` without `context: fork`, or `tier:` in one (`R8`) | `PATCH` - delete the field: without the fork `agent:` selects nothing and `model:` switches the session model and drops the prompt cache, and only an agent reads `tier:`; or fork the skill when the authoring conventions say it should |
+| **Forked skill editing beside its caller** | A `SKILL.md` with `context: fork` and no `background: false` whose agent can edit: no `agent:`, `agent: general-purpose`, or a source agent whose `access:` is neither `readonly` nor `runner` (`R9`) | `PATCH` - add `background: false`: in the background the caller's turn goes on, so the caller and the fork change one checkout at the same time; or keep the skill inline when its job is editing alongside the caller |
 | **Orphan rule** | Nothing points at it and nothing loads it | `FLAG` — intentional, or dead? |
 
 Detection commands, portable on purpose — no `\b` and no `-P`, so the same command works in Git Bash on Windows, on macOS (BSD grep) and on Linux. Run each over the source directories resolved in step 2, never over generated output:
@@ -57,6 +58,7 @@ grep -rniE -e '(#|PR )[0-9]{3,}' -e '[0-9]{4}-[0-9]{2}-[0-9]{2}' -e 'this sessio
 # R7 - words per file, then the longest paragraph; a list item or table row is its own paragraph
 find <rule-dirs> <agent-dirs> <skill-dirs> -name '*.md' | while IFS= read -r f; do
   awk -v f="$f" 'BEGIN { fence = sprintf("%c%c%c", 96, 96, 96) }
+    { sub(/\r$/, "") }
     NR == 1 && /^---[ \t\r]*$/ { fm = 1; next }
     fm { if (/^---[ \t\r]*$/) fm = 0; next }
     { w += NF }
@@ -66,8 +68,28 @@ find <rule-dirs> <agent-dirs> <skill-dirs> -name '*.md' | while IFS= read -r f; 
     { p += NF; if (p > max) max = p }
     END { printf "%6d %4d %s\n", w, max, f }' "$f"
 done | sort -rn
+
+# R9 - a forked skill without background: false whose agent can edit; fmv prints one frontmatter
+# value without quotes or a trailing comment, and the later agent source wins, as in sync
+fmv() { awk -v k="$2" 'NR == 1 { f = /^---/; next } !f || /^---/ { exit }
+  index($0, k ":") == 1 { v = substr($0, length(k) + 2); sub(/[ \t]+#.*$/, "", v)
+    gsub(/["\047 \t\r]/, "", v); print v; exit }' "$1"; }
+grep -rl --include=SKILL.md '^context:' <skill-dirs> | while IFS= read -r f; do
+  [ "$(fmv "$f" context)" = fork ] && [ "$(fmv "$f" background)" != false ] || continue
+  a=$(fmv "$f" agent); a=${a:-general-purpose}
+  if [ "$a" != general-purpose ]; then
+    src=; for d in <agent-dirs>; do [ -f "$d/$a.md" ] && src="$d/$a.md"; done
+    [ -n "$src" ] || continue
+    case "$(fmv "$src" access)" in readonly|runner) continue ;; esac
+  fi
+  echo "$f: agent $a can edit while its caller works"
+done
 ```
 
 `R8` has no command of its own: every sync checks it over every source, packages included, and prints one `WARNING:` line per field naming the file and line. Read those lines from `intelligence sync` output.
+
+`R9` judges `general-purpose` and the agents in the agent sources. A fork that names any other agent, a tool's built-in or a plugin's, is skipped: whether that agent edits is in its own documentation.
+
+Every sync also makes the `R7` count over the project's own rules, agents and `SKILL.md` files, and prints a `WARNING:` line for a file over its budget and one for its longest paragraph over the paragraph budget. The command above still measures a package source and a skill reference.
 
 `R4` is a coarse net, not a verdict: a skill that merely *mentions* a verification command anywhere passes it. Read the final step of every skill regardless — the question is whether something at the end **proves the work landed**, not whether the word appears. So are `R5` and `R6`: a `NEVER` that carries its reason and a date inside a frontmatter template are both legitimate hits, and the row's action applies only where the marker or the id is doing no work.

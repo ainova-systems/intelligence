@@ -34,17 +34,30 @@ normalize_file_to_lf() {
 # (packages/sync/references/conventions.md and adapters.md). A name is
 # lowercase letters, digits and `-`: it is spliced into awk text and a Bash
 # pattern.
+#
+# A row whose variable is written `@<variable>` belongs to the artifact the
+# text came from (decision 0030): in a package artifact it renders as the
+# repository-relative root of that package in the store
+# (.intelligence/packages/@scope/name), and in a project artifact, or in text
+# no artifact wrote, as the variable's value. IS_AWK_LIB follows the artifact
+# by fin_at. The row is last, so it expands first: text another token renders
+# is never read for it.
 IS_LAYOUT_TOKENS=(
     'content-dir IS_CONTENT_REL intelligence'
     'module IS_MODULE_REL .intelligence/packages/@ainova-systems/sync'
     'manifest IS_MANIFEST_NAME intelligence.yaml'
     'sync-cmd IS_SYNC_CMD intelligence sync'
+    'package-dir @IS_CONTENT_REL intelligence'
 )
 IS_LAYOUT_NAMES=()
 _is_names=""
+_is_art=""
+_is_k=0
 for _is_row in "${IS_LAYOUT_TOKENS[@]}"; do
+    _is_k=$((_is_k + 1))
     IS_LAYOUT_NAMES+=("${_is_row%% *}")
     _is_names="$_is_names${_is_names:+ }${_is_row%% *}"
+    case "${_is_row#* }" in @*) _is_art="$_is_art${_is_art:+ }$_is_k" ;; esac
 done
 
 # Process spawns dominate sync time on Git Bash for Windows: one fork costs
@@ -80,6 +93,81 @@ IS_AWK_LIB='
             FIN_HOLD[is_tk] = "\034" is_tn[is_tk] ">"
             if (FIN_ENV != "") FIN_VAL[is_tk] = ENVIRON[FIN_ENV is_tk]
         }
+        # FIN_ARTK lists the rows that follow the artifact, FIN_BASE their
+        # value outside a package. FIN_SRC_OF maps an output file, or the
+        # directory holding it, to the source it was copied from: the
+        # `<output> US <source>` lines of ENVIRON["IS_FIN_SRC_MAP"].
+        FIN_ARTN = split("'"$_is_art"'", FIN_ARTK, " ")
+        for (is_tk = 1; is_tk <= FIN_ARTN; is_tk++) FIN_BASE[FIN_ARTK[is_tk]] = FIN_VAL[FIN_ARTK[is_tk]]
+        FIN_STORE = "/.intelligence/packages/"
+        is_fs_n = split(ENVIRON["IS_FIN_SRC_MAP"], is_fs_rows, "\n")
+        for (is_tk = 1; is_tk <= is_fs_n; is_tk++) {
+            is_fs_p = index(is_fs_rows[is_tk], sprintf("%c", 31))
+            if (is_fs_p > 0) {
+                FIN_SRC_OF[substr(is_fs_rows[is_tk], 1, is_fs_p - 1)] = substr(is_fs_rows[is_tk], is_fs_p + 1)
+                FIN_SRC_N++
+            }
+        }
+    }
+    # fin_pkg_root(path) - the repository-relative root of the package the
+    # file at <path> came from, "" outside the package store. The store holds
+    # each package at .intelligence/packages/@scope/name, the path a package
+    # reference in sources: expands to (decision 0019), so an alias or a full
+    # name reaches the same root. An output file is first traced to its
+    # source through FIN_SRC_OF, nearest directory first.
+    function fin_pkg_root(p,   q, i, j, s) {
+        if (FIN_SRC_N) {
+            q = p
+            while (q != "" && !(q in FIN_SRC_OF)) {
+                j = 0
+                while ((i = index(substr(q, j + 1), "/")) > 0) j += i
+                q = (j > 1) ? substr(q, 1, j - 1) : ""
+            }
+            if (q != "") p = FIN_SRC_OF[q]
+        }
+        p = "/" p
+        i = index(p, FIN_STORE "@")
+        if (!i) return ""
+        p = substr(p, i + length(FIN_STORE))
+        s = index(p, "/")
+        if (s < 3) return ""
+        q = substr(p, s + 1)
+        j = index(q, "/")
+        if (j) q = substr(q, 1, j - 1)
+        if (q == "") return ""
+        return substr(FIN_STORE, 2) substr(p, 1, s) q
+    }
+    # fin_at() - point the rows that follow the artifact at the one the text
+    # comes from: FIN_CUR when a program names it, FILENAME otherwise. A
+    # program that writes one file only after reading the next sets FIN_CUR.
+    function fin_at(   p, j) {
+        p = (FIN_CUR != "") ? FIN_CUR : FILENAME
+        if (p == FIN_AT) return
+        FIN_AT = p
+        FIN_PKG = fin_pkg_root(p)
+        for (j = 1; j <= FIN_ARTN; j++)
+            FIN_VAL[FIN_ARTK[j]] = (FIN_PKG != "") ? FIN_PKG : FIN_BASE[FIN_ARTK[j]]
+    }
+    # fin_own(line) - for a reader whose text lands in a file several
+    # artifacts share (AGENTS.md, an override, an index row): expand the rows
+    # that follow the artifact now, while the artifact is known, and only in
+    # a package artifact. An escaped token, every other token and the token
+    # in a project artifact, whose value is the one fin_line gives the whole
+    # file, wait for fin_line.
+    function fin_own(s,   j, t, out, i) {
+        if (!FIN_ARTN || !index(s, "<")) return s
+        fin_at()
+        if (FIN_PKG == "") return s
+        for (j = 1; j <= FIN_ARTN; j++) {
+            t = FIN_TOK[FIN_ARTK[j]]
+            out = ""
+            while ((i = index(s, t)) > 0) {
+                out = out substr(s, 1, i - 1) ((i > 1 && substr(s, i - 1, 1) == "\\") ? t : FIN_PKG)
+                s = substr(s, i + length(t))
+            }
+            s = out s
+        }
+        return s
     }
     # A backslash keeps a token as written: `\<module>` renders as `<module>`.
     # The escaped token waits on a control character while the others expand.
@@ -96,6 +184,7 @@ IS_AWK_LIB='
     # token renders as it always did.
     function fin_line(s,   k) {
         if (index(s, "<")) {
+            if (FIN_ARTN) fin_at()
             s = fin_keep(s)
             for (k = FIN_N; k > 0; k--) s = is_repl(s, FIN_TOK[k], FIN_VAL[k])
         }
@@ -114,6 +203,40 @@ IS_AWK_LIB='
             }
         }
         return val
+    }
+    # FM_KW holds the frontmatter keys whose value the engine reads as one
+    # keyword: tier, access and effort for every renderer, context, agent
+    # and model for the source lint too, and disable-model-invocation for the
+    # Codex skill policy. A YAML comment after such a value, a # after
+    # whitespace and outside quotes, is no part of it. Every other key,
+    # description and name among them, keeps its whole text.
+    BEGIN {
+        split("tier access effort context agent model disable-model-invocation", is_kw, " ")
+        for (is_kw_i in is_kw) FM_KW[is_kw[is_kw_i]] = 1
+    }
+    # fm_value(key, raw) - the value of frontmatter key <key>, <raw> being
+    # the text after its first colon: fm_value_strip, and for a keyword key
+    # fm_scalar, which removes the comment after the value first.
+    function fm_value(k, val) {
+        if (!(k in FM_KW)) return fm_value_strip(val)
+        return fm_scalar(val)
+    }
+    # fm_scalar(raw) - one YAML scalar written as <raw>, a keyword value or
+    # a list item: a comment after it, a # after whitespace and outside
+    # quotes, is no part of it. A value that is quoted and then commented is
+    # the quoted text; one with anything else after its closing quote reads
+    # as fm_value_strip reads it.
+    function fm_scalar(val,   t, q, i) {
+        t = val
+        sub(/^[[:space:]]+/, "", t)
+        q = substr(t, 1, 1)
+        if (q == "\"" || q == "\047") {
+            i = index(substr(t, 2), q)
+            if (i > 0 && substr(t, i + 2) ~ /^([[:space:]]+#.*)?[[:space:]]*$/) return substr(t, 2, i - 1)
+            return fm_value_strip(val)
+        }
+        sub(/[[:space:]]+#.*$/, "", val)
+        return fm_value_strip(val)
     }
     function base_name(p,   q, m) { m = split(p, q, "/"); return q[m] }
     # The name a source renders under (decision 0021) comes from the source
@@ -143,11 +266,13 @@ IS_AWK_LIB='
     function tgt_drop(s) { return fm_key_drop(s, "^(targets|exclude_targets):", TGT_ST) }
     # fm_key_drop(line, re, st) — tgt_drop for any key matching <re>: whether
     # the frontmatter line is such a key or the block or flow list that
-    # continues one. <st> holds the state of one caller, cleared per file with
+    # continues one. A block list continues on indented lines, blank ones and
+    # items at the indent of the key itself (`- Read`), which YAML allows.
+    # <st> holds the state of one caller, cleared per file with
     # split("", st), so two callers in one program never share it.
     function fm_key_drop(s, re, st,   v) {
         if (st["c"] == "block") {
-            if (s ~ /^[ \t]/ || s == "") return 1
+            if (s ~ /^[ \t]/ || s == "" || s ~ /^-([ \t]|$)/) return 1
             st["c"] = ""
         } else if (st["c"] == "flow") {
             if (index(s, "]")) st["c"] = ""
@@ -162,7 +287,7 @@ IS_AWK_LIB='
         return 1
     }
 '
-unset _is_row _is_names
+unset _is_row _is_names _is_art _is_k
 
 # is_fin_awk_vars — export each token's value as IS_LAYOUT_VALUE_<k>, <k> its
 # row in IS_LAYOUT_TOKENS, and set the global IS_FIN_V to the -v binding that
@@ -172,12 +297,14 @@ unset _is_row _is_names
 # read as escapes, and BSD awk refuses one that holds a newline. One variable
 # per token, so no byte a value holds can split it into two. Rebuilt on every
 # call: the IS_* env contract is exported after this file is sourced, and a
-# caller may set one variable for a single call.
+# caller may set one variable for a single call. A row that follows the
+# artifact exports its value outside a package.
 is_fin_awk_vars() {
     local row rest var def k=0
     for row in "${IS_LAYOUT_TOKENS[@]}"; do
         rest="${row#* }"
         var="${rest%% *}"
+        var="${var#@}"
         def=""
         case "$rest" in *' '*) def="${rest#* }" ;; esac
         k=$((k + 1))
@@ -277,28 +404,97 @@ source_name_map_var() {
 # the path, then one value per requested key, all separated by \x1f (ASCII
 # unit separator — never present in frontmatter values). Value semantics are
 # get_frontmatter_value's exactly: first frontmatter block only, first key
-# occurrence wins, first-colon split, symmetric quote strip. The special key
-# `paths#` yields the has_paths count; `paths[]` folds the first paths list
-# into one display value, preserving YAML quotes and inline list syntax.
-# A file without
-# frontmatter (or an empty file) still gets a row, with empty values.
+# occurrence wins, first-colon split, symmetric quote strip, and no comment
+# after the value of a keyword key (fm_value in IS_AWK_LIB). The special key
+# `paths#` yields the has_paths count. The first paths list is read once, here,
+# for every consumer (decision 0021 routes on it): `paths[]` folds it into one
+# display value, preserving YAML quotes and inline list syntax and dropping
+# comments, and `paths*`
+# gives its patterns, each read as fm_scalar reads a value, separated by \x1d
+# (ASCII group separator). Both take a block list indented or at the key's own
+# indent, skipping comment lines, a flow list on one line or several, and a
+# single value. A file without
+# frontmatter (or an empty file) still gets a row, with empty values. A value
+# often lands in a file several artifacts share (an AGENTS.md table row), so
+# a layout token that follows its artifact arrives expanded (fin_own), as it
+# does from get_frontmatter_value.
 frontmatter_index() {
     local keys="$1"
     shift
     [ "$#" -gt 0 ] || return 0
     awk -v keys="$keys" "$IS_AWK_LIB"'
-        BEGIN { US = sprintf("%c", 31); nk = split(keys, K, ",") }
-        function store(   i, row) {
+        BEGIN {
+            US = sprintf("%c", 31); GS = sprintf("%c", 29); nk = split(keys, K, ",")
+            for (ki = 1; ki <= nk; ki++) if (K[ki] == "paths[]" || K[ki] == "paths*") want_list = 1
+        }
+        # fm_flow_items(s, out) - the items of the flow list <s> holds from
+        # its first [ to the ] that closes it, each read by fm_scalar, into
+        # out[1..n]; returns n. A comma or ] inside quotes belongs to its
+        # item, and a # after whitespace outside quotes comments out the rest
+        # of its line.
+        function fm_flow_items(s, out,   n, i, m, c, q, item, prev, j) {
+            n = 0; q = ""; item = ""; prev = "["; m = length(s)
+            for (i = index(s, "[") + 1; i <= m; i++) {
+                c = substr(s, i, 1)
+                if (q != "") {
+                    item = item c
+                    if (q == "\"" && c == "\\" && i < m) { i++; item = item substr(s, i, 1) }
+                    else if (c == q) q = ""
+                } else if (c == "\"" || c == "\047") {
+                    q = c; item = item c
+                } else if (c == "#" && (prev == " " || prev == "\t" || prev == "\n")) {
+                    j = index(substr(s, i), "\n")
+                    if (!j) break
+                    i += j - 1; c = "\n"
+                } else if (c == "," || c == "]") {
+                    item = fm_scalar(item)
+                    if (item != "") out[++n] = item
+                    item = ""
+                    if (c == "]") return n
+                } else item = item c
+                prev = c
+            }
+            item = fm_scalar(item)
+            if (item != "") out[++n] = item
+            return n
+        }
+        # fm_uncomment(s) - <s> up to a comment, a # after whitespace and
+        # outside quotes, with trailing whitespace dropped; quotes stay.
+        function fm_uncomment(s,   i, m, c, q, prev) {
+            q = ""; prev = " "; m = length(s)
+            for (i = 1; i <= m; i++) {
+                c = substr(s, i, 1)
+                if (q != "") { if (c == q) q = "" }
+                else if (c == "\"" || c == "\047") q = c
+                else if (c == "#" && (prev == " " || prev == "\t")) { s = substr(s, 1, i - 1); break }
+                prev = c
+            }
+            sub(/[[:space:]]+$/, "", s)
+            return s
+        }
+        # pl_patterns() - the patterns of the paths list this file holds,
+        # GS-joined: a block list and a single value collect them while the
+        # list is read, a flow list splits once its text is complete.
+        function pl_patterns(   n, i, s, it) {
+            if (pl_mode != "flow") return pl_text
+            split("", it)
+            n = fm_flow_items(pl_text, it)
+            s = ""
+            for (i = 1; i <= n; i++) s = s (i > 1 ? GS : "") it[i]
+            return s
+        }
+        function store(   i, row, pats) {
             if (cur == "") return
             row = cur
-            for (i = 1; i <= nk; i++) row = row US V[i]
+            pats = (pl_mode == "") ? "" : pl_patterns()
+            for (i = 1; i <= nk; i++) row = row US ((K[i] == "paths*") ? pats : V[i])
             R[cur] = row
         }
         FNR == 1 {
             store()
             cur = FILENAME
             for (ri = 1; ri <= nk; ri++) { V[ri] = (K[ri] == "paths#") ? 0 : ""; delete SEEN[ri] }
-            in_fm = 0; fm_done = 0; paths_list = 0
+            in_fm = 0; fm_done = 0; paths_list = 0; pl_mode = ""; pl_text = ""
         }
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { in_fm = 1; next }
@@ -306,12 +502,21 @@ frontmatter_index() {
         in_fm && !fm_done && $0 == "---" { fm_done = 1; next }
         fm_done || !in_fm { next }
         {
+            if (index($0, "<")) $0 = fin_own($0)
             if (paths_list && /^[[:space:]]*#/) next
             if (paths_list && (/^[[:space:]]+/ || /^-[[:space:]]+/ || /^\]/)) {
                 item = $0
                 sub(/^[[:space:]]*/, "", item)
+                if (pl_mode == "flow") pl_text = pl_text "\n" item
+                else if (pl_mode == "block" && item ~ /^-([[:space:]]|$)/) {
+                    pat = item
+                    sub(/^-[[:space:]]*/, "", pat)
+                    pat = fm_scalar(pat)
+                    if (pat != "") pl_text = pl_text (pl_text == "" ? "" : GS) pat
+                }
                 sub(/^-[[:space:]]+/, "", item)
-                if (item != "" && item !~ /^#/) {
+                item = fm_uncomment(item)
+                if (item != "") {
                     for (ki = 1; ki <= nk; ki++)
                         if (K[ki] == "paths[]") V[ki] = V[ki] (V[ki] == "" ? "" : " ") item
                 }
@@ -321,17 +526,27 @@ frontmatter_index() {
             idx = index($0, ":")
             if (idx == 0) next
             k = substr($0, 1, idx - 1)
+            if (k == "paths" && want_list && pl_mode == "") {
+                # The first paths list: what follows the colon decides its
+                # shape, and the lines after it continue it.
+                paths_list = 1
+                pl_raw = substr($0, idx + 1)
+                sub(/^[[:space:]]+/, "", pl_raw)
+                pl_text = pl_raw
+                sub(/^#.*$/, "", pl_text)
+                if (pl_text ~ /^[[:space:]]*$/) { pl_mode = "block"; pl_text = "" }
+                else if (substr(pl_text, 1, 1) == "[") pl_mode = "flow"
+                else { pl_mode = "scalar"; pl_text = fm_scalar(pl_text) }
+            }
             for (ki = 1; ki <= nk; ki++) {
                 if (K[ki] == "paths#") {
                     if (k == "paths") V[ki]++
                 } else if (K[ki] == "paths[]" && k == "paths" && !(ki in SEEN)) {
                     SEEN[ki] = 1
-                    V[ki] = substr($0, idx + 1)
-                    sub(/^[[:space:]]+/, "", V[ki])
-                    paths_list = 1
+                    V[ki] = fm_uncomment(pl_raw)
                 } else if (k == K[ki] && !(ki in SEEN)) {
                     SEEN[ki] = 1
-                    V[ki] = fm_value_strip(substr($0, idx + 1))
+                    V[ki] = fm_value(k, substr($0, idx + 1))
                 }
             }
         }
@@ -485,8 +700,9 @@ resolve_source_dir() {
 # where mode selects the body extraction (`strip` = strip_frontmatter
 # semantics, `fence` = body only after a closed frontmatter fence, so a file
 # without frontmatter yields nothing, `fence_nofm` = fence, or the whole file
-# when it never opened one; in `strip` and `fence_nofm` only a `---` on line 1
-# opens frontmatter, so a later pair is body), trim=1 drops trailing blank
+# when it never opened one; in every mode only a `---` on line 1 opens
+# frontmatter, so a later pair is body, and in `fence` no body at all),
+# trim=1 drops trailing blank
 # body lines and emits a single blank line for an empty body (the
 # $(...)-capture-then-echo
 # semantics the per-file code had), escape=toml applies the TOML triple-quote
@@ -519,8 +735,11 @@ emit_wrapped_bodies() {
             m = split(block, parts, LS)
             for (j = 2; j <= m; j++) print fin_line(parts[j]) > out_file
         }
+        # A file is written once the next one has started, so the source its
+        # text came from is named for fin_line.
         function flush_file(   j, last) {
             if (out_file == "") return
+            FIN_CUR = cur
             emit_lines(HEAD[cur])
             if (TRIM[cur] == "1") {
                 last = 0
@@ -537,10 +756,12 @@ emit_wrapped_bodies() {
         FNR == 1 {
             flush_file()
             cur = FILENAME; out_file = DST[cur]; SEENF[cur] = 1
-            body_n = 0; in_fm = 0; past_fm = 0
+            body_n = 0; in_fm = 0; past_fm = 0; no_body = 0
         }
         { sub(/\r$/, "") }
         FNR == 1 && (MODE[cur] == "strip" || MODE[cur] == "fence_nofm") && $0 != "---" { past_fm = 1 }
+        FNR == 1 && MODE[cur] == "fence" && $0 != "---" { no_body = 1 }
+        no_body { next }
         /^---$/ {
             if (!past_fm) { in_fm = !in_fm; if (!in_fm) past_fm = 1; next }
         }
@@ -572,17 +793,18 @@ emit_wrapped_bodies() {
 # one awk, a blank line after each: how AGENTS.md inlines always-on rules, and
 # how Codex's AGENTS.override.md adds the ones AGENTS.md does not carry. Only
 # a `---` on line 1 opens frontmatter: a rule without it keeps every `---` pair
-# in its body, a YAML example in a code fence included.
+# in its body, a YAML example in a code fence included. The file is finalized
+# as a whole, so a token that follows its artifact is expanded here (fin_own).
 emit_rule_bodies() {
     [ "$#" -gt 0 ] || return 0
-    awk '
+    awk "$IS_AWK_LIB"'
         FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
         { sub(/\r$/, "") }
         FNR == 1 && $0 != "---" { past_fm = 1 }
         /^---$/ {
             if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
         }
-        past_fm || !in_fm { print }
+        past_fm || !in_fm { print fin_own($0) }
         END { print "" }
     ' "$@"
 }
@@ -599,7 +821,8 @@ emit_rule_bodies() {
 # — cannot prematurely terminate the generated double-quoted scalar. Values the
 # author already wrapped (in `"` or `'`) pass through untouched. An escaped
 # layout token is resolved first (fin_keep), so <dst> still needs
-# finalize_output_file, as every emitted file does.
+# finalize_output_file, as every emitted file does; a token that follows the
+# artifact is expanded here, where the source is known (fin_own).
 #
 # Usage: copy_md_with_quoted_frontmatter "src.md" "dst.md"
 copy_md_with_quoted_frontmatter() {
@@ -617,7 +840,7 @@ copy_md_with_quoted_frontmatter() {
             return out
         }
         BEGIN { state = "before" }
-        { sub(/\r$/, "") }
+        { sub(/\r$/, ""); if (index($0, "<")) $0 = fin_own($0) }
         state == "before" {
             if (NR == 1 && $0 == "---") { state = "in_fm"; print; next }
             state = "after"; print; next
@@ -738,8 +961,8 @@ copy_skill_bundle_dirs_named() {
         done
     fi
     _skill_bundles_reset
-    for name in "${names[@]}"; do
-        _skill_bundle_note "$dest_root/$name"
+    for ((i = 0; i < ${#names[@]}; i++)); do
+        _skill_bundle_note "$dest_root/${names[i]}" "${srcs[i]}"
     done
     _skill_bundles_flush "$effort_tool"
 }
@@ -747,6 +970,7 @@ copy_skill_bundle_dirs_named() {
 _skill_bundles_reset() {
     _SB_QUOTE_LIST=""
     _SB_SEEN=""
+    _SB_SRC_MAP=""
     _SB_DESTS=()
 }
 
@@ -760,7 +984,7 @@ _skill_bundle_stage() {
     else
         cp -R "$src/." "$dest/"
     fi
-    _skill_bundle_note "$dest"
+    _skill_bundle_note "$dest" "$src"
 }
 
 # _skill_bundle_materialize <skill_dir> — copy a skill whose plan holds links
@@ -805,10 +1029,14 @@ _skill_bundle_materialize() {
     IS_SKI_STAGED="$out"
 }
 
-# Record a staged bundle for the flush pass: mark its SKILL.md for
-# frontmatter quoting and deduplicate the destination.
+# _skill_bundle_note <dest> <src> — record a staged bundle for the flush pass:
+# mark its SKILL.md for frontmatter quoting, deduplicate the destination, and
+# map it to the skill directory it was copied from, so a layout token that
+# follows its artifact finds that skill's package (IS_FIN_SRC_MAP). A later
+# source of one name maps last, as its files land last.
 _skill_bundle_note() {
     local dest="$1"
+    _SB_SRC_MAP="$_SB_SRC_MAP${dest%/}"$'\x1f'"$2"$'\n'
     if [ -f "$dest/SKILL.md" ]; then
         _SB_QUOTE_LIST="$_SB_QUOTE_LIST$dest/SKILL.md"$'\n'
     fi
@@ -827,7 +1055,7 @@ _skill_bundle_note() {
 _skill_bundles_flush() {
     [ "${#_SB_DESTS[@]}" -gt 0 ] || return 0
     local -a mds=() links=()
-    local f listing quote_list="$_SB_QUOTE_LIST"
+    local f listing quote_list="$_SB_QUOTE_LIST" src_map="$_SB_SRC_MAP"
     # Captured, not streamed: a listing cut short could leave a link behind.
     listing="$(find "${_SB_DESTS[@]}" \( -type l -o -type f -name '*.md' \) -print)" || {
         echo "ERROR: could not list the skill copies under ${_SB_DESTS[0]%/*}" >&2
@@ -857,9 +1085,11 @@ _skill_bundles_flush() {
     # and the effort map travel through the environment, like
     # emit_wrapped_bodies specs. The effort key is matched exactly as
     # frontmatter_index reads it, so the line rewritten is the one the
-    # lint judged.
+    # lint judged. Each copy maps to its skill directory, so a token that
+    # follows the artifact renders for the package the skill came from.
     is_fin_awk_vars
-    IS_QUOTE_LIST="$quote_list" IS_EFFORT_MAP="$IS_EFFORT_MAP" awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+    IS_QUOTE_LIST="$quote_list" IS_EFFORT_MAP="$IS_EFFORT_MAP" IS_FIN_SRC_MAP="$src_map" \
+        awk "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN {
             qn = split(ENVIRON["IS_QUOTE_LIST"], QL, "\n")
             for (qi = 1; qi <= qn; qi++) if (QL[qi] != "") QUOTE[QL[qi]] = 1
@@ -899,9 +1129,11 @@ _skill_bundles_flush() {
         state == "in_fm" && FNR > 1 && $0 != "---" && tgt_drop($0) { next }
         state == "in_fm" && FNR > 1 && substr($0, 1, 7) == "effort:" {
             if (effort_seen++) next
-            val = fm_value_strip(substr($0, 8))
+            val = fm_value("effort", substr($0, 8))
             if (!(val in EFFORT)) next
-            if (EFFORT[val] != val) $0 = "effort: " EFFORT[val]
+            # A comment after the level goes with the rewrite, so the copy
+            # reads as the level alone.
+            if (EFFORT[val] != val || val != fm_value_strip(substr($0, 8))) $0 = "effort: " EFFORT[val]
         }
         state == "in_fm" && FNR > 1 {
             if ($0 == "---") state = "after"
@@ -1166,6 +1398,15 @@ lint_frontmatter_files() {
     awk -v levels="$IS_EFFORT_LEVELS" "$IS_AWK_LIB$_IS_AWK_LINT" "$@"
 }
 
+# The word budgets of the authoring rule's Size table
+# (packages/sync/rules/intelligence-authoring.md), one `<kind>=<words>` per
+# kind: a rule, an agent and a skill's SKILL.md, each measured whole, and any
+# paragraph, list item or table row. The source lint measures the project's
+# own sources against them with the count of audit check R7
+# (packages/sync/skills/intelligence-review-context/references/audit-checks.md),
+# and cli/tests/unit-engine.sh holds the table, R7 and these numbers together.
+IS_WORD_BUDGETS="rule=2000 agent=500 skill=1500 paragraph=150"
+
 # The lint rules, shared with source_frontmatter_scan, which runs them in the
 # same pass that reads routing fields. Every rule may end with `next`, so a
 # program that joins them puts its own rules first. Every warning names the
@@ -1206,6 +1447,40 @@ _IS_AWK_LINT='
             }
             na = split("agent model tier context access tools disallowedTools readonly", LA, " ")
             for (li = 1; li <= na; li++) FK_WANT[LA[li]] = 1
+            # The word budgets, IS_WORD_BUDGETS: WB[<kind>] is its words.
+            na = split(ENVIRON["IS_LINT_WORD_BUDGETS"], LA, " ")
+            for (li = 1; li <= na; li++)
+                if ((wb_i = index(LA[li], "=")) > 0) WB[substr(LA[li], 1, wb_i - 1)] = substr(LA[li], wb_i + 1) + 0
+            WB_FENCE = sprintf("%c%c%c", 96, 96, 96)
+        }
+        # Word budgets, counted as audit check R7 of intelligence-review-context
+        # counts: every word after the frontmatter counts toward the file, code
+        # blocks and their fences included, and a paragraph runs between blank
+        # lines, fences and code, with a heading, list item or table row
+        # starting a new one. Only a project source is measured, the scope
+        # tok_check reads: a package source is for its own authors to change.
+        # A file over the budget of its kind warns once, and its longest
+        # paragraph over the paragraph budget once more, when the file ends.
+        function wb_line() {
+            if (FNR == 1 && $0 ~ /^---[ \t]*$/) { wb_fm = 1; return }
+            if (wb_fm) { if ($0 ~ /^---[ \t]*$/) wb_fm = 0; return }
+            wb_w += NF
+            if (index($1, WB_FENCE) == 1) { wb_code = !wb_code; wb_p = 0; return }
+            if (wb_code || NF == 0) { wb_p = 0; return }
+            if ($0 ~ /^[ \t]*(#|[-*] |[0-9]+\. |\|)/) wb_p = 0
+            if (!wb_p) wb_at = FNR
+            wb_p += NF
+            if (wb_p > wb_max) { wb_max = wb_p; wb_max_at = wb_at }
+        }
+        function wb_report(   b) {
+            if (!wb_on) return
+            wb_on = 0
+            b = WB[wb_kind]
+            if (b != "" && wb_w > b)
+                printf "WARNING: %s is %d words, over the %s budget of %d\n", lint_src, wb_w, wb_kind, b > "/dev/stderr"
+            b = WB["paragraph"]
+            if (b != "" && wb_max > b)
+                printf "WARNING: %s:%d has a %d-word paragraph, over the budget of %d\n", lint_src, wb_max_at, wb_max, b > "/dev/stderr"
         }
         # Keys copied as written that do something other than they read, told
         # at the closing fence from the first occurrence of each key. On a
@@ -1276,6 +1551,7 @@ _IS_AWK_LINT='
             }
         }
         FNR == 1 {
+            wb_report()
             in_fm = 0; done = 0; effort_seen = 0
             lint_under = lint_root != "" && index(FILENAME, lint_root "/") == 1
             lint_src = lint_under ? substr(FILENAME, length(lint_root) + 2) : FILENAME
@@ -1283,9 +1559,13 @@ _IS_AWK_LINT='
             is_skill = FILENAME ~ /(^|\/)SKILL\.md$/
             is_agent = FILENAME in LINT_AGENT
             split("", FKL); split("", FKV)
+            wb_on = tok_own; wb_kind = is_agent ? "agent" : (is_skill ? "skill" : "rule")
+            wb_fm = 0; wb_w = 0; wb_code = 0; wb_p = 0; wb_max = 0; wb_max_at = 0
         }
         { sub(/\r$/, "") }
         tok_own && index($0, ">") { tok_check($0) }
+        wb_on { wb_line() }
+        END { wb_report() }
         done { next }
         FNR == 1 && $0 != "---" { done = 1; next }
         FNR == 1 { in_fm = 1; next }
@@ -1294,11 +1574,11 @@ _IS_AWK_LINT='
             fk = substr($0, 1, RLENGTH - 1)
             if ((fk in FK_WANT) && !(fk in FKL)) {
                 FKL[fk] = FNR
-                FKV[fk] = fm_value_strip(substr($0, RLENGTH + 1))
+                FKV[fk] = fm_value(fk, substr($0, RLENGTH + 1))
             }
         }
         in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
-            effort = fm_value_strip(substr($0, 8))
+            effort = fm_value("effort", substr($0, 8))
             if (effort != "" && !(effort in LEVEL)) {
                 printf "WARNING: %s:%d effort \"%s\" is not one of %s — ignored, so no tool receives an effort from this file\n", lint_src, FNR, effort, allowed > "/dev/stderr"
             }
@@ -1350,12 +1630,14 @@ lint_frontmatter() {
 # Splits on the FIRST colon only, so values containing additional colons
 # (e.g. `description: "Use when: fixing APIs"`) are preserved. Reads only
 # inside the first `---` ... `---` frontmatter block; body content is ignored.
-# Strips surrounding double or single quotes from the value.
+# Strips surrounding double or single quotes from the value, and the comment
+# after the value of a keyword key (fm_value). A layout token that follows
+# its artifact arrives expanded, as from frontmatter_index.
 # Usage: get_frontmatter_value "tier" "path/to/file.md"
 get_frontmatter_value() {
     local key="$1"
     local file="$2"
-    awk -v k="$key" '
+    awk -v k="$key" "$IS_AWK_LIB"'
         { sub(/\r$/, "") }
         NR == 1 && $0 != "---" { exit }
         NR == 1 { in_fm = 1; next }
@@ -1367,18 +1649,7 @@ get_frontmatter_value() {
             if (idx == 0) next
             line_key = substr($0, 1, idx - 1)
             if (line_key != k) next
-            val = substr($0, idx + 1)
-            sub(/^[[:space:]]+/, "", val)
-            sub(/[[:space:]]+$/, "", val)
-            n = length(val)
-            if (n >= 2) {
-                first = substr(val, 1, 1)
-                last = substr(val, n, 1)
-                if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
-                    val = substr(val, 2, n - 2)
-                }
-            }
-            print val
+            print fin_own(fm_value(k, substr($0, idx + 1)))
             exit
         }
     ' "$file"
@@ -1396,10 +1667,12 @@ has_frontmatter() {
 # per line). If the file has no frontmatter, the entire file is printed.
 # Shared by adapters that wrap source agent bodies into IDE-native templates
 # (currently pi.sh, opencode.sh) — do NOT inline-duplicate this awk block.
+# A layout token that follows its artifact is expanded here, where the source
+# is known (fin_own); the output still needs finalize_output_file.
 # Usage: body="$(strip_frontmatter "path/to/file.md")"
 strip_frontmatter() {
     local file="$1"
-    awk '
+    awk "$IS_AWK_LIB"'
         BEGIN { in_fm = 0; past_fm = 0 }
         { sub(/\r$/, "") }
         # No frontmatter: first line is not a `---` fence — treat the whole
@@ -1413,7 +1686,7 @@ strip_frontmatter() {
                 next
             }
         }
-        past_fm { print }
+        past_fm { print fin_own($0) }
     ' "$file"
 }
 
@@ -1458,6 +1731,8 @@ get_model_default_var() {
         cursor:light)     IS_MODEL_DEFAULT="inherit" ;;
         # GPT-6 has no mid model, so frontier and heavy share Astra and render
         # identically; reasoning effort comes from `effort:`, never the tier.
+        # Astra is still the most capable model Codex lists
+        # (https://developers.openai.com/codex/models, checked 2026-11-10).
         copilot:frontier) IS_MODEL_DEFAULT="gpt-6-astra" ;;
         copilot:heavy)    IS_MODEL_DEFAULT="gpt-6-astra" ;;
         copilot:standard) IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
@@ -1473,8 +1748,10 @@ get_model_default_var() {
         antigravity:standard)  IS_MODEL_DEFAULT="flash" ;;
         antigravity:light)     IS_MODEL_DEFAULT="flash" ;;
         # OpenCode takes catalog IDs from models.dev
-        # (https://opencode.ai/docs/models/, checked 2026-11-10).
-        opencode:frontier) IS_MODEL_DEFAULT="anthropic/claude-fable-5-1" ;;
+        # (https://opencode.ai/docs/models/, checked 2026-11-10). Frontier is
+        # the current Fable, the model Claude Code's `fable` alias resolves to:
+        # models.dev lists anthropic/claude-fable-5-2 (checked 2026-11-10).
+        opencode:frontier) IS_MODEL_DEFAULT="anthropic/claude-fable-5-2" ;;
         opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-5-5" ;;
         opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;
         opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-haiku-5-5" ;;
@@ -2579,14 +2856,15 @@ read_source_artifact_files() {
 #
 # source_catalog_build fills, in the caller's shell and fail-closed like the
 # listing it reads, one row per source entry in listing order:
-#   IS_CAT_SEC IS_CAT_PATH IS_CAT_NAME IS_CAT_LOCAL IS_CAT_WIN IS_CAT_SCOPED
-#   IS_CAT_HAS_T IS_CAT_T IS_CAT_HAS_X IS_CAT_X
+#   IS_CAT_SEC IS_CAT_PATH IS_CAT_NAME IS_CAT_LOCAL IS_CAT_WIN IS_CAT_HIDES
+#   IS_CAT_SCOPED IS_CAT_HAS_T IS_CAT_T IS_CAT_HAS_X IS_CAT_X
 # (section; the file, or a skill's SKILL.md; the rendered name; 1 when local;
-# 1 when no later source overrides it; 1 for a rule with `paths:`; whether
-# `targets:` / `exclude_targets:` are set, and their ids, space-separated),
-# IS_CAT_N, and IS_CAT_NEED_COMMITTED, 1 when rendering has to know which
-# outputs Git tracks. With IS_SOURCE_FILES_MEMO=1 a second call replays the
-# first.
+# 1 when no later source overrides it; the earlier rows of its name it
+# overrides, space-separated, a row of the same path among them when one
+# directory is listed twice; 1 for a rule with `paths:`; whether `targets:` /
+# `exclude_targets:` are set, and their ids, space-separated), IS_CAT_N, and
+# IS_CAT_NEED_COMMITTED, 1 when rendering has to know which outputs Git
+# tracks. With IS_SOURCE_FILES_MEMO=1 a second call replays the first.
 
 # source_artifact_name_var <section> <entry> — IS_ART_NAME and IS_ART_LOCAL for
 # one file (rules, agents) or skill directory (skills) name.
@@ -2616,7 +2894,7 @@ source_catalog_build() {
     fi
     IS_CAT_KEY=""
     IS_CAT_SEC=(); IS_CAT_PATH=(); IS_CAT_NAME=(); IS_CAT_LOCAL=()
-    IS_CAT_WIN=(); IS_CAT_SCOPED=()
+    IS_CAT_WIN=(); IS_CAT_HIDES=(); IS_CAT_SCOPED=()
     IS_CAT_HAS_T=(); IS_CAT_T=(); IS_CAT_HAS_X=(); IS_CAT_X=()
     IS_CAT_NEED_COMMITTED=0
     for section in rules agents skills; do
@@ -2640,6 +2918,7 @@ source_catalog_build() {
             IS_CAT_NAME[n]="$name"
             IS_CAT_LOCAL[n]="$IS_ART_LOCAL"
             IS_CAT_WIN[n]=1
+            IS_CAT_HIDES[n]=""
             IS_CAT_SCOPED[n]=0
             IS_CAT_HAS_T[n]=0; IS_CAT_T[n]=""; IS_CAT_HAS_X[n]=0; IS_CAT_X[n]=""
             [ "$IS_ART_LOCAL" = 0 ] || IS_CAT_NEED_COMMITTED=1
@@ -2652,12 +2931,14 @@ source_catalog_build() {
                     if [ "${IS_CAT_PATH[prev]}" = "$f" ]; then
                         # One directory listed twice: the same artifact.
                         IS_CAT_WIN[prev]=0
+                        IS_CAT_HIDES[n]="${IS_CAT_HIDES[prev]}"
                     elif [ "${rest%/*}" = "$dir" ]; then
                         errors+="ERROR: ${IS_CAT_PATH[prev]#"$repo_root"/} and ${f#"$repo_root"/} are both the $kind '$name' in one directory — rename or remove one"$'\n'
                     elif [ "${IS_CAT_LOCAL[prev]}" != "$IS_ART_LOCAL" ]; then
                         errors+="ERROR: ${IS_CAT_PATH[prev]#"$repo_root"/} and ${f#"$repo_root"/} are both the $kind '$name', one local and one not — a local artifact cannot override or yield to a committed one; rename one"$'\n'
                     else
                         IS_CAT_WIN[prev]=0
+                        IS_CAT_HIDES[n]="${IS_CAT_HIDES[prev]} $prev"
                     fi
                     ;;
             esac
@@ -2715,7 +2996,9 @@ source_catalog_build() {
 # occurrence of a key wins, and a key with no value at all is not set
 # (`targets: []` is: it is the empty list). With <lint-root>, the repository
 # root, the same pass runs lint_frontmatter_files over every file and the
-# layout-token check over the project's own; warnings go to stderr and name
+# layout-token check and the word budgets over the project's own (a file
+# IS_LINT_AGENT_FILES does not name and that is no SKILL.md is measured as a
+# rule); warnings go to stderr and name
 # each source relative to that root. The lint reads the files listed in
 # IS_LINT_AGENT_FILES (\n-separated) as agents, and IS_LINT_TOOLS_ON as the
 # enabled ones of claude and cursor; source_catalog_build sets both.
@@ -2736,7 +3019,7 @@ source_frontmatter_scan() {
     done
     is_fin_awk_vars
     IS_LINT_ROOT="$root" IS_LINT_AGENTS="${IS_LINT_AGENT_FILES:-}" IS_LINT_TOOLS_ON="${IS_LINT_TOOLS_ON:-}" \
-        IS_LINT_TOOLS_ACCESS="$tools_access" \
+        IS_LINT_TOOLS_ACCESS="$tools_access" IS_LINT_WORD_BUDGETS="$IS_WORD_BUDGETS" \
         IS_LINT_DENY_ACCESS="$deny_access" IS_LINT_RO_ACCESS="$ro_access" IS_LINT_ACCESS_LEVELS="$IS_ACCESS_LEVELS" \
         awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
@@ -2766,9 +3049,11 @@ source_frontmatter_scan() {
                 return
             }
             if (sx_mode == "block") {
-                if (l ~ /^[ \t]+-/) {
+                # An item may sit at the indent of its key, as fm_key_drop
+                # reads it.
+                if (l ~ /^[ \t]+-/ || l ~ /^-([ \t]|$)/) {
                     v = l
-                    sub(/^[ \t]+-[ \t]*/, "", v)
+                    sub(/^[ \t]*-[ \t]*/, "", v)
                     sub(/[ \t]+#.*$/, "", v)
                     sx_items(v, sx_list)
                     return
@@ -3133,10 +3418,62 @@ source_catalog_winners_var() {
     done
 }
 
+# source_catalog_overrides_var <repo_root> <config> — every package artifact
+# that never renders because a later source, the project or another package,
+# has one of the same name (decision 0021): a change its package ships there
+# never reaches the project. Only a hidden copy in the package store counts; a
+# project directory overriding another is the project's own arrangement.
+# IS_CAT_OVERRIDE_N counts the hidden store copies, and IS_CAT_OVERRIDES
+# holds one line per name, \x1f-separated: the kind (rule, agent, skill), the
+# name, the repository-relative path that renders, then every store path it
+# hides, earliest source first. Paths are read without a leading `./`, however
+# `sources:` spells them. A skill is named by its directory. One directory
+# listed twice hides nothing. Sync counts them; `status --check` names them.
+# Fail-closed like the catalog it reads.
+# shellcheck disable=SC2034  # both are the return channel engine/sync.sh reads
+source_catalog_overrides_var() {
+    local i j n row hid path seen
+    source_catalog_build "$1" "$2"
+    IS_CAT_OVERRIDES="" IS_CAT_OVERRIDE_N=0
+    for ((i = 0; i < IS_CAT_N; i++)); do
+        [ "${IS_CAT_WIN[i]}" = 1 ] && [ -n "${IS_CAT_HIDES[i]}" ] || continue
+        seen=$'\n'"${IS_CAT_PATH[i]}"$'\n'
+        hid="" n=0
+        for j in ${IS_CAT_HIDES[i]}; do
+            case "$seen" in *$'\n'"${IS_CAT_PATH[j]}"$'\n'*) continue ;; esac
+            seen="$seen${IS_CAT_PATH[j]}"$'\n'
+            path="${IS_CAT_PATH[j]#"$1"/}"
+            while [ "${path#./}" != "$path" ]; do path="${path#./}"; done
+            case "$path" in .intelligence/packages/*) ;; *) continue ;; esac
+            [ "${IS_CAT_SEC[j]}" != skills ] || path="${path%/SKILL.md}"
+            hid="$hid"$'\x1f'"$path"
+            n=$((n + 1))
+        done
+        [ -n "$hid" ] || continue
+        path="${IS_CAT_PATH[i]#"$1"/}"
+        while [ "${path#./}" != "$path" ]; do path="${path#./}"; done
+        [ "${IS_CAT_SEC[i]}" != skills ] || path="${path%/SKILL.md}"
+        row="${IS_CAT_SEC[i]%s}"$'\x1f'"${IS_CAT_NAME[i]}"$'\x1f'"$path$hid"
+        IS_CAT_OVERRIDES="$IS_CAT_OVERRIDES$row"$'\n'
+        IS_CAT_OVERRIDE_N=$((IS_CAT_OVERRIDE_N + n))
+    done
+}
+
+# source_catalog_overrides <repo_root> <config> — IS_CAT_OVERRIDES printed,
+# for a caller that must survive the catalog refusing: run it in a subshell.
+source_catalog_overrides() {
+    source_catalog_overrides_var "$1" "$2"
+    printf '%s' "$IS_CAT_OVERRIDES"
+}
+
 # Apply the agents adapter's lexical output rule without consulting filesystem
-# state. An omitted output uses the generic adapter default directory.
+# state. An omitted output is the target's default (target_default_output_var).
 agents_output_path_var() {
-    local output="${1:-.agents}"
+    local output="${1:-}"
+    if [ -z "$output" ]; then
+        target_default_output_var agents
+        output="$IS_TGT_DEFAULT_OUTPUT"
+    fi
     if [[ "$output" == */ ]] || [[ "$output" != *.md ]]; then
         output="${output%/}/AGENTS.md"
     fi
@@ -3235,7 +3572,7 @@ report_context_source_sizes() {
     if [ "$IS_TGT_ENABLED" = "1" ]; then
         agents_status="not-generated"
         target_output_var "$config_file" "agents"
-        agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+        agents_output_path_var "$IS_TGT_OUTPUT"
         agents_output="$IS_AGENTS_OUTPUT_PATH"
         if [ -f "$repo_root/$agents_output" ]; then
             measured+=("$repo_root/$agents_output")
@@ -3861,6 +4198,19 @@ target_enabled_var() {
     else
         IS_TGT_ENABLED="$(is_target_enabled "$file" "$target")"
     fi
+}
+
+# target_default_output_var <target> — IS_TGT_DEFAULT_OUTPUT, the output of a
+# target whose manifest entry has no `output:` (decision 0031): `.<target>` for
+# every adapter, which for `agents` is .agents/AGENTS.md
+# (agents_output_path_var). The engine, the sync cache and every CLI reader of
+# the manifest take it from here, so adapter list, the Git policy and status
+# --check name the paths a sync writes. `init` and `adapter enable` write an
+# explicit output for each target they add (the CLI's init_target_output), so
+# only a hand-written entry meets this default.
+# shellcheck disable=SC2034  # IS_TGT_DEFAULT_OUTPUT is the return channel
+target_default_output_var() {
+    IS_TGT_DEFAULT_OUTPUT=".$1"
 }
 
 # target_output_var <file> <target> — fork-free get_target_output: sets

@@ -318,7 +318,7 @@ manifest="$root/intelligence.yaml"
         if [ "$t" = "agents" ] && [ "$onboarding_has_agents" -eq 1 ]; then
             echo "  agents:"
             echo "    enabled: true"
-            echo "    output: \"AGENTS.md\""
+            echo "    output: \"$(init_target_output agents)\""
             echo "    header: |"
             echo "      > Intelligence onboarding is pending. Before repository work, read"
             echo "      > \`$content_dir/_backup/AGENTS.md\`, which preserves the original project instructions."
@@ -328,16 +328,15 @@ manifest="$root/intelligence.yaml"
                 echo "      > Review and migrate that backup before removing it."
             fi
         else
-            echo "  $t: { enabled: true, output: \"$(default_target_output "$t")\" }"
+            echo "  $t: { enabled: true, output: \"$(init_target_output "$t")\" }"
         fi
     done
     echo ""
     echo "# Packages are managed with 'intelligence package add|search|list':"
     echo "#   intelligence package add @ainova-systems/core       from the registry"
     echo "#   intelligence package add github:org/repo            any repo with rules|agents|skills"
-    echo "# packages:"
-    echo "#   \"@ainova-systems/core\":"
-    echo "#     version: \"^0.3.0\""
+    echo "# 'package add' writes the packages: entry itself, with the range"
+    echo "# ^<the version it installed>."
     echo ""
     echo "# Registries are this project's TRUST LIST — the ONLY way a package name"
     echo "# resolves (there is no built-in catalog and no name->github guessing;"

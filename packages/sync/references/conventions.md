@@ -73,7 +73,7 @@ sources:
 
 A package's directory may also be named by the package instead of its store path: `@ainova-systems/sync/rules` names folder `rules` of the package `packages:` declares as `@ainova-systems/sync`, and `sync:rules` names it through the alias that package declares (`intelligence package alias @ainova-systems/sync sync`). Both render exactly as the store path, and both are installed package content like it: edit that content in its source repository. The CLI writes store paths and never rewrites a reference a person wrote; an `@scope/name/...` entry for a package `packages:` does not declare is an ordinary project path.
 
-Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: of two artifacts with one name, the later source's renders everywhere, `AGENTS.md` included, and the earlier one renders nowhere (see [Artifact names](#artifact-names-and-local-artifacts)). Package sources are wired before project sources so the project can override a package artifact deliberately.
+Missing project-owned source directories are skipped, so a package-only project need not create empty `rules/`, `agents/` or `skills/` directories. Source order matters: of two artifacts with one name, the later source's renders everywhere, `AGENTS.md` included, and the earlier one renders nowhere (see [Artifact names](#artifact-names-and-local-artifacts)). Package sources are wired before project sources so the project can override a package artifact deliberately. A change the package later makes to that artifact never renders, so every sync counts the package copies a later source hides, the project's or another package's, in one `WARNING:` line, and `intelligence status --check` names each, with the package and the version its lock pins. One project directory overriding another is the project's own arrangement and is reported nowhere.
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
 
@@ -137,12 +137,15 @@ Package-owned artifacts cannot assume the project's content-directory name or th
 | `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
 | `<manifest>` | `intelligence.yaml` |
 | `<sync-cmd>` | `intelligence sync` |
+| `<package-dir>` | Root of the installed package the artifact came from, for example `.intelligence/packages/@ainova-systems/core`; in an artifact the project authored, the content directory |
 
 Expansion applies to frontmatter and bodies. Thus `paths: ["<content-dir>/**"]` reaches every native scoped-rule format with the project's real directory name.
 
+`<package-dir>` is the one token whose value depends on the artifact. Sync renders only rules, agents and skills, so a file a package ships beside them, such as a package-level `references/` folder, exists in a project only in the package store. A package artifact names it as `<package-dir>/references/<file>.md`, and every tool reaches the installed file, whichever spelling `sources:` uses for the package. The token renders in every file of the artifact, a skill's bundled files included, and in `AGENTS.md`, `AGENTS.override.md` and every other channel the artifact reaches. A CLI before `0.27.0` leaves it as written, so a package uses it only in a release that requires CLI `0.27.0` or later.
+
 Project-authored artifacts normally use their known project paths directly. Tokens are useful only when the same artifact must work under different content-directory or package-store locations.
 
-The four tokens are reserved in every source, so a placeholder that means something else, such as a module name, needs a backslash: `\<module>` renders as `<module>`. Sync prints a `WARNING:` line with the file and line when a project source holds a token joined to the text around it (`<module>_update_N`, `modules/<module>.md`) or used as an XML element closed on the same line (`<manifest></manifest>`).
+The five tokens are reserved in every source, so a placeholder that means something else, such as a module name, needs a backslash: `\<module>` renders as `<module>`. Sync prints a `WARNING:` line with the file and line when a project source holds a token joined to the text around it (`<module>_update_N`, `modules/<module>.md`) or used as an XML element closed on the same line (`<manifest></manifest>`).
 
 ## Naming
 
@@ -222,16 +225,18 @@ An agent stays thin: **Expertise** → **Boundaries** → **Build & Verify**. It
 
 Do not instruct an agent to read rules or restate their content. Claude loads its generated rules for its subagents, while Cursor, Copilot, Codex, Pi, OpenCode and Antigravity receive always-on rules through `AGENTS.md`. Duplicating a rule in an agent spends context twice and creates a copy that drifts.
 
+`tier`, `access` and `effort` each take one keyword, as do `context`, `agent`, `model` and a skill's `disable-model-invocation`. A YAML comment after the keyword, a `#` after a space and outside quotes (`access: runner # runs the tests`), is no part of it in any tool or in sync's warnings; inside quotes the `#` belongs to the value. Free-text fields such as `description` keep every character.
+
 ### Tier mappings
 
 | Tier | Claude | Cursor | Copilot / Codex | OpenCode | Antigravity | Typical use |
 |---|---|---|---|---|---|---|
-| `frontier` | `fable` | `inherit` | `gpt-6-astra` | `anthropic/claude-fable-5-1` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
+| `frontier` | `fable` | `inherit` | `gpt-6-astra` | `anthropic/claude-fable-5-2` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
 | `heavy` | `opus` | `inherit` | `gpt-6-astra` | `anthropic/claude-opus-5-5` | `pro` | implementation, complex reasoning, migration |
 | `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
 | `light` | `haiku` | `inherit` | `gpt-6-luna` | `anthropic/claude-haiku-5-5` | `flash` | lookups and simple formatting |
 
-A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude Code's `haiku` alias resolves to the current Haiku model ([model configuration](https://code.claude.com/docs/en/model-config), checked 2026-11-10), and OpenCode takes the [models.dev](https://opencode.ai/docs/models/) catalog ID of the same model. Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there.
+A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude Code's `fable` and `haiku` aliases resolve to the current Fable and Haiku models ([model configuration](https://code.claude.com/docs/en/model-config), checked 2026-11-10), and OpenCode takes the [models.dev](https://opencode.ai/docs/models/) catalog ID of the same model. Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default. Another tier name works only where `models.<tool>.<tier>` defines it; elsewhere — a typo, as a rule — the agent renders with an empty `model` and sync warns once per tool and tier.
 
@@ -292,7 +297,7 @@ Frontmatter opens only on the first line: a rule that starts with anything else,
 
 `paths:` is optional:
 
-- With `paths:`, the rule is scoped to matching repository files.
+- With `paths:`, the rule is scoped to matching repository files. Write it as a block list, indented or at the key's own indent, or as a flow list (`["src/**", "config/**"]`); every tool receives the same patterns, and a comment line or a comment after an item is no pattern.
 - Without `paths:`, the rule is always-on project context.
 
 ### Routing
@@ -336,7 +341,7 @@ Claude Code, Cursor, Copilot, OpenCode and Pi read the field itself; Codex does 
 
 `context: fork`, `agent`, `background` and `model` are Claude Code fields, and sync copies them unchanged. A forked skill runs as a subagent of the `agent` type that receives the skill as its prompt, sees none of the conversation and has no `AskUserQuestion` tool. In an interactive session it runs in the background by default, so the caller's turn goes on before the result arrives, and a skill whose result its caller needs in the same turn sets `background: false` ([skills](https://code.claude.com/docs/en/skills#run-skills-in-a-subagent), [subagents](https://code.claude.com/docs/en/sub-agents#available-tools)). Without `context: fork`, `agent` selects nothing, and `model` switches the session's model for the rest of the turn, which then re-reads the whole conversation without the prompt cache ([prompt caching](https://code.claude.com/docs/en/prompt-caching#switching-models)). Sync prints a `WARNING:` line for either field without `context: fork`, and for `tier:` on a skill, which only an agent reads. Of the other targets, only Copilot in VS Code documents `context: fork`, as experimental, and none documents `agent`, `background` or `model` for a skill (checked 2026-11-07).
 
-Fork a skill whose inputs are files and arguments, that asks nothing on the way, and whose work is heavy reading, auditing or judging: the caller's context stays small and the work gets an independent reader. Keep a skill inline, with no `agent`, when its input is the conversation or its job is a dialogue or an approval with the person. A forked skill never asks. When it reaches a decision that belongs to the person, it stops before the write and ends its result with the decision, the options and its recommendation, so the caller asks.
+Fork a skill whose inputs are files and arguments, that asks nothing on the way, and whose work is heavy reading, auditing or judging: the caller's context stays small and the work gets an independent reader. Keep a skill inline, with no `agent`, when its input is the conversation or its job is a dialogue or an approval with the person. A fork whose agent can edit (no `agent`, `general-purpose`, or an agent whose `access` is neither `readonly` nor `runner`) sets `background: false`, or it and its caller change one checkout at the same time. A forked skill never asks. When it reaches a decision that belongs to the person, it stops before the write and ends its result with the decision, the options and its recommendation, so the caller asks.
 
 These limits reject a skill instead of degrading it:
 
