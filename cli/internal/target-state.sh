@@ -26,8 +26,16 @@ if [ "$action" = "enable" ]; then
         die "adapter '$name' not found — create it first: intelligence adapter create $name"
     fi
 
+    # An entry without output: renders at the default; a target the manifest
+    # lacks is added with the output init would give it.
     output="$(get_target_output "$manifest" "$name")"
-    [ -n "$output" ] || output="$(default_target_output "$name")"
+    if [ -z "$output" ]; then
+        if target_exists "$manifest" "$name"; then
+            output="$(default_target_output "$name")"
+        else
+            output="$(init_target_output "$name")"
+        fi
+    fi
     validate_adapter_contract_for "$IP_ROOT" "$content_dir" "$name" "$output" \
         || die "adapter '$name' has an invalid ownership contract"
     records="$(adapter_records_for "$IP_ROOT" "$content_dir" "$name" "$output")" \

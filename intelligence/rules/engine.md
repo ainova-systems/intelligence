@@ -52,16 +52,17 @@ sources through `source_artifacts_var`, never a glob of its own (decision 0021).
 `source_catalog_build` settles, once per run and before any output is touched, what
 each artifact is called (no leading `.`, `.md` or trailing `.local`), which of two
 same-named artifacts renders (the later source's), and refuses two of one name in
-one directory or a local and a non-local one anywhere. A local artifact
-(`*.local.md`, a `*.local/` skill) reaches only an output path its adapter's
-contract ignores, so an adapter passes the real path it writes: one that globs
-sources itself, or names a path it does not write, can put a teammate's local file
-into a committed output. `targets:` and `exclude_targets:` narrow an artifact's
-adapters the same way, per path for the group `committed`; the engine refuses an
-unknown id and a local artifact naming a committed output, and warns about shared
-paths, before any adapter writes. Only a catalog holding a local artifact or
-naming `committed` makes the engine read contracts with the manifest; every other
-sync keeps decision 0020's ownership-only read.
+one directory or a local and a non-local one anywhere.
+
+A local artifact (`*.local.md`, a `*.local/` skill) reaches only an output path
+its adapter's contract ignores, so an adapter passes the real path it writes: one
+that globs sources itself, or names a path it does not write, can put a teammate's
+local file into a committed output. `targets:` and `exclude_targets:` narrow an
+artifact's adapters the same way, per path for the group `committed`; the engine
+refuses an unknown id and a local artifact naming a committed output, and warns
+about shared paths, before any adapter writes. Only a catalog holding a local
+artifact or naming `committed` makes the engine read contracts with the manifest;
+every other sync keeps decision 0020's ownership-only read.
 
 ## Rule routing
 
@@ -110,11 +111,16 @@ copied with `copy_skill_bundle`; adapters sharing `.agents/skills/` use
 `sync_open_skill_dirs`. The layout tokens they expand are the rows of
 `IS_LAYOUT_TOKENS` in `engine/lib/common.sh`: expansion, the backslash escape, the
 YAML, TOML and TypeScript escapers and the source lint all derive from that list, so
-a token is added there and is never named in a consumer. `validate_output_path` is
-the mandatory guard against writes into a source, the store, the repository root, or
-outside the repository. Never delete a whole tool root when the adapter owns only
-subpaths — hand-authored sibling files live there. A full sync is transactional
-across every selected adapter path.
+a token is added there and is never named in a consumer. A row marked `@` follows
+the artifact (decision 0030): `fin_line` takes it from the file awk is reading, a
+program that writes a file only after reading the next names that file's source in
+`FIN_CUR`, a copied output reaches its source through `IS_FIN_SRC_MAP`, and a reader
+whose text lands in a file several artifacts share expands it with `fin_own`.
+
+`validate_output_path` is the mandatory guard against writes into a source, the
+store, the repository root, or outside the repository. Never delete a whole tool
+root when the adapter owns only subpaths — hand-authored sibling files live there.
+A full sync is transactional across every selected adapter path.
 
 A symlink in a skills source renders as the file or directory it points at while it
 stays inside that source, and is left out with a `WARNING:` line otherwise; no

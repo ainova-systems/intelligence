@@ -802,6 +802,9 @@ for agent in reader:readonly runner:runner builder:full typo:read-only; do
     printf -- '---\nname: %s\ndescription: "Agent"\ntier: standard\naccess: %s\n---\n\n# Agent\n' \
         "${agent%%:*}" "${agent#*:}" > "$ACC/intelligence/agents/${agent%%:*}.md"
 done
+# A comment after a keyword value is no part of it.
+printf -- '---\nname: noted\ndescription: "Agent"\ntier: standard # the default\naccess: runner # runs the tests\n---\n\n# Agent\n' \
+    > "$ACC/intelligence/agents/noted.md"
 (cd "$ACC" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/access-sync.txt" 2>&1) \
     || { echo "FAIL: access sync"; cat "$OUT/access-sync.txt"; fail=1; }
 # fm_lines <file> — the frontmatter, both fences included.
@@ -846,7 +849,10 @@ chk grep -Fqx 'sandbox_mode = "workspace-write"' "$ACC/.codex/agents/builder.tom
 for rendered in .claude/agents/NAME.md .github/agents/NAME.agent.md .cursor/agents/NAME.md .codex/agents/NAME.toml \
     .opencode/agents/NAME.md .agents/agents/NAME.md .pi/prompts/intelligence-agent-NAME.md; do
     chk eq "$(sed 's/typo/builder/g' "$ACC/${rendered//NAME/typo}")" "$(cat "$ACC/${rendered//NAME/builder}")"
+    chk eq "$(sed 's/noted/runner/g' "$ACC/${rendered//NAME/noted}")" "$(cat "$ACC/${rendered//NAME/runner}")"
 done
+chk grep -Fqx '| [noted](intelligence/agents/noted.md) | standard | runner | Agent |' "$ACC/AGENTS.md"
+chknot grep -Eq '^WARNING: .*(noted|the default)' "$OUT/access-sync.txt"
 chk test "$(grep -c '^WARNING: .*access "' "$OUT/access-sync.txt")" -eq 1
 chk grep -Fqx 'WARNING: intelligence/agents/typo.md:5 access "read-only" is not one of full, readonly, runner — every tool renders it as full access' \
     "$OUT/access-sync.txt"
@@ -1359,7 +1365,7 @@ for layout in block absent dotted; do
     chk test "$RC" -eq 0
     chk test "$(grep -c '^  intelligence_dir: "Intelligence"$' "$CAP/intelligence.yaml")" -eq 1
     chk test "$(grep -c '^project:' "$CAP/intelligence.yaml")" -eq 1
-    chk grep -qF 'Source of truth: `Intelligence/`' "$CAP/AGENTS.md"
+    chk grep -qxF 'Source of truth: `Intelligence/` | Sync: `intelligence sync` | Install: `npm install -g @ainova-systems/intelligence`' "$CAP/AGENTS.md"
     chk grep -q 'CAPITAL_CONTEXT_MARKER' "$CAP/AGENTS.md"
     run_in "$CAP" status --check
     chk test "$RC" -eq 0

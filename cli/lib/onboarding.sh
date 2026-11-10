@@ -5,8 +5,9 @@
 
 onboarding_source_records() {
     local root="$1" content_dir="$2" targets="$3" target output
+    # The targets init is about to write, at the outputs it writes for them.
     for target in $targets; do
-        output="$(default_target_output "$target")"
+        output="$(init_target_output "$target")"
         adapter_contract_onboarding_records "$root" "$content_dir" "$target" "$output"
     done | awk -F '\t' 'NF == 2 && !seen[$1 SUBSEP $2]++'
 }

@@ -197,6 +197,8 @@ sync_claude_agents() {
     # never holds it twice: `model`, and `tools` / `disallowedTools` when
     # access maps to them (the lint warns about the source once). `tier` and
     # `access` go too. Only frontmatter lines go: the body is the author's.
+    # Only a `---` on line 1 opens frontmatter, so an agent without one is all
+    # body and gains no key: a later `---` pair is the author's text.
     is_fin_awk_vars
     IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
@@ -228,7 +230,7 @@ sync_claude_agents() {
             if (!effort_seen++ && EFFORT[FILENAME] != "") print fin_line("effort: " EFFORT[FILENAME]) > out
             next
         }
-        count == 2 && /^---$/ {
+        fm && count == 2 && /^---$/ {
             if (TOOLS[FILENAME] != "") print fin_line("tools: " TOOLS[FILENAME]) > out
             if (EXTRA[FILENAME] != "") print fin_line("disallowedTools: " EXTRA[FILENAME]) > out
             print fin_line("model: " MODEL[FILENAME]) > out

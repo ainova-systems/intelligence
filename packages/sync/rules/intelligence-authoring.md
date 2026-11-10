@@ -104,6 +104,8 @@ The goal is subtraction, above. These are only the line past which something is 
 | `SKILL.md` | 1,500 words |
 | Paragraph, list item or table row | 150 words |
 
+Sync measures the project's own sources against this table and prints a `WARNING:` line for each one past it; a package's sources are left to that package's authors.
+
 **Ceilings, not quotas.** An artifact that says everything it needs to is finished, not underweight; nothing here is a reason to pad. Over the budget means the artifact is doing two jobs, or the detail belongs in `references/<topic>.md` with a pointer from the body, and a paragraph over it holds several thoughts to split.
 
 `description` fields compete for one shared budget across the whole registry: a long one pushes another artifact out of reach. Four to eight words when the name is unambiguous; longer only when a sibling does something similar and needs distinguishing. (The tools reject a `description` over 1024 characters outright — but that is a wall to stay far away from, not a target.)

@@ -387,7 +387,10 @@ while [ "$preflight_idx" -lt "${#ADAPTERS[@]}" ]; do
     [ "$IS_TGT_ENABLED" = "1" ] || continue
     target_output_var "$CONFIG_FILE" "$adapter"
     output="$IS_TGT_OUTPUT"
-    [ -n "$output" ] || output=".$adapter"
+    if [ -z "$output" ]; then
+        target_default_output_var "$adapter"
+        output="$IS_TGT_DEFAULT_OUTPUT"
+    fi
     records="$(adapter_contract_records "$adapter" "$adapter_file" "$output" "$policy_manifest")" || exit 1
 
     if ! adapter_claims_add_records "$adapter" "$records"; then
@@ -458,7 +461,7 @@ if [ -n "$agents_dependents" ]; then
     target_output_var "$CONFIG_FILE" "agents"
     # Resolved, not lexical: `./` renders `./AGENTS.md`, which IS the
     # workspace-root file every dependent adapter reads.
-    agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+    agents_output_path_var "$IS_TGT_OUTPUT"
     adapter_contract_rel_path "$IS_AGENTS_OUTPUT_PATH"
     agents_rel="$IS_ADAPTER_REL_PATH"
     if [ "$agents_rel" != "AGENTS.md" ]; then
@@ -511,7 +514,8 @@ while [ "$adapter_idx" -lt "$adapter_count" ]; do
     target_output_var "$CONFIG_FILE" "$adapter"
     output="$IS_TGT_OUTPUT"
     if [ -z "$output" ]; then
-        output=".$adapter"
+        target_default_output_var "$adapter"
+        output="$IS_TGT_DEFAULT_OUTPUT"
     fi
     output_dir="$REPO_ROOT/$output"
 
@@ -770,6 +774,14 @@ else
     warn_unsynced "$UNSYNCED_ROOT" "$CONFIG_FILE"
     report_context_source_sizes "$REPO_ROOT" "$CONFIG_FILE"
     report_model_drift "$CONFIG_FILE"
+fi
+
+# A package artifact a later source overrides by name never renders, and
+# neither does any change its package later ships. Counted here from the
+# catalog this run built, named by `status --check`.
+source_catalog_overrides_var "$REPO_ROOT" "$CONFIG_FILE"
+if [ "$IS_CAT_OVERRIDE_N" -gt 0 ]; then
+    echo "WARNING: $IS_CAT_OVERRIDE_N package artifact(s) never render: a later source overrides them by name — 'intelligence status --check' names them" >&2
 fi
 
 echo ""

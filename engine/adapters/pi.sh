@@ -60,46 +60,11 @@ pi_ts_escape() {
     printf '%s' "$IS_PI_TS_ESCAPED"
 }
 
-# pi_rule_paths_rows <file>... — batch form of the old per-file `paths:`
-# reader: one row per file in argument order, the path then each pattern,
-# \x1f-separated. Patterns come from the frontmatter `paths:` block only,
-# with one leading/trailing quote character stripped, exactly like the
-# per-file reader did.
-pi_rule_paths_rows() {
-    [ "$#" -gt 0 ] || return 0
-    awk '
-        BEGIN { US = sprintf("%c", 31) }
-        function store() { if (cur != "") R[cur] = row }
-        FNR == 1 { store(); cur = FILENAME; row = cur; done_f = 0; in_fm = 0; in_paths = 0 }
-        { sub(/\r$/, "") }
-        done_f { next }
-        FNR == 1 && $0 != "---" { done_f = 1; next }
-        FNR == 1 { in_fm = 1; next }
-        in_fm && $0 == "---" { done_f = 1; next }
-        !in_fm { next }
-        /^paths:[[:space:]]*$/ { in_paths = 1; next }
-        in_paths && /^  - / {
-            val = $0
-            sub(/^  - /, "", val)
-            gsub(/^["\047]|["\047]$/, "", val)
-            row = row US val
-            next
-        }
-        in_paths && !/^  - / && !/^[[:space:]]*$/ { done_f = 1 }
-        END {
-            store()
-            for (i = 1; i < ARGC; i++) {
-                if (ARGV[i] in R) print R[ARGV[i]]
-                else print ARGV[i]
-            }
-        }
-    ' "$@"
-}
-
 # pi_rule_body_rows <file>... — one line per file in argument order: its body,
 # without the frontmatter and leading or trailing blank lines, escaped as the
 # contents of a TypeScript double-quoted string (`\`, `"`, tabs and line breaks
-# escaped).
+# escaped), with a token that follows its artifact expanded for the shared
+# extension file (fin_own).
 pi_rule_body_rows() {
     [ "$#" -gt 0 ] || return 0
     awk "$IS_AWK_LIB"'
@@ -117,7 +82,7 @@ pi_rule_body_rows() {
         /^---$/ && !past_fm { in_fm = !in_fm; if (!in_fm) past_fm = 1; next }
         !past_fm { next }
         {
-            line = is_repl(fin_keep($0), "\\", "\\\\")
+            line = is_repl(fin_keep(fin_own($0)), "\\", "\\\\")
             line = is_repl(line, "\"", "\\\"")
             line = is_repl(line, "\t", "\\t")
             B[++n] = line
@@ -173,34 +138,34 @@ sync_pi_rules() {
     if [ "${#scoped[@]}" -gt 0 ]; then
         finalize_copy_named "$rules_root" "$IS_SOURCE_NAME_MAP" "${scoped[@]}"
 
-        local -a row_arr
-        local base rel_rule_path patterns_js display sep display_sep pat i
+        local path patterns rest base rel_rule_path patterns_js display sep pat gs=$'\x1d'
         k=0
-        while IFS=$'\x1f' read -r -a row_arr; do
-            [ "${#row_arr[@]}" -gt 0 ] || continue
+        # The rule's patterns as every tool reads them (frontmatter_index
+        # `paths*`), \x1d-separated. They land in the one extension file every
+        # rule shares, so a token that follows its artifact arrives expanded.
+        while IFS=$'\x1f' read -r path patterns; do
+            [ -n "$path" ] || continue
             base="${scoped_names[k]}.md"
             k=$((k + 1))
             rel_rule_path="$output_rel/intelligence-sync/rules/$base"
             patterns_js=""
             display=""
             sep=""
-            display_sep=""
-            i=1
-            while [ "$i" -lt "${#row_arr[@]}" ]; do
-                pat="${row_arr[$i]}"
-                i=$((i + 1))
-                [ -z "$pat" ] && continue
+            rest="$patterns"
+            while [ -n "$rest" ]; do
+                pat="${rest%%"$gs"*}"
+                if [ "$pat" = "$rest" ]; then rest=""; else rest="${rest#*"$gs"}"; fi
+                [ -n "$pat" ] || continue
                 pi_ts_escape_var "$pat"
                 patterns_js+="$sep\"$IS_PI_TS_ESCAPED\""
-                display+="$display_sep$pat"
+                display+="$sep$pat"
                 sep=", "
-                display_sep=", "
             done
             pi_ts_escape_var "$rel_rule_path"
             manifest+="    { path: \"$IS_PI_TS_ESCAPED\", patterns: [$patterns_js] },"$'\n'
             count=$((count + 1))
             echo "  rule: $base (scoped${display:+ — $display})"
-        done < <(pi_rule_paths_rows "${scoped[@]}")
+        done < <(frontmatter_index 'paths*' "${scoped[@]}")
     fi
 
     if [ "${#always[@]}" -gt 0 ]; then

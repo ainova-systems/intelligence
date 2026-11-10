@@ -85,7 +85,7 @@ sync_codex_override() {
         return 0
     fi
     target_output_var "$config_file" "agents"
-    agents_output_path_var "${IS_TGT_OUTPUT:-.agents}"
+    agents_output_path_var "$IS_TGT_OUTPUT"
     agents_file="$repo_root/$IS_AGENTS_OUTPUT_PATH"
     local routes="" rows path patterns link
     if [ "${#scoped[@]}" -gt 0 ]; then
@@ -153,7 +153,7 @@ codex_warn_project_doc_size() {
 
     target_output_var "$config_file" "agents"
     local output
-    output="$(agents_output_path "${IS_TGT_OUTPUT:-.agents}")"
+    output="$(agents_output_path "$IS_TGT_OUTPUT")"
     # Codex reads AGENTS.override.md instead of AGENTS.md when it exists.
     [ ! -f "$repo_root/AGENTS.override.md" ] || output="AGENTS.override.md"
 

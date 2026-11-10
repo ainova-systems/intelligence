@@ -4,6 +4,30 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.27.0]
+
+### Added
+
+- Package rules, agents and skills can write `<package-dir>` for the root of the installed package they came from, such as `.intelligence/packages/@ainova-systems/core`, to point every tool at a file the package ships beside them, such as its `references/` folder; in a project's own artifact it renders as the content directory (decision 0030).
+- Sync prints a `WARNING:` line for a project rule, agent or `SKILL.md` over its word budget in the authoring rule, and for its longest paragraph, list item or table row over 150 words; package sources are not measured.
+- `intelligence status --check` names each package rule, agent or skill that a later source, the project's or another package's, overrides by name, with the package and its locked version, and every sync counts these hidden package copies in one `WARNING:` line; one project directory overriding another is not reported.
+- `intelligence-review-context` check R9 flags a forked skill without `background: false` whose agent can edit.
+
+### Changed
+
+- The manifest comment `init` writes says that `package add` writes the `packages:` entry, instead of showing an example pinned to a release number that goes stale.
+- `tier: frontier` renders `anthropic/claude-fable-5-2`, the current Fable, in OpenCode. To keep the earlier model, set `models.opencode.frontier: "anthropic/claude-fable-5-1"`.
+- The `AGENTS.md` and `AGENTS.override.md` header adds `Install: npm install -g @ainova-systems/intelligence` after the sync command.
+- `<package-dir>` is a reserved layout token: a source that used it as a placeholder writes `\<package-dir>` to keep it, and sync warns when a project source joins it to the text around it.
+
+### Fixed
+
+- For a target written without `output:`, `adapter list`, `adapter enable` and `status --check` name the paths sync writes, `.<adapter>` (`.agents/AGENTS.md` for `agents`), and the `.gitignore` lines follow them, instead of `AGENTS.md` or `.github` (decision 0031).
+- A YAML comment after a `tier`, `access`, `effort` or `disable-model-invocation` value (`access: runner # note`) is no longer part of the value: the agent renders with `runner` access in every tool instead of full access, a skill's `context: fork # note` counts as forked in sync's warnings, and `disable-model-invocation: true # note` still gives Codex the policy that keeps the model from selecting the skill.
+- A block list written at its key's own indent (`tools:` then `- Read`) is dropped with a key the Claude Code and Cursor agent transforms remove, and `targets:` / `exclude_targets:` written that way select adapters instead of being ignored.
+- An agent without frontmatter renders its text unchanged in Claude Code and Cursor with no `model:` written into it, and Copilot and Codex no longer render the text after a later `---` pair as its body.
+- Copilot's `applyTo:` and Pi's rules extension carry a scoped rule's patterns as every other tool reads them when `paths:` is a flow list (`["src/**", "lib/**"]`), a block list at the key's own indent, or a list holding a comment, where Copilot wrote `applyTo: ""`, Pi no patterns, and both stopped at a comment line or kept a trailing comment in the pattern; Codex's scoped-rule routing in `AGENTS.override.md` no longer shows a comment after a pattern.
+
 ## [0.26.0]
 
 ### Added

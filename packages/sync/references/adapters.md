@@ -34,7 +34,7 @@ targets:
   mytool: { enabled: true, output: ".mytool" }
 ```
 
-Change `output` in `intelligence.yaml` if the tool expects another location. The engine validates the resolved path before calling the adapter.
+Change `output` in `intelligence.yaml` if the tool expects another location. The engine validates the resolved path before calling the adapter. `init` and `adapter enable` write `output` for every target they add: the tool's own location for `agents` (`AGENTS.md`), `copilot` (`.github`) and `antigravity` (`.agents`), `.<name>` for the others. An entry written without it renders into `.<name>`, which for `agents` is `.agents/AGENTS.md`, and `adapter list`, `status --check` and the Git policy name that same path.
 
 To stop syncing a target:
 
@@ -186,8 +186,8 @@ Use the engine library instead of copying parsers or file-handling logic.
 | `resolve_source_dir(repo_root, source)` | Resolve a manifest source to its local directory. |
 | `read_yaml_list(config, section)` | Stream entries from `sources.<section>`, package references as their store paths. |
 | `load_yaml_list(config, section)` | Same list into `IS_YAML_LIST`, cached — no subprocess on repeat reads. |
-| `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block. |
-| `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; `paths#` counts `paths:` lines, `paths[]` folds a paths list for display). |
+| `get_frontmatter_value(key, file)` | Read a scalar from the first frontmatter block; a keyword value arrives without its YAML comment ([conventions](conventions.md#agent-conventions)). |
+| `frontmatter_index(keys, file...)` | Read several frontmatter scalars for many files in one pass (`\x1f`-separated rows; `paths#` counts `paths:` lines, `paths[]` folds a paths list for display, `paths*` gives its patterns unquoted and `\x1d`-separated from a block or flow list), each as `get_frontmatter_value` reads it. |
 | `has_frontmatter(file)` / `has_paths(file)` | Inspect source shape. |
 | `strip_frontmatter(file)` | Emit the body without its first frontmatter block. |
 | `get_model(config, tool, tier)` | Resolve a `frontier`, `heavy`, `standard` or `light` model, including manifest overrides. |
@@ -296,7 +296,7 @@ Built-ins currently emit Claude and Cursor Markdown, Copilot `.agent.md`, Codex 
 
 ## Layout tokens
 
-Content shipped in `@ainova-systems/sync` cannot assume the project's content-directory name or package-store location. It uses these tokens:
+Package content cannot assume the project's content-directory name or package-store location. It uses these tokens:
 
 | Token | Expansion |
 |---|---|
@@ -304,8 +304,11 @@ Content shipped in `@ainova-systems/sync` cannot assume the project's content-di
 | `<module>` | Installed sync package, usually `.intelligence/packages/@ainova-systems/sync` |
 | `<manifest>` | `intelligence.yaml` |
 | `<sync-cmd>` | `intelligence sync` |
+| `<package-dir>` | Root of the installed package the artifact came from, such as `.intelligence/packages/@ainova-systems/core`; the content directory for a project artifact |
 
 Call `finalize_output_file` on every text file after transformation. It expands the tokens literally, keeps a token escaped with a backslash as written ([Layout tokens](conventions.md#layout-tokens)), and converts CRLF to LF. A generated file containing an unexpanded token is an adapter bug.
+
+`<package-dir>` follows the artifact, so it renders for the package a source came from only where the helper knows that source: `finalize_copy_named`, `emit_wrapped_bodies`, `emit_rule_bodies`, `copy_skill_bundle` and its batch forms, and the readers `frontmatter_index`, `get_frontmatter_value`, `strip_frontmatter` and `copy_md_with_quoted_frontmatter`, which hand back that value already expanded. A file an adapter writes from a source by other means and finalizes with `finalize_output_file` renders it as the content directory.
 
 `copy_skill_bundle` already finalizes Markdown within a skill; do not run a second custom token pass.
 

@@ -117,9 +117,11 @@ state. Project adapters without a valid contract are refused before sync.
 Every renderer reads sources through one catalog (decision 0021). An artifact is
 named by its file or skill directory name without a leading `.`, `.md` and a
 trailing `.local`; of two with one name, the later source's renders everywhere,
-`AGENTS.md` included. Sync refuses, before any output is touched, two artifacts
-with one name in one directory and a local and a non-local artifact with one
-name anywhere. A local artifact (`*.local.md`, `*.local/`) renders only into
+`AGENTS.md` included. When the copy that no longer renders is a package's, sync
+counts it in one `WARNING:` line that `status --check` itemizes; one project
+directory overriding another is reported nowhere. Sync refuses, before any
+output is touched, two artifacts with one name in one directory and a local and
+a non-local artifact with one name anywhere. A local artifact (`*.local.md`, `*.local/`) renders only into
 outputs its adapter's contract ignores, so committed files are the same in every
 clone. `targets:` and `exclude_targets:` in an artifact's frontmatter select the
 adapters it renders for; an id that names no adapter, and a local artifact whose
@@ -271,9 +273,10 @@ assets are excluded because they load only when a skill reads them.
 machine-readable status and completion line when sync succeeds. A warning is one
 line starting `WARNING:` — among them the frontmatter checks, such as a `name`
 over 64 or a `description` over 1024 characters that the tool will reject at
-load time. An unchanged run replays the same warnings. If lifecycle preflight,
-restore or rendering fails, it prints the complete captured diagnostics and
-preserves the original exit code.
+load time, and the word budgets of the authoring rule, which only the project's
+own sources are measured against. An unchanged run replays the same warnings.
+If lifecycle preflight, restore or rendering fails, it prints the complete
+captured diagnostics and preserves the original exit code.
 
 When Claude Code would load the always-on rules twice (the condition under
 [`intelligence status`](#intelligence-status)), every sync whose preflight
@@ -503,7 +506,7 @@ intelligence adapter disable <name>
 intelligence adapter remove <name> [--apply]
 ```
 
-- `list` shows built-in and project adapters, source, state and output; project adapters override built-ins by name.
+- `list` shows built-in and project adapters, source, state and output; project adapters override built-ins by name. The output is the manifest's, `.<name>` for an entry written without one (the path sync renders into), and for a target the manifest lacks, the one `enable` would write.
 - `create` scaffolds `<content-dir>/adapters/<name>.sh` from the bundled template and refuses to overwrite.
 - `enable` updates manifest state and immediately runs a full sync so shared `AGENTS.md` context stays current.
 - `disable` updates manifest state but keeps generated output for adapter-aware cleanup.
@@ -536,7 +539,7 @@ source. Each
 package line reports the commit the store holds. Frozen store
 restoration verifies the locked commit SHA.
 
-Two findings are notes and leave the exit status alone. The first is a disabled
+Three findings are notes and leave the exit status alone. The first is a disabled
 adapter whose owned output is still on disk; it names the
 `intelligence-manage-adapters` skill, which reviews that output and removes what
 the owner approves. The second applies when the `claude` and `agents` targets are
@@ -547,6 +550,13 @@ both enabled and there is no `CLAUDE.md`, `.claude/CLAUDE.md` or
 note prints the `claudeMdExcludes` entry the owner adds to `.claude/settings.json`.
 It is the same finding every sync prints as a warning, and it clears once that
 file or `.claude/settings.local.json` holds an entry matching the agents output.
+The third is a package's rule, agent or skill that a later source, the
+project's or another package's, overrides by name: one note per name gives the
+path that renders and every package copy it hides, by the package's name and the
+version `intelligence.lock` pins, because a change that package makes to its
+copy never renders. One project directory overriding another gets no note. Every
+sync counts these hidden package copies in one `WARNING:` line. Sources that sync
+refuses outright leave the overrides unchecked, and the note says so.
 
 ### `intelligence registry`
 

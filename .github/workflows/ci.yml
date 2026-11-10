@@ -352,6 +352,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The token names come from their one declaration, IS_LAYOUT_TOKENS.
+          source "$GITHUB_WORKSPACE/engine/lib/common.sh"
+          tokens=()
+          for t in "${IS_LAYOUT_NAMES[@]}"; do tokens+=(-e "<$t>"); done
           cd "$PROJ"
           # The sync package ships intelligence-authoring (rule) +
           # intelligence-architect (agent). They must arrive through the store,
@@ -364,7 +368,7 @@ jobs:
             test -f .claude/agents/intelligence-architect.md
             grep -q '"intelligence/\*\*"' .claude/rules/intelligence-authoring.md
           fi
-          leaked=$(grep -rl -e '<content-dir>' -e '<module>' -e '<manifest>' -e '<sync-cmd>' \
+          leaked=$(grep -rl "${tokens[@]}" \
             .claude .cursor .github/instructions .github/agents .github/skills \
             .codex .agents .pi .opencode AGENTS.md 2>/dev/null || true)
           if [ -n "$leaked" ]; then

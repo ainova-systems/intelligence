@@ -7,9 +7,22 @@ source "$CLI_DIR/lib/usage.sh"
 action="${1:-}"
 name="${2:-}"
 
+# adapter_list_output <manifest-or-empty> <target> — the OUTPUT column: the
+# manifest's output, the default an entry without one renders at, or, for a
+# target the manifest lacks, the output `adapter enable` would write.
+adapter_list_output() {
+    local configured=""
+    if [ -n "$1" ] && target_exists "$1" "$2"; then
+        configured="$(get_target_output "$1" "$2")"
+        if [ -n "$configured" ]; then printf '%s' "$configured"; else default_target_output "$2"; fi
+    else
+        init_target_output "$2"
+    fi
+}
+
 adapter_list() {
     detect_project
-    local manifest="" content_dir="" seen=" " file item enabled output configured
+    local manifest="" content_dir="" seen=" " file item enabled output
     if [ "$IP_MODE" = "cli" ]; then
         manifest="$IP_ROOT/intelligence.yaml"
         content_dir="$(manifest_intelligence_dir "$manifest")"
@@ -22,10 +35,9 @@ adapter_list() {
             [ -f "$file" ] || continue
             item="$(basename "$file" .sh)"
             seen="$seen$item "
-            enabled="disabled"; output="$(default_target_output "$item")"
+            enabled="disabled"
             [ "$(is_target_enabled "$manifest" "$item")" = "1" ] && enabled="enabled"
-            configured="$(get_target_output "$manifest" "$item")"
-            [ -z "$configured" ] || output="$configured"
+            output="$(adapter_list_output "$manifest" "$item")"
             printf '%-16s %-10s %-10s %s\n' "$item" "project" "$enabled" "$output"
         done
     fi
@@ -34,12 +46,11 @@ adapter_list() {
         item="$(basename "$file" .sh)"
         [ "$item" = "_template" ] && continue
         case "$seen" in *" $item "*) continue ;; esac
-        enabled="disabled"; output="$(default_target_output "$item")"
+        enabled="disabled"
         if [ -n "$manifest" ]; then
             [ "$(is_target_enabled "$manifest" "$item")" = "1" ] && enabled="enabled"
-            configured="$(get_target_output "$manifest" "$item")"
-            [ -z "$configured" ] || output="$configured"
         fi
+        output="$(adapter_list_output "$manifest" "$item")"
         printf '%-16s %-10s %-10s %s\n' "$item" "built-in" "$enabled" "$output"
     done
 }

@@ -178,7 +178,8 @@ sync_cursor_agents() {
     # when access sets it, are not copied, so the file never holds a key
     # twice (the lint warns about the source once); `tier`, `access`, `tools`
     # and `disallowedTools` go as well. Only
-    # frontmatter lines go: the body is the author's.
+    # frontmatter lines go: the body is the author's. Only a `---` on line 1
+    # opens frontmatter, so an agent without one is all body and gains no key.
     is_fin_awk_vars
     IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
@@ -205,7 +206,7 @@ sync_cursor_agents() {
         fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
         fm && count == 1 && !/^---$/ && fm_key_drop($0, own_re, OWN_ST) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" { next }
-        count == 2 && /^---$/ {
+        fm && count == 2 && /^---$/ {
             print fin_line("model: " MODEL[FILENAME]) > out
             if (RO[FILENAME] != "") print fin_line(RO[FILENAME]) > out
         }

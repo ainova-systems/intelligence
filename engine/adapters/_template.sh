@@ -25,6 +25,8 @@
 #   get_frontmatter_value(key, file)    — extract YAML frontmatter value
 #   has_frontmatter(file)               — check if file has --- header
 #   has_paths(file)                     — check if file has paths: field
+#   frontmatter_index('paths*', file...) — each scoped rule's patterns, read as
+#                                       every tool reads them, in one pass
 #   get_model(config, ide, tier)        — resolve model from config or default
 #   get_model_default(ide, tier)        — hardcoded default for ide:tier
 #   map_effort(tool, effort)            — the tool's level for a neutral effort; "" when none

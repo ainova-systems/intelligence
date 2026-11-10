@@ -254,6 +254,48 @@ awk '{ gsub(/warn_project_doc_limit: false/, "warn_project_doc_limit: off"); pri
     && mv "$CODEX_SIZE/intelligence.yaml.tmp" "$CODEX_SIZE/intelligence.yaml"
 xfail "warn_project_doc_limit must be true, false, or a positive byte count" "$CODEX_SIZE" sync codex --compact
 
+echo "== a target without output: every reader names the paths sync writes =="
+# Regression: for a hand-written entry without output:, the engine rendered
+# into .<adapter> while adapter list, the Git policy and status --check assumed
+# AGENTS.md for agents and .github for Copilot.
+NOOUT="$OUT/no-output"
+mkdir -p "$NOOUT/intelligence/rules"
+cat > "$NOOUT/intelligence.yaml" <<EOF
+project:
+  name: no-output
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+
+targets:
+  agents: { enabled: true }
+  copilot: { enabled: true }
+EOF
+printf -- '---\npaths:\n  - "src/**"\n---\n\n# Scoped\n\nscoped body\n' > "$NOOUT/intelligence/rules/scoped.md"
+git -C "$NOOUT" init --quiet
+xok "" "$NOOUT" sync
+chk test -f "$NOOUT/.agents/AGENTS.md"
+chk test -f "$NOOUT/.copilot/instructions/scoped.instructions.md"
+chknot test -e "$NOOUT/AGENTS.md"
+chknot test -e "$NOOUT/.github"
+xok "" "$NOOUT" adapter list
+for row in 'agents +built-in +enabled +\.agents' 'copilot +built-in +enabled +\.copilot' \
+    'cursor +built-in +disabled +\.cursor' 'antigravity +built-in +disabled +\.agents'; do
+    printf '%s\n' "$OUTPUT" | grep -Eq "^$row\$" \
+        || { echo "FAIL: adapter list lacks a row matching '$row'"; printf '%s\n' "$OUTPUT"; fail=1; }
+done
+xok "enabled: copilot" "$NOOUT" adapter enable copilot
+chk grep -Fqx '.copilot/instructions/' "$NOOUT/.gitignore"
+chknot grep -Fq '.github/' "$NOOUT/.gitignore"
+run_in "$NOOUT" status --check
+chknot grep -Fq '.github/' <<< "$OUTPUT"
+chknot grep -Fq "Git policy is missing '.copilot/" <<< "$OUTPUT"
+
 echo "== 1. garbage spec =="
 cp "$PROJ/intelligence.yaml" "$OUT/manifest.s1"
 xfail "expected @scope/name" "$PROJ" package add not-a-spec

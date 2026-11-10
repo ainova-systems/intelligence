@@ -141,7 +141,11 @@ sync_cache_dependencies() {
         [ "$IS_TGT_ENABLED" = 1 ] || continue
         case "$adapter" in agents|antigravity|claude|codex|copilot|cursor|opencode|pi) ;; *) return 1 ;; esac
         target_output_var "$CONFIG_FILE" "$adapter"
-        output="${IS_TGT_OUTPUT:-.$adapter}"
+        output="$IS_TGT_OUTPUT"
+        if [ -z "$output" ]; then
+            target_default_output_var "$adapter"
+            output="$IS_TGT_DEFAULT_OUTPUT"
+        fi
         batch+=("$adapter" "$file" "$output")
     done
     [ "${#batch[@]}" -gt 0 ] || return 1
@@ -551,7 +555,11 @@ sync_check_write_paths() {
         [ "$IS_TGT_ENABLED" = 1 ] || continue
         case "$file" in "$REPO_ROOT/$IS_CONTENT_REL/adapters/"*) SC_CHECK_PROJECT_ADAPTER=1 ;; esac
         target_output_var "$CONFIG_FILE" "$name"
-        output="${IS_TGT_OUTPUT:-.$name}"
+        output="$IS_TGT_OUTPUT"
+        if [ -z "$output" ]; then
+            target_default_output_var "$name"
+            output="$IS_TGT_DEFAULT_OUTPUT"
+        fi
         batch+=("$name" "$file" "$output")
     done
     SC_CHECK_OUTPUTS=() SC_CHECK_ALL_OUTPUTS=()

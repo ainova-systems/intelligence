@@ -72,38 +72,6 @@ copilot_commit_output_var() {
     return "$rc"
 }
 
-# copilot_paths_rows <file>... — batch form of the old per-file `paths:`
-# joiner: one row per file in argument order, `path \x1f p1,p2,...`. Quotes
-# are stripped anywhere in a pattern and the list is scanned from the first
-# `paths:` line, exactly like the per-file reader did.
-copilot_paths_rows() {
-    [ "$#" -gt 0 ] || return 0
-    awk '
-        BEGIN { US = sprintf("%c", 31) }
-        function store() { if (cur != "") R[cur] = row }
-        FNR == 1 { store(); cur = FILENAME; row = cur US; sep = ""; done_f = 0; in_paths = 0 }
-        { sub(/\r$/, "") }
-        done_f { next }
-        /^paths:/ { in_paths = 1; next }
-        in_paths && /^  - / {
-            val = $0
-            sub(/^  - /, "", val)
-            gsub(/["\047]/, "", val)
-            row = row sep val
-            sep = ","
-            next
-        }
-        in_paths && !/^  - / && !/^$/ { done_f = 1 }
-        END {
-            store()
-            for (i = 1; i < ARGC; i++) {
-                if (ARGV[i] in R) print R[ARGV[i]]
-                else print ARGV[i] US
-            }
-        }
-    ' "$@"
-}
-
 # Sync rules to Copilot format. Path-scoped rules are emitted, and an always-on
 # rule only when AGENTS.md (read by Copilot natively) does not carry it.
 sync_copilot_rules() {
@@ -133,22 +101,25 @@ sync_copilot_rules() {
     done
 
     if [ "${#scoped[@]}" -gt 0 ]; then
-        local path base paths_line
+        local path base patterns gs=$'\x1d'
         i=0
-        while IFS=$'\x1f' read -r path paths_line; do
+        # The rule's patterns as every tool reads them (frontmatter_index
+        # `paths*`), comma-joined: applyTo takes one comma-separated string.
+        while IFS=$'\x1f' read -r path patterns; do
             base="${scoped_names[i]}"
             i=$((i + 1))
+            yaml_dq_escape_var "${patterns//$gs/,}"
 
             local header
             header="${LS}---"
-            header+="${LS}applyTo: \"$paths_line\""
+            header+="${LS}applyTo: \"$IS_YAML_ESCAPED\""
             header+="${LS}---"
             header+="${LS}"
 
             spec+="$path"$'\x1f'"$instructions_dir/$base.instructions.md"$'\x1f'"fence_nofm"$'\x1f'"0"$'\x1f'"none"$'\x1f'"$header"$'\x1f\n'
             report+="  rule: $base.instructions.md (scoped)"$'\n'
             scoped_count=$((scoped_count + 1))
-        done < <(copilot_paths_rows "${scoped[@]}")
+        done < <(frontmatter_index 'paths*' "${scoped[@]}")
     fi
     if [ -n "$spec" ]; then
         emit_wrapped_bodies "$spec"

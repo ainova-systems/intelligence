@@ -52,6 +52,10 @@ is "init exit" 0 "$RC"
 is "claudeMdExcludes warnings from the first sync" 1 "$(double_load_warnings)"
 # The manifest comment restates the access vocabulary of decision 0026.
 chk grep -Fq 'access: full|readonly|runner)' "$P/intelligence.yaml"
+# It shows no packages: example with a version a release can make stale; it
+# says that package add writes the entry.
+chknot grep -Eq '^#.*version:' "$P/intelligence.yaml"
+chk grep -Fqx "# 'package add' writes the packages: entry itself, with the range" "$P/intelligence.yaml"
 for pattern in 'intelligence/rules/*.local.md' 'intelligence/agents/*.local.md' 'intelligence/skills/*.local/'; do
     chk grep -Fqx "$pattern" "$P/.gitignore"
 done
@@ -62,8 +66,14 @@ done
 for path in intelligence/rules/team.md intelligence/rules/.draft.md intelligence/skills/deploy/SKILL.md; do
     chknot git -C "$P" check-ignore -q --no-index "$path"
 done
+# A fresh clone holds AGENTS.md but no CLI, so the header says how to get one.
+INSTALL='npm install -g @ainova-systems/intelligence'
+chk grep -Fqx "Source of truth: \`intelligence/\` | Sync: \`intelligence sync\` | Install: \`$INSTALL\`" "$P/AGENTS.md"
+chk grep -Fqx "<!-- Source: intelligence/ | Sync: intelligence sync | Install: $INSTALL -->" "$P/AGENTS.md"
 run "$P" status --check
 is "status --check on a fresh project" 0 "$RC"
+# Every artifact name is unique: no source overrides another.
+chknot grep -Fq ' overrides ' "$LOG"
 # Claude Code reads AGENTS.md beside .claude/rules/ when no CLAUDE.md exists:
 # the exclude is printed until a settings layer holds one that matches.
 chk grep -Fq '{ "claudeMdExcludes": ["**/AGENTS.md"] }' "$LOG"
@@ -251,6 +261,12 @@ chk grep -Fq 'shared/rules/environment.md' "$LOG"
 chk grep -Fq 'intelligence/rules/.environment.local.md' "$LOG"
 chk grep -Fq 'one local and one not' "$LOG"
 is "outputs after the cross-source refusal" "$before" "$(snapshot "$P")"
+# status --check still finishes, exit unchanged, and says why it cannot list
+# the overrides instead of naming any.
+run "$P" status --check
+is "status --check beside the cross-source refusal" 0 "$RC"
+chk grep -Fq 'overrides unchecked' "$LOG"
+chknot grep -Fq ' overrides shared/' "$LOG"
 rm "$P/shared/rules/environment.md"
 # A source outside the content directory has no ignore pattern, so a local
 # file there is the one Git offers to commit; once tracked it is named too.
@@ -276,6 +292,12 @@ chk grep -Fq -- '- [style](intelligence/rules/style.md) (global)' "$P/AGENTS.md"
 chk grep -q PROJECT_STYLE "$P/AGENTS.md"
 chknot grep -q SHARED_STYLE "$P/AGENTS.md"
 chk grep -q PROJECT_STYLE "$P/.claude/rules/style.md"
+# Both copies are the project's own, so nothing reports the hidden one: sync
+# counts package artifacts only, and status --check names none.
+chknot grep -Fq 'never render' "$LOG"
+run "$P" status --check
+is "status --check with a project override" 0 "$RC"
+chknot grep -Fq ' overrides ' "$LOG"
 
 echo "== a skill a later source overrides is replaced whole =="
 mkdir -p "$P/shared/skills/review/references" "$P/intelligence/skills/review"
@@ -292,6 +314,10 @@ for tree in .claude/skills .cursor/skills .github/skills .agents/skills; do
     chk grep -q PROJECT_REVIEW "$P/$tree/review/SKILL.md"
     chknot test -e "$P/$tree/review/references/shared.md"
 done
+chknot grep -Fq 'never render' "$LOG"
+run "$P" status --check
+is "status --check with two project overrides" 0 "$RC"
+chknot grep -Fq ' overrides ' "$LOG"
 
 echo "== a dotfile source renders in every adapter under its name =="
 # Regression: AGENTS.md read `.draft.md` while every other adapter's glob
@@ -369,6 +395,7 @@ chk grep -Fq "cannot reach opencode" "$LOG"
 # Codex reads AGENTS.override.md instead of AGENTS.md: all of it, plus its rules.
 chk test -f "$Q/AGENTS.override.md"
 is "override starts with AGENTS.md" "$(cat "$Q/AGENTS.md")" "$(head -n "$(grep -c '' "$Q/AGENTS.md")" "$Q/AGENTS.override.md")"
+chk grep -Fqx "Source of truth: \`intelligence/\` | Sync: \`intelligence sync\` | Install: \`$INSTALL\`" "$Q/AGENTS.override.md"
 chk grep -q CODEX_ONLY_BODY "$Q/AGENTS.override.md"
 chk grep -q TOOLS_BODY "$Q/AGENTS.override.md"
 chknot grep -q CLAUDE_ONLY_BODY "$Q/AGENTS.override.md"
@@ -453,8 +480,16 @@ printf -- '---\npaths:\n  - "src/**"\n  - "tests/**"\n---\n\nSHARED_SCOPED_BODY\
 printf -- '---\npaths:\n- "api/**"\n- "spec/**"\n---\n\nINDENTLESS_SCOPED_BODY\n' > "$Q/intelligence/rules/indentless.md"
 printf -- '---\r\npaths: ["*.ts", "src/{one,two}/**"]\r\n---\r\n\r\nLOCAL_SCOPED_BODY\r\n' > "$Q/intelligence/rules/.local.md"
 printf -- '---\npaths: ["private/**"]\ntargets: [claude]\n---\n\nEXCLUDED_SCOPED_BODY\n' > "$Q/intelligence/rules/excluded.md"
+printf -- '---\npaths:\n  - "lib/**"\n  # generated code\n  - "gen/**"\n---\n\nCOMMENTED_SCOPED_BODY\n' > "$Q/intelligence/rules/commented.md"
 run "$Q" sync
 is "scoped-only Codex sync" 0 "$RC"
+# Copilot and Pi read every shape of paths: as the other tools do: a block
+# list at either indent, a flow list and a block list holding a comment line.
+for row in 'backend|src/**|tests/**' 'indentless|api/**|spec/**' 'local|*.ts|src/{one,two}/**' 'commented|lib/**|gen/**'; do
+    IFS='|' read -r name first second <<< "$row"
+    chk grep -Fqx "applyTo: \"$first,$second\"" "$Q/.github/instructions/$name.instructions.md"
+    chk grep -Fqx "    { path: \".pi/intelligence-sync/rules/$name.md\", patterns: [\"$first\", \"$second\"] }," "$Q/.pi/extensions/intelligence-sync-rules.ts"
+done
 chknot grep -Fq 'cannot reach codex' "$LOG"
 chk grep -Fq 'Before working on files matching these repo-relative patterns' "$Q/AGENTS.override.md"
 chk grep -Fq '`"src/**" "tests/**"` → [backend](<intelligence/rules/backend.md>)' "$Q/AGENTS.override.md"
@@ -517,7 +552,8 @@ run "$Q" adapter enable codex
 is "enable Codex again" 0 "$RC"
 run "$Q" status --check
 chknot grep -Fq 'is disabled, and its output' "$LOG"
-rm "$Q/intelligence/rules/backend.md" "$Q/intelligence/rules/indentless.md" "$Q/intelligence/rules/.local.md" "$Q/intelligence/rules/excluded.md"
+rm "$Q/intelligence/rules/backend.md" "$Q/intelligence/rules/indentless.md" "$Q/intelligence/rules/.local.md" "$Q/intelligence/rules/excluded.md" \
+    "$Q/intelligence/rules/commented.md"
 run "$Q" sync
 is "remove last scoped rules" 0 "$RC"
 chknot test -e "$Q/AGENTS.override.md"
