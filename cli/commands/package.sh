@@ -2,9 +2,10 @@
 # intelligence package <add|remove|alias|list|search> ...
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 action="${1:-}"
-[ -n "$action" ] || die "usage: intelligence package <add|remove|alias|list|search> [args]"
+[ -n "$action" ] || cli_usage_die package
 shift
 
 case "$action" in
@@ -30,6 +31,6 @@ case "$action" in
         exec bash "$CLI_DIR/internal/package-search.sh" "$@"
         ;;
     *)
-        die "usage: intelligence package <add|remove|alias|list|search> [args]"
+        cli_usage_die package
         ;;
 esac

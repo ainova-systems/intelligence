@@ -24,6 +24,12 @@ No engine code lives in an Intelligence project. Engine scripts ship with the np
 
 ## Public commands
 
+Every command and subcommand prints its usage on stdout and exits 0 when `-h`
+or `--help` is among its arguments before a `--`, and
+`intelligence help <command> [<subcommand>]` prints the same text. Asking for
+help reads no project, takes no lock and writes nothing. A usage error prints
+the opening lines of that text.
+
 ### `intelligence init`
 
 Universal project entry point:
@@ -268,6 +274,14 @@ over 64 or a `description` over 1024 characters that the tool will reject at
 load time. An unchanged run replays the same warnings. If lifecycle preflight,
 restore or rendering fails, it prints the complete captured diagnostics and
 preserves the original exit code.
+
+When Claude Code would load the always-on rules twice (the condition under
+[`intelligence status`](#intelligence-status)), every sync whose preflight
+passes — `--compact`, `--check` and an unchanged run included — prints one
+`WARNING:` line, before rendering, ending in the `claudeMdExcludes` entry to
+add to `.claude/settings.json`. It is evaluated on each run and never
+replayed, because the settings files are not sync inputs; sync never writes
+them (decision 0025).
 
 If the manifest declares packages but `intelligence.lock` is missing, every
 mutating lifecycle command fails before restoration or any write. Restore the
@@ -531,6 +545,8 @@ both enabled and there is no `CLAUDE.md`, `.claude/CLAUDE.md` or
 `~/.claude/CLAUDE.md` does not count): Claude Code 2.1.277 and later then reads
 `AGENTS.md` beside `.claude/rules/` and loads the always-on rules twice, so the
 note prints the `claudeMdExcludes` entry the owner adds to `.claude/settings.json`.
+It is the same finding every sync prints as a warning, and it clears once that
+file or `.claude/settings.local.json` holds an entry matching the agents output.
 
 ### `intelligence registry`
 

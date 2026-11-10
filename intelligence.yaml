@@ -14,7 +14,7 @@ schema_version: "0.23.0"
 #   intelligence/agents/<name>.md      a persona (frontmatter: name, description,
 #                                      tier: frontier|heavy|standard|light,
 #                                      effort: low|medium|high|xhigh|max|ultra,
-#                                      access: full|readonly)
+#                                      access: full|readonly|runner)
 #   intelligence/skills/<name>/SKILL.md  a procedure invoked as /<name>
 # '.intelligence/' is CLI-managed (packages + engine content) — never edit it.
 sources:

@@ -159,8 +159,8 @@ at a time. The candidate assessment below is not a commitment to add every liste
 **Acceptance.** A host smoke test proves each advertised capability: instructions
 load once, a skill can read its resources, scoped rules activate only as intended,
 and exported agents respect the documented model/tool mapping, including the
-three access values of [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md)
-once they land. Unsupported channels
+three access values of [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md).
+Unsupported channels
 are explicit. Test project/user precedence, absent native directories, upgrade,
 removal, shared consumers and rollback. Keep Linux and Windows/Git Bash fixtures in
 the configured gate runner. Add official links when an adapter becomes supported.
@@ -268,6 +268,58 @@ one before any tag moves.
 were; with `next` unset, a stable release still points it at that version; with a
 newer preview on `next`, a stable release still leaves it alone.
 
+### 13. The CLI and the engine disagree on a target's default output
+
+**Problem.** For a target whose manifest entry has no `output:`, the engine
+renders into `.<adapter>` (`engine/sync.sh`), while `default_target_output` in
+`cli/lib/cli-common.sh` assumes `.github` for Copilot and `AGENTS.md` for
+`agents`. `adapter list`, the Git-policy writer and the contract checks of
+`status --check` read the CLI's value, so for such a manifest they describe paths
+the engine never writes. `init` always writes `output:`, so only a hand-written
+manifest meets it.
+
+**Deliver.** One answer for the default output of each target, read by the CLI
+and the engine alike.
+
+**Acceptance.** For a manifest whose targets carry no `output:`, `adapter list`,
+`status --check` and the ignore entries name the paths a sync writes; a manifest
+with explicit outputs behaves as before.
+
+### 14. The OpenCode `frontier` default names an older Fable
+
+**Problem.** `get_model_default_var` maps `opencode:frontier` to
+`anthropic/claude-fable-5-1`, while Claude Code's `fable` alias, the Claude Code
+`frontier` default, resolves to Fable 5.2 ([model configuration](https://code.claude.com/docs/en/model-config),
+checked 2026-11-10). One tier therefore renders two different models across the
+two Claude-backed targets.
+
+**Deliver.** Move the OpenCode default to the models.dev catalog ID of the current
+Fable, with the tier table in `packages/sync/references/conventions.md` and the
+expected matrix in `cli/tests/unit-engine.sh`, and a `### Changed` line saying how
+to keep the earlier model.
+
+**Acceptance.** A `frontier` agent renders the current Fable ID in OpenCode; a
+`models.opencode.frontier` pin still renders as written, and the drift report
+names it.
+
+### 15. Agent frontmatter edge cases in the Claude Code and Cursor transforms
+
+**Problem.** Two cases the agent transforms read differently from YAML. A key the
+transform drops (`tier`, `access`, `model`, a `tools` that `access:` replaces,
+`targets`) takes its block list along only when the list items are indented, so
+a valid `tools:` followed by an unindented `- Read` leaves the `- Read` lines in
+the rendered frontmatter. And an agent without frontmatter gets `model:`,
+`tools:` or `readonly:` written at its second `---` line, and the wrapped forms
+(`fence` mode) keep whatever follows a later `---` pair; neither tool loads an
+agent without frontmatter, so that case shows only in the rendered file.
+
+**Deliver.** Treat an unindented `- ` item as a continuation of a dropped block
+list, and write the derived keys only into frontmatter that starts on line 1.
+
+**Acceptance.** An agent with an unindented block list under a dropped key
+renders without those items; an agent without frontmatter renders its body
+unchanged; every other agent renders byte-identical.
+
 ## Adapter candidates
 
 Assessment date: September 5, 2026. “Existing” refers to current Intelligence code;
@@ -309,11 +361,15 @@ before implementation. Official links for existing adapters are in
   follow adoption evidence. Preserve the existing trust and source-identity contract.
 - **Global installs and full plugin execution:** separate scope/ownership and runtime
   designs; not prerequisites for the project import roadmap.
-- **Three access values (lowest priority):** `readonly`, `runner` and `full`, rendered
-  per adapter as accepted in
-  [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md). Each adapter
-  row lands with its vendor citation and a rendered-frontmatter test; `readonly`
-  losing `Bash` in Claude Code is a breaking change and ships in its own release.
+- **The breaking half of [decision 0026](decisions/0026-one-access-vocabulary-across-tools.md):**
+  `runner` and the warning about an `access:` value outside the vocabulary shipped
+  in 0.26.0, with `readonly` rendered as before. What remains changes `readonly` in
+  two tools: Claude Code drops `Bash` (`tools: Read, Grep, Glob`), and Codex drops
+  the `sandbox_mode` line it ignores and gets `features.shell_tool = false`. It waits
+  until the packages that ship `readonly` agents which run commands have moved
+  them to `runner`, in a package release that requires CLI 0.26.0 or later, and
+  then ships in a release of its own whose `### Breaking` item is "no agent with
+  `access: readonly` needs to run commands". Its tests fail on the 0.26.0 rendering.
 
 ## Completion criteria
 

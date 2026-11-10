@@ -51,6 +51,13 @@ The Claude adapter's contract preserves `.claude/settings.json`, and the managed
   which is one reason it is a note.
 - Nobody has yet confirmed in a fresh session that the entry stops the load; the
   memory docs are the only source.
+- Confirmed 2026-11-10 on Claude Code 2.1.302 in fresh headless sessions: with the
+  entry in the project's `.claude/settings.json`, a word only `AGENTS.md` carries
+  no longer reaches the session, and `.claude/rules/` still loads.
+- From 0.26.0 every sync prints the same entry as one `WARNING:` line while the
+  condition of point 2 holds, because a note in `status --check` reaches only
+  whoever runs that check. Sync still never writes the file, and the warning
+  stays, like the note, on a machine whose user settings already exclude it.
 
 ## Rejected
 

@@ -229,11 +229,13 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 | `frontier` | `fable` | `inherit` | `gpt-6-astra` | `anthropic/claude-fable-5-1` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
 | `heavy` | `opus` | `inherit` | `gpt-6-astra` | `anthropic/claude-opus-5-5` | `pro` | implementation, complex reasoning, migration |
 | `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
-| `light` | `sonnet` | `inherit` | `gpt-6-luna` | `anthropic/claude-sonnet-5-5` | `flash` | lookups and simple formatting |
+| `light` | `haiku` | `inherit` | `gpt-6-luna` | `anthropic/claude-haiku-5-5` | `flash` | lookups and simple formatting |
 
-A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude's Haiku 4.5 is retiring with no successor announced, so `light` shares `standard`'s Sonnet in Claude and OpenCode; Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there too.
+A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude Code's `haiku` alias resolves to the current Haiku model ([model configuration](https://code.claude.com/docs/en/model-config), checked 2026-11-10), and OpenCode takes the [models.dev](https://opencode.ai/docs/models/) catalog ID of the same model. Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default. Another tier name works only where `models.<tool>.<tier>` defines it; elsewhere — a typo, as a rule — the agent renders with an empty `model` and sync warns once per tool and tier.
+
+An agent's own `model:` is not read: the tier selects the model in every tool, and Claude Code and Cursor write theirs in its place. Sync prints a `WARNING:` line naming the file, once however many tools render it.
 
 ### Effort mappings
 
@@ -253,9 +255,23 @@ Skills take the same field. `.claude/skills/` receives Claude's level, the share
 
 ### Access mappings
 
-`access: full` inherits ordinary tool permissions. `access: readonly` is transformed into the target's native restriction, and the targets differ on commands. Claude keeps `Bash` beside its read and search tools, with `Write` and `Edit` disallowed. Cursor receives `readonly: true`, which its documentation says blocks edits and state-changing shell commands. Copilot, OpenCode and Antigravity receive read and search tools only, and Pi receives the restriction as an instruction. Codex receives `sandbox_mode = "read-only"`, which its [subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) says a custom agent file cannot set, so a Codex agent runs in the parent session's sandbox.
+`access:` takes three values. `full` inherits ordinary tool permissions. `readonly` reads and searches, with no edits and no commands. `runner` reads, searches and runs commands, with no edit tools; a command can still write a file, so for commands the limit is the agent's own instructions and the tool's sandbox. Each adapter renders the value as the target's closest native restriction:
 
-Use only `full` or `readonly` in source agents. Tool-specific permission syntax belongs in adapters.
+| Target | `readonly` | `runner` |
+|---|---|---|
+| Claude | `tools: Read, Grep, Glob, Bash`, `disallowedTools: Write, Edit` | the same |
+| Cursor | `readonly: true` | the same |
+| Copilot | `tools: ["read", "search"]` | `tools: ["read", "search", "execute"]` |
+| Codex | `sandbox_mode = "read-only"` | no `sandbox_mode`; an instruction to run commands and not edit files |
+| OpenCode | `permission:` `edit: deny`, `bash: deny` | `edit: deny`, `bash: allow` |
+| Antigravity | `tools:` `view_file`, `grep_search` | adds `run_command` |
+| Pi | an instruction against edits and mutating commands | an instruction allowing commands, against edits |
+
+The targets differ on commands. `readonly` still runs them in Claude, and in Codex, whose [subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents) says a custom agent file cannot set `sandbox_mode`, so every Codex agent runs in the parent session's sandbox and no key removes its edit tool. Cursor has no field for commands without edits: its `readonly: true` blocks edits and state-changing shell commands, for both values. A later release removes the shell from `readonly` in Claude and Codex, so an agent that has to run commands, such as a verifier, declares `runner`.
+
+Use only `full`, `readonly` or `runner` in source agents. Any other value renders as `full` in every target, and sync prints a `WARNING:` line naming the file, the value and the allowed values. Tool-specific permission syntax belongs in adapters.
+
+A source `tools:` or `disallowedTools:` passes through to Claude Code while `access:` writes no such key there. When it does, the `access:` value replaces the source key and sync prints a `WARNING:` line naming the file. Cursor drops both keys, and treats a source `readonly:` the same way: it passes through under `full`, and under `readonly` or `runner` the `access:` value replaces it, with the same warning. Each warning appears only while that tool renders the agent: its target is enabled, and the agent's `targets:` and `exclude_targets:` leave it in.
 
 ## Rule conventions
 
@@ -272,6 +288,8 @@ description: "Backend conventions"
 Rule content in Markdown.
 ```
 
+Frontmatter opens only on the first line: a rule that starts with anything else, a blank line or a byte-order mark included, has none, and every target receives its whole text.
+
 `paths:` is optional:
 
 - With `paths:`, the rule is scoped to matching repository files.
@@ -285,7 +303,7 @@ Rule content in Markdown.
 | Always-on | copied | omitted | omitted | omitted | inlined once into `AGENTS.md` |
 | Always-on, not in `AGENTS.md` | copied | `.mdc` with `alwaysApply: true` | `.md` with `trigger: always_on` | `.instructions.md` with `applyTo: "**"` | Codex: `AGENTS.override.md`; Pi: added to the system prompt by its extension; OpenCode: none |
 
-Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude receives the full rule set in `.claude/rules/`. Claude Code 2.1.277 and later also reads `AGENTS.md` when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it ([memory docs](https://code.claude.com/docs/en/memory#agents-md)), so the always-on rules load twice until `.claude/settings.json` carries `"claudeMdExcludes": ["**/AGENTS.md"]`. Sync never edits that file; `intelligence status --check` prints the entry when it is missing. Codex's override lists scoped patterns and source links with an instruction to read matching rules on demand; this depends on the model following the instruction, not native glob-triggered loading. OpenCode users may configure `instructions:` globs themselves. See [adapter routing](adapters.md#rules) for delivery details.
+Cursor, Copilot, Codex, Pi, OpenCode and Antigravity consume `AGENTS.md`, so always-on rules are not duplicated in their tool-specific channels. Claude receives the full rule set in `.claude/rules/`. Claude Code 2.1.277 and later also reads `AGENTS.md` when no `CLAUDE.md`, `.claude/CLAUDE.md` or `CLAUDE.local.md` exists in the working directory or above it ([memory docs](https://code.claude.com/docs/en/memory#agents-md)), so the always-on rules load twice until `.claude/settings.json` carries `"claudeMdExcludes": ["**/AGENTS.md"]`. Sync never edits that file; while the entry is missing, every sync prints it in a `WARNING:` line and `intelligence status --check` prints it as a note. Codex's override lists scoped patterns and source links with an instruction to read matching rules on demand; this depends on the model following the instruction, not native glob-triggered loading. OpenCode users may configure `instructions:` globs themselves. See [adapter routing](adapters.md#rules) for delivery details.
 
 An always-on rule `AGENTS.md` does not carry — a local one, or one whose set leaves `agents` out (see [Selecting adapters](#selecting-adapters)) — reaches each tool in its set through that tool's own channel instead, the last row. Codex reads `AGENTS.override.md` instead of `AGENTS.md` in the same directory, so the file holds the whole `AGENTS.md` plus scoped routing and additional always-on rules; it is ignored, exists while either needs it, and one Intelligence did not generate is never touched. Antigravity's `trigger: always_on` belongs to the same undocumented key family as its `trigger: glob`. OpenCode reads instructions only from `AGENTS.md` or its committed `opencode.json`, so it can receive neither a local nor a tool-targeted always-on rule.
 
@@ -316,7 +334,7 @@ Standard optional fields (`license`, `compatibility`, `metadata`, `allowed-tools
 
 Claude Code, Cursor, Copilot, OpenCode and Pi read the field itself; Codex does not, so sync writes `agents/openai.yaml` with `allow_implicit_invocation: false` beside the skill in `.agents/skills/`. Keep the source to the field. A skill that ships its own `agents/openai.yaml` keeps everything else in it: sync adds the policy when the file sets none, and refuses one that sets it otherwise or not as a plain `allow_implicit_invocation: false` directly under `policy:`.
 
-`context: fork`, `agent`, `background` and `model` are Claude Code fields, and sync copies them unchanged. A forked skill runs as a subagent of the `agent` type that receives the skill as its prompt, sees none of the conversation and has no `AskUserQuestion` tool. In an interactive session it runs in the background by default, so the caller's turn goes on before the result arrives, and a skill whose result its caller needs in the same turn sets `background: false` ([skills](https://code.claude.com/docs/en/skills#run-skills-in-a-subagent), [subagents](https://code.claude.com/docs/en/sub-agents#available-tools)). Without `context: fork`, `agent` selects nothing, and `model` switches the session's model for the rest of the turn, which then re-reads the whole conversation without the prompt cache ([prompt caching](https://code.claude.com/docs/en/prompt-caching#switching-models)). Of the other targets, only Copilot in VS Code documents `context: fork`, as experimental, and none documents `agent`, `background` or `model` for a skill (checked 2026-11-07).
+`context: fork`, `agent`, `background` and `model` are Claude Code fields, and sync copies them unchanged. A forked skill runs as a subagent of the `agent` type that receives the skill as its prompt, sees none of the conversation and has no `AskUserQuestion` tool. In an interactive session it runs in the background by default, so the caller's turn goes on before the result arrives, and a skill whose result its caller needs in the same turn sets `background: false` ([skills](https://code.claude.com/docs/en/skills#run-skills-in-a-subagent), [subagents](https://code.claude.com/docs/en/sub-agents#available-tools)). Without `context: fork`, `agent` selects nothing, and `model` switches the session's model for the rest of the turn, which then re-reads the whole conversation without the prompt cache ([prompt caching](https://code.claude.com/docs/en/prompt-caching#switching-models)). Sync prints a `WARNING:` line for either field without `context: fork`, and for `tier:` on a skill, which only an agent reads. Of the other targets, only Copilot in VS Code documents `context: fork`, as experimental, and none documents `agent`, `background` or `model` for a skill (checked 2026-11-07).
 
 Fork a skill whose inputs are files and arguments, that asks nothing on the way, and whose work is heavy reading, auditing or judging: the caller's context stays small and the work gets an independent reader. Keep a skill inline, with no `agent`, when its input is the conversation or its job is a dialogue or an approval with the person. A forked skill never asks. When it reaches a decision that belongs to the person, it stops before the write and ends its result with the decision, the options and its recommendation, so the caller asks.
 

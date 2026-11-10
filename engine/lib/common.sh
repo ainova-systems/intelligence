@@ -139,21 +139,26 @@ IS_AWK_LIB='
     # removed from every rendered copy. Call tgt_reset() at the start of each
     # file and tgt_drop() for each of its frontmatter lines in order: a block
     # list, or a flow list spanning lines, goes with its key.
-    function tgt_reset() { tgt_cont = "" }
-    function tgt_drop(s,   v) {
-        if (tgt_cont == "block") {
+    function tgt_reset() { split("", TGT_ST) }
+    function tgt_drop(s) { return fm_key_drop(s, "^(targets|exclude_targets):", TGT_ST) }
+    # fm_key_drop(line, re, st) — tgt_drop for any key matching <re>: whether
+    # the frontmatter line is such a key or the block or flow list that
+    # continues one. <st> holds the state of one caller, cleared per file with
+    # split("", st), so two callers in one program never share it.
+    function fm_key_drop(s, re, st,   v) {
+        if (st["c"] == "block") {
             if (s ~ /^[ \t]/ || s == "") return 1
-            tgt_cont = ""
-        } else if (tgt_cont == "flow") {
-            if (index(s, "]")) tgt_cont = ""
+            st["c"] = ""
+        } else if (st["c"] == "flow") {
+            if (index(s, "]")) st["c"] = ""
             return 1
         }
-        if (s !~ /^(targets|exclude_targets):/) return 0
+        if (s !~ re) return 0
         v = substr(s, index(s, ":") + 1)
         sub(/[ \t]+#.*$/, "", v)
         gsub(/^[ \t]+|[ \t]+$/, "", v)
-        if (v == "") tgt_cont = "block"
-        else if (substr(v, 1, 1) == "[" && !index(v, "]")) tgt_cont = "flow"
+        if (v == "") st["c"] = "block"
+        else if (substr(v, 1, 1) == "[" && !index(v, "]")) st["c"] = "flow"
         return 1
     }
 '
@@ -480,8 +485,10 @@ resolve_source_dir() {
 # where mode selects the body extraction (`strip` = strip_frontmatter
 # semantics, `fence` = body only after a closed frontmatter fence, so a file
 # without frontmatter yields nothing, `fence_nofm` = fence, or the whole file
-# when it never opened one), trim=1 drops trailing blank body lines and emits
-# a single blank line for an empty body (the $(...)-capture-then-echo
+# when it never opened one; in `strip` and `fence_nofm` only a `---` on line 1
+# opens frontmatter, so a later pair is body), trim=1 drops trailing blank
+# body lines and emits a single blank line for an empty body (the
+# $(...)-capture-then-echo
 # semantics the per-file code had), escape=toml applies the TOML triple-quote
 # body escaping, and header/tail are literal output lines each prefixed with
 # \x1e. Every output line passes through fin_line. The spec travels through
@@ -533,7 +540,7 @@ emit_wrapped_bodies() {
             body_n = 0; in_fm = 0; past_fm = 0
         }
         { sub(/\r$/, "") }
-        FNR == 1 && MODE[cur] == "strip" && $0 != "---" { past_fm = 1 }
+        FNR == 1 && (MODE[cur] == "strip" || MODE[cur] == "fence_nofm") && $0 != "---" { past_fm = 1 }
         /^---$/ {
             if (!past_fm) { in_fm = !in_fm; if (!in_fm) past_fm = 1; next }
         }
@@ -563,12 +570,15 @@ emit_wrapped_bodies() {
 
 # emit_rule_bodies <file>... — every rule's body without its frontmatter, in
 # one awk, a blank line after each: how AGENTS.md inlines always-on rules, and
-# how Codex's AGENTS.override.md adds the ones AGENTS.md does not carry.
+# how Codex's AGENTS.override.md adds the ones AGENTS.md does not carry. Only
+# a `---` on line 1 opens frontmatter: a rule without it keeps every `---` pair
+# in its body, a YAML example in a code fence included.
 emit_rule_bodies() {
     [ "$#" -gt 0 ] || return 0
     awk '
         FNR == 1 { if (NR != 1) print ""; in_fm = 0; past_fm = 0 }
         { sub(/\r$/, "") }
+        FNR == 1 && $0 != "---" { past_fm = 1 }
         /^---$/ {
             if (!past_fm) { in_fm = !in_fm; if (!in_fm) { past_fm = 1 }; next }
         }
@@ -1171,6 +1181,75 @@ _IS_AWK_LINT='
                 allowed = allowed (li > 1 ? ", " : "") LV[li]
             }
             lint_root = ENVIRON["IS_LINT_ROOT"]
+            # The agent sources, the access values for which Claude Code
+            # writes its own tools: or disallowedTools:, and those for which
+            # Cursor writes its own readonly: (source_frontmatter_scan fills
+            # them; the plain form lints no file as an agent).
+            na = split(ENVIRON["IS_LINT_AGENTS"], LA, "\n")
+            for (li = 1; li <= na; li++) if (LA[li] != "") LINT_AGENT[LA[li]] = 1
+            na = split(ENVIRON["IS_LINT_TOOLS_ACCESS"], LA, " ")
+            for (li = 1; li <= na; li++) TOOLS_ACCESS[LA[li]] = 1
+            na = split(ENVIRON["IS_LINT_DENY_ACCESS"], LA, " ")
+            for (li = 1; li <= na; li++) DENY_ACCESS[LA[li]] = 1
+            na = split(ENVIRON["IS_LINT_RO_ACCESS"], LA, " ")
+            for (li = 1; li <= na; li++) RO_ACCESS[LA[li]] = 1
+            # Which of claude and cursor the project enables.
+            na = split(ENVIRON["IS_LINT_TOOLS_ON"], LA, " ")
+            for (li = 1; li <= na; li++) LINT_ON[LA[li]] = 1
+            # The access vocabulary, IS_ACCESS_LEVELS, for the warning about a
+            # value outside it.
+            na = split(ENVIRON["IS_LINT_ACCESS_LEVELS"], LA, " ")
+            access_allowed = ""
+            for (li = 1; li <= na; li++) {
+                ACCESS_LEVEL[LA[li]] = 1
+                access_allowed = access_allowed (li > 1 ? ", " : "") LA[li]
+            }
+            na = split("agent model tier context access tools disallowedTools readonly", LA, " ")
+            for (li = 1; li <= na; li++) FK_WANT[LA[li]] = 1
+        }
+        # Keys copied as written that do something other than they read, told
+        # at the closing fence from the first occurrence of each key. On a
+        # skill: agent: and model: without context: fork, and tier:, which only
+        # an agent reads. On an agent: an access: outside the vocabulary, which
+        # every adapter renders as full access; model:, which the tier
+        # replaces in every tool; the tools: or disallowedTools: that Claude
+        # Code replaces with what access: grants; and the readonly: that
+        # Cursor replaces with what access: sets, each only where that tool
+        # renders the agent. One warning per file and key, however many tools
+        # render it.
+        # fk_renders(tool) - the project enables <tool>, and the targets: and
+        # exclude_targets: of the agent, read by source_frontmatter_scan, leave
+        # it in; `committed` counts as in, since it depends on the Git policy.
+        function fk_renders(t,   tl) {
+            if (!(t in LINT_ON)) return 0
+            tl = " " sx_v["targets"] " "
+            if (sx_has["targets"] && !index(tl, " " t " ") && !index(tl, " committed ")) return 0
+            if (sx_has["exclude_targets"] && index(" " sx_v["exclude_targets"] " ", " " t " ")) return 0
+            return 1
+        }
+        function fk_report(   fork, acc) {
+            if (is_skill) {
+                fork = (FKV["context"] == "fork")
+                if (FKV["agent"] != "" && !fork)
+                    printf "WARNING: %s:%d agent: selects nothing without context: fork — fork the skill or remove the field\n", lint_src, FKL["agent"] > "/dev/stderr"
+                if (FKV["model"] != "" && !fork)
+                    printf "WARNING: %s:%d model: without context: fork switches the session model for the rest of the turn and drops the prompt cache — fork the skill or remove the field\n", lint_src, FKL["model"] > "/dev/stderr"
+                if (FKV["tier"] != "")
+                    printf "WARNING: %s:%d tier: is read on agents only — on a skill every tool receives it as written\n", lint_src, FKL["tier"] > "/dev/stderr"
+            }
+            if (is_agent) {
+                acc = FKV["access"]
+                if (acc != "" && !(acc in ACCESS_LEVEL))
+                    printf "WARNING: %s:%d access \"%s\" is not one of %s — every tool renders it as full access\n", lint_src, FKL["access"], acc, access_allowed > "/dev/stderr"
+                if (FKV["model"] != "")
+                    printf "WARNING: %s:%d model: on an agent is not read — tier: selects its model in every tool; pin one under models.<tool>.<tier>\n", lint_src, FKL["model"] > "/dev/stderr"
+                if (("tools" in FKL) && (acc in TOOLS_ACCESS) && fk_renders("claude"))
+                    printf "WARNING: %s:%d tools: is replaced in Claude Code by the tools access: %s grants — set access: instead\n", lint_src, FKL["tools"], acc > "/dev/stderr"
+                if (("disallowedTools" in FKL) && (acc in DENY_ACCESS) && fk_renders("claude"))
+                    printf "WARNING: %s:%d disallowedTools: is replaced in Claude Code by what access: %s disallows — set access: instead\n", lint_src, FKL["disallowedTools"], acc > "/dev/stderr"
+                if (("readonly" in FKL) && (acc in RO_ACCESS) && fk_renders("cursor"))
+                    printf "WARNING: %s:%d readonly: is replaced in Cursor by what access: %s sets — set access: instead\n", lint_src, FKL["readonly"], acc > "/dev/stderr"
+            }
         }
         # A layout token that cannot mean what it renders as: joined to a word
         # or a path around it, or an XML element closed on the same line. A
@@ -1201,13 +1280,23 @@ _IS_AWK_LINT='
             lint_under = lint_root != "" && index(FILENAME, lint_root "/") == 1
             lint_src = lint_under ? substr(FILENAME, length(lint_root) + 2) : FILENAME
             tok_own = lint_under && index(FILENAME, lint_root "/.intelligence/") != 1
+            is_skill = FILENAME ~ /(^|\/)SKILL\.md$/
+            is_agent = FILENAME in LINT_AGENT
+            split("", FKL); split("", FKV)
         }
         { sub(/\r$/, "") }
         tok_own && index($0, ">") { tok_check($0) }
         done { next }
         FNR == 1 && $0 != "---" { done = 1; next }
         FNR == 1 { in_fm = 1; next }
-        in_fm && $0 == "---" { done = 1; next }
+        in_fm && $0 == "---" { if (is_skill || is_agent) fk_report(); done = 1; next }
+        in_fm && (is_skill || is_agent) && match($0, /^[A-Za-z]+:/) {
+            fk = substr($0, 1, RLENGTH - 1)
+            if ((fk in FK_WANT) && !(fk in FKL)) {
+                FKL[fk] = FNR
+                FKV[fk] = fm_value_strip(substr($0, RLENGTH + 1))
+            }
+        }
         in_fm && substr($0, 1, 7) == "effort:" && !effort_seen++ {
             effort = fm_value_strip(substr($0, 8))
             if (effort != "" && !(effort in LEVEL)) {
@@ -1354,12 +1443,13 @@ has_paths() {
 # get_model_default_var sets IS_MODEL_DEFAULT; get_model_default prints it.
 get_model_default_var() {
     case "$1:$2" in
-        # Haiku 4.5 retires no sooner than 2026-10-15 and has no successor, so
-        # light shares standard's Sonnet on every Claude-backed target.
+        # Claude Code's `haiku` alias resolves to a current Haiku model
+        # (https://code.claude.com/docs/en/model-config, checked 2026-11-10),
+        # so light takes it on every Claude-backed target (decision 0029).
         claude:frontier)  IS_MODEL_DEFAULT="fable" ;;
         claude:heavy)     IS_MODEL_DEFAULT="opus" ;;
         claude:standard)  IS_MODEL_DEFAULT="sonnet" ;;
-        claude:light)     IS_MODEL_DEFAULT="sonnet" ;;
+        claude:light)     IS_MODEL_DEFAULT="haiku" ;;
         # Cursor documents only `inherit` or a concrete model ID, so every
         # tier follows the session model unless the manifest pins one.
         cursor:frontier)  IS_MODEL_DEFAULT="inherit" ;;
@@ -1382,10 +1472,12 @@ get_model_default_var() {
         antigravity:heavy)     IS_MODEL_DEFAULT="pro" ;;
         antigravity:standard)  IS_MODEL_DEFAULT="flash" ;;
         antigravity:light)     IS_MODEL_DEFAULT="flash" ;;
+        # OpenCode takes catalog IDs from models.dev
+        # (https://opencode.ai/docs/models/, checked 2026-11-10).
         opencode:frontier) IS_MODEL_DEFAULT="anthropic/claude-fable-5-1" ;;
         opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-5-5" ;;
         opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;
-        opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;
+        opencode:light)    IS_MODEL_DEFAULT="anthropic/claude-haiku-5-5" ;;
         *)                IS_MODEL_DEFAULT="" ;;
     esac
 }
@@ -1577,11 +1669,24 @@ report_model_drift() {
     fi
 }
 
+# The `access:` values an agent source may use (decision 0026): `full`,
+# `readonly` (read and search, no edits, no commands) and `runner` (read,
+# search and run commands, no edit tools). The source lint warns about any
+# other value, and every adapter renders one as `full`. A reader that needs
+# to know what a value renders as asks the map_access_* functions below for
+# each of these, never a list of its own.
+IS_ACCESS_LEVELS="full readonly runner"
+
 # Map access level to Claude tools string (fork-free form: sets
 # IS_CLAUDE_TOOLS; the printing form wraps it for compatibility)
+# `tools` is an allowlist and `disallowedTools` a denylist, applied first
+# (code.claude.com/docs/en/sub-agents, "Restrict which tools a subagent can
+# use", checked 2026-11-10). `runner` takes the read and search tools plus
+# Bash, with the edit tools denied. `readonly` renders the same until
+# decision 0026's breaking half drops its Bash.
 map_access_to_claude_tools_var() {
     case "$1" in
-        readonly) IS_CLAUDE_TOOLS="Read, Grep, Glob, Bash" ;;
+        readonly|runner) IS_CLAUDE_TOOLS="Read, Grep, Glob, Bash" ;;
         # full: emit NO tools list at all. Confirmed empirically in Copilot (VSCode,
         # reading .claude/agents): a closed tools list restricts the agent to exactly
         # those tools and loses MCP; omitting the field lets it inherit every session
@@ -1599,8 +1704,20 @@ map_access_to_claude_tools_var() {
 # Map access level to Claude disallowedTools (empty if full access)
 map_access_to_claude_disallowed_var() {
     case "$1" in
-        readonly) IS_CLAUDE_DISALLOWED="Write, Edit" ;;
+        readonly|runner) IS_CLAUDE_DISALLOWED="Write, Edit" ;;
         *)        IS_CLAUDE_DISALLOWED="" ;;
+    esac
+}
+
+# Map access level to the value of Cursor's `readonly` key (fork-free form:
+# sets IS_CURSOR_READONLY, empty when Cursor gets no such key). Cursor's
+# `readonly` blocks file edits and state-changing shell commands, and no
+# other field controls access (cursor.com/docs/subagents, checked
+# 2026-11-10), so `runner` takes the one restriction it has.
+map_access_to_cursor_readonly_var() {
+    case "$1" in
+        readonly|runner) IS_CURSOR_READONLY="true" ;;
+        *)               IS_CURSOR_READONLY="" ;;
     esac
 }
 
@@ -2490,6 +2607,9 @@ source_catalog_build() {
     local repo_root="$1" config_file="$2" lint="${3:-}" key section f entry dir name
     local seen=$'\n' errors="" i n=0 prev rest rows path scoped kind has_t t has_x x
     local -a files=()
+    # Which sources the lint reads as agents, and which of the two tools whose
+    # access keys it checks the project enables (source_frontmatter_scan).
+    local IS_LINT_AGENT_FILES="" IS_LINT_TOOLS_ON="" tool
     key="$repo_root"$'\n'"$config_file"
     if [ "${IS_SOURCE_FILES_MEMO:-0}" = 1 ] && [ "${IS_CAT_KEY:-}" = "$key" ]; then
         return 0
@@ -2511,6 +2631,7 @@ source_catalog_build() {
                 entry="${f##*/}"
                 dir="${f%/*}"
                 kind="${section%s}"
+                [ "$section" != agents ] || IS_LINT_AGENT_FILES+="$f"$'\n'
             fi
             source_artifact_name_var "$section" "$entry"
             name="$IS_ART_NAME"
@@ -2550,6 +2671,13 @@ source_catalog_build() {
         printf '%s' "$errors" >&2
         exit 1
     fi
+    if [ -n "$lint" ]; then
+        # The engine warms the targets cache first, so this starts no process.
+        for tool in claude cursor; do
+            target_enabled_var "$config_file" "$tool"
+            [ "$IS_TGT_ENABLED" != 1 ] || IS_LINT_TOOLS_ON+=" $tool"
+        done
+    fi
     if [ "$n" -gt 0 ]; then
         # One pass reads what routing needs from every source's frontmatter
         # and, for the engine, lints it. Captured, not streamed: a short answer
@@ -2588,13 +2716,29 @@ source_catalog_build() {
 # (`targets: []` is: it is the empty list). With <lint-root>, the repository
 # root, the same pass runs lint_frontmatter_files over every file and the
 # layout-token check over the project's own; warnings go to stderr and name
-# each source relative to that root.
+# each source relative to that root. The lint reads the files listed in
+# IS_LINT_AGENT_FILES (\n-separated) as agents, and IS_LINT_TOOLS_ON as the
+# enabled ones of claude and cursor; source_catalog_build sets both.
 source_frontmatter_scan() {
-    local do_lint=0 root="$1"
+    local do_lint=0 root="$1" access tools_access="" deny_access="" ro_access=""
     [ -z "$root" ] || do_lint=1
     shift
+    # The access values for which Claude Code and Cursor write their own
+    # access keys, asked of the mappings themselves so a new value needs no
+    # second list.
+    for access in $IS_ACCESS_LEVELS; do
+        map_access_to_claude_tools_var "$access"
+        [ -z "$IS_CLAUDE_TOOLS" ] || tools_access+=" $access"
+        map_access_to_claude_disallowed_var "$access"
+        [ -z "$IS_CLAUDE_DISALLOWED" ] || deny_access+=" $access"
+        map_access_to_cursor_readonly_var "$access"
+        [ -z "$IS_CURSOR_READONLY" ] || ro_access+=" $access"
+    done
     is_fin_awk_vars
-    IS_LINT_ROOT="$root" awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
+    IS_LINT_ROOT="$root" IS_LINT_AGENTS="${IS_LINT_AGENT_FILES:-}" IS_LINT_TOOLS_ON="${IS_LINT_TOOLS_ON:-}" \
+        IS_LINT_TOOLS_ACCESS="$tools_access" \
+        IS_LINT_DENY_ACCESS="$deny_access" IS_LINT_RO_ACCESS="$ro_access" IS_LINT_ACCESS_LEVELS="$IS_ACCESS_LEVELS" \
+        awk -v levels="$IS_EFFORT_LEVELS" -v do_lint="$do_lint" "${IS_FIN_V[@]}" "$IS_AWK_LIB"'
         BEGIN { SX_US = sprintf("%c", 31) }
         function sx_items(s, k,   parts, m, j, v, q) {
             m = split(s, parts, ",")

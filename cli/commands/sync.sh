@@ -32,7 +32,10 @@ while [ $# -gt 0 ]; do
         --check) check=1 ;;
         -*) die "unknown option '$1'" ;;
         *)
-            [ -z "$target" ] || die "usage: intelligence sync [adapter] [--compact] [--force] [--check]"
+            if [ -n "$target" ]; then
+                source "$CLI_DIR/lib/usage.sh"
+                cli_usage_die sync
+            fi
             target="$1"
             ;;
     esac
@@ -51,6 +54,18 @@ hold_project() {
     load_sync_package_identity
 }
 
+# warn_claude_double_load - decision 0025's note as one warning line, JSON
+# included, so `--compact` keeps it whole. It is evaluated on every run once
+# the preflight passes, before the render, so a run still ends on its own
+# result line; it is never recorded, because the settings files are not sync
+# inputs and a replayed warning would outlive the fix.
+warn_claude_double_load() {
+    source "$CLI_DIR/lib/claude-double-load.sh"
+    claude_double_load_var "$IP_ROOT" "$CONFIG_FILE"
+    [ -z "$IS_CLAUDE_DOUBLE_LOAD" ] \
+        || echo "WARNING: $IS_CLAUDE_DOUBLE_LOAD $IS_CLAUDE_DOUBLE_LOAD_JSON" >&2
+}
+
 run_sync() {
     detect_project || return $?
     case "$IP_MODE" in
@@ -64,6 +79,7 @@ run_sync() {
             project_as_committed "$IP_ROOT" || return $?
             restore_project_store_if_missing "$IP_ROOT" || return $?
             export_engine_env "$IP_ROOT" || return $?
+            warn_claude_double_load
             sync_with_cache "$target" "$force" || return $?
             ;;
         legacy)
@@ -111,6 +127,7 @@ run_check() {
     project_as_committed "$IP_ROOT" || return $?
     restore_project_store_if_missing "$IP_ROOT" keep-sources >&2 || return $?
     export_engine_env "$IP_ROOT" || return $?
+    warn_claude_double_load
     sync_check "$target" "$force" || return $?
 }
 

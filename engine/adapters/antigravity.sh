@@ -42,6 +42,12 @@
 #     `mainAgent: false` matches how every other adapter exposes Intelligence
 #     agents — as delegates, not as chat personas. A readonly agent gets an
 #     explicit `tools:` allowlist.
+#   - access (decision 0026): `readonly` -> tools: view_file, grep_search;
+#     `runner` -> the same plus run_command; `full` and any other value -> no
+#     list. Source, checked 2026-11-10: antigravity.google/docs/subagents
+#     names view_file, replace_file_content, grep_search and run_command in
+#     its `tools` row ("Explicit list of tools permitted for this
+#     subagent"). That a listed set excludes every other tool is not stated.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -238,15 +244,17 @@ sync_antigravity_agents() {
             # tool name in the `tools` list may cause the subagent process to
             # hang during execution." The subagents page names four —
             # view_file, replace_file_content, grep_search, run_command — and
-            # publishes no master list, so readonly takes the two that read.
+            # publishes no master list, so readonly takes the two that read,
+            # and runner adds the one that runs commands.
             # Web and directory tools appear in leaked prompt dumps only; a
             # hang is too expensive a bet on an unpublished name.
             # An unrestricted agent declares no list and inherits the main
             # agent's tools, which is Antigravity's default.
-            if [ "$access" = "readonly" ]; then
+            if [ "$access" = "readonly" ] || [ "$access" = "runner" ]; then
                 header+="${LS}tools:"
                 header+="${LS}  - view_file"
                 header+="${LS}  - grep_search"
+                [ "$access" = "readonly" ] || header+="${LS}  - run_command"
             fi
             header+="${LS}---"
             header+="${LS}"

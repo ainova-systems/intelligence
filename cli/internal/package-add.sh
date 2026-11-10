@@ -7,9 +7,10 @@
 #   git+<url>[@ref][#path]         explicit source: direct from any git host
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 spec="${1:-}"
-[ -n "$spec" ] || die "usage: intelligence package add <@scope/name[@range] | github:org/repo[#path] | git+<url>[@ref][#path]> [--name @scope/name] [--alias <alias>] [--no-sync]"
+[ -n "$spec" ] || cli_usage_die package add
 shift || true
 
 no_sync=0

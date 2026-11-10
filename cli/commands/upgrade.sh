@@ -8,6 +8,7 @@
 # project.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 mode="ask" preview_seen=0 apply_seen=0 channel=""
 while [ $# -gt 0 ]; do
@@ -15,7 +16,7 @@ while [ $# -gt 0 ]; do
         --preview) preview_seen=1; mode="preview" ;;
         --apply) apply_seen=1; mode="apply" ;;
         --next) channel="next" ;;
-        *) die "usage: intelligence upgrade [--next] [--preview|--apply]" ;;
+        *) cli_usage_die upgrade ;;
     esac
     shift
 done

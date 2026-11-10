@@ -7,6 +7,7 @@
 # happens inside a project command.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 only="" mode="ask" preview_seen=0 apply_seen=0 latest=0
 while [ $# -gt 0 ]; do
@@ -15,7 +16,7 @@ while [ $# -gt 0 ]; do
         --apply) apply_seen=1; mode="apply" ;;
         --latest) latest=1 ;;
         @*) [ -z "$only" ] || die "only one package may be selected"; only="$1" ;;
-        *) die "usage: intelligence update [@scope/name] [--latest] [--preview|--apply]" ;;
+        *) cli_usage_die update ;;
     esac
     shift
 done

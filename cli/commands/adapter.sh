@@ -2,6 +2,7 @@
 # intelligence adapter <list|create|enable|disable|remove> [name]
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 action="${1:-}"
 name="${2:-}"
@@ -44,7 +45,7 @@ adapter_list() {
 }
 
 adapter_create() {
-    [ -n "$name" ] && [ $# -eq 0 ] || die "usage: intelligence adapter create <name>"
+    [ -n "$name" ] && [ $# -eq 0 ] || cli_usage_die adapter create
     assert_valid_target_name "$name"
     require_cli_project
     project_as_committed "$IP_ROOT"
@@ -92,7 +93,7 @@ adapter_remove() {
         case "$1" in --apply) apply=1 ;; *) die "unknown option '$1'" ;; esac
         shift
     done
-    [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
+    [ -n "$name" ] || cli_usage_die adapter remove
     assert_valid_target_name "$name"
     require_cli_project
     project_as_committed "$IP_ROOT"
@@ -127,7 +128,7 @@ adapter_remove() {
 
 case "$action" in
     list)
-        [ $# -eq 1 ] || die "usage: intelligence adapter list"
+        [ $# -eq 1 ] || cli_usage_die adapter list
         adapter_list
         ;;
     create)
@@ -135,7 +136,7 @@ case "$action" in
         adapter_create "$@"
         ;;
     enable|disable)
-        [ -n "$name" ] && [ $# -eq 2 ] || die "usage: intelligence adapter <enable|disable> <name>"
+        [ -n "$name" ] && [ $# -eq 2 ] || cli_usage_die adapter "$action"
         assert_valid_target_name "$name"
         require_cli_project
         # Held through the final render: target-state and sync join it.
@@ -179,7 +180,7 @@ case "$action" in
         bash "$CLI_DIR/internal/target-state.sh" "$action" "$name"
         ;;
     remove)
-        [ -n "$name" ] || die "usage: intelligence adapter remove <name> [--apply]"
+        [ -n "$name" ] || cli_usage_die adapter remove
         shift 2 || true
         adapter_remove "$@"
         ;;
@@ -192,6 +193,6 @@ case "$action" in
                 die "adapter action comes first - run: intelligence adapter $name $action"
                 ;;
         esac
-        die "usage: intelligence adapter <list|create|enable|disable|remove> [name]"
+        cli_usage_die adapter
         ;;
 esac

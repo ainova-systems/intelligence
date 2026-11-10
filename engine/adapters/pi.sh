@@ -15,6 +15,13 @@
 # Agents:
 #   - Converted to .pi/prompts/intelligence-agent-<name>.md prompt templates
 #     so users can invoke a persona explicitly via `/intelligence-agent-<name>`.
+#   - access (decision 0026): `readonly` and `runner` each add an "Access
+#     Mode" instruction to the template — readonly forbids edits and mutating
+#     commands, runner allows commands and forbids edits; `full` and any
+#     other value add none. Source, checked 2026-11-10: Pi's prompt-templates
+#     doc (github.com/earendil-works/pi, packages/coding-agent/docs/
+#     prompt-templates.md) takes only `description` and `argument-hint`, so
+#     access stays prose and is not enforced.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -364,6 +371,11 @@ sync_pi_agents() {
                 header+="${LS}## Access Mode"
                 header+="${LS}"
                 header+="${LS}Default to read-only analysis. Do not change files or run mutating commands unless the user explicitly asks you to override this agent's normal restriction."
+                header+="${LS}"
+            elif [ "$access" = "runner" ]; then
+                header+="${LS}## Access Mode"
+                header+="${LS}"
+                header+="${LS}Read, search and run commands, such as builds and tests, as the task needs. Do not create, edit or delete files unless the user explicitly asks you to override this agent's normal restriction."
                 header+="${LS}"
             fi
             header+="${LS}## Agent Instructions"

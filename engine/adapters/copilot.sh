@@ -13,6 +13,14 @@
 #     an .instructions.md file with `applyTo: "**"` (decision 0021).
 # Skills: copy skill directories in full to .github/skills/{name}/
 # Agents: -> .github/agents/{name}.agent.md (description, tools, model)
+#   access (decision 0026): `readonly` -> tools: ["read", "search"]; `runner`
+#   -> tools: ["read", "search", "execute"]; `full` and any other value -> no
+#   tools: line, which grants every tool. Source, checked 2026-11-10:
+#   docs.github.com/en/copilot/reference/custom-agents-configuration — `read`
+#   reads files, `search` finds files and text, `execute` runs shell commands,
+#   `edit` is the separate alias for file changes, and an unset `tools` means
+#   all tools. VS Code's custom-agents page lists no tool-set names, so these
+#   aliases are not verified there.
 #
 # Git policy (decision 0020): generated output is ignored by default, as it is
 # for Cursor and Claude Code — Copilot in the editor reads it from disk after
@@ -208,11 +216,13 @@ sync_copilot_agents() {
 
             # Build tools list based on access. Tool aliases per Copilot custom-agent
             # spec: `read`, `search`, `edit`, `execute`, `agent`, `web`, `todo`, `*`.
-            # Omitting `tools:` grants all; restrict to read/search for readonly access.
-            tools_line=""
-            if [ "$access" = "readonly" ]; then
-                tools_line="tools: [\"read\", \"search\"]"
-            fi
+            # Omitting `tools:` grants all; readonly reads and searches, and
+            # runner adds `execute` without `edit`.
+            case "$access" in
+                readonly) tools_line="tools: [\"read\", \"search\"]" ;;
+                runner)   tools_line="tools: [\"read\", \"search\", \"execute\"]" ;;
+                *)        tools_line="" ;;
+            esac
 
             local header
             yaml_dq_escape_var "$description"

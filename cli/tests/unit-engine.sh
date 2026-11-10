@@ -484,13 +484,23 @@ while read -r ide frontier heavy standard light; do
     chk eq "$ide: $IS_MODEL_FRONTIER $IS_MODEL_HEAVY $IS_MODEL_STANDARD $IS_MODEL_LIGHT" \
         "$ide: $frontier $heavy $standard $light"
 done <<'EOF'
-claude      fable                       opus                       sonnet                      sonnet
+claude      fable                       opus                       sonnet                      haiku
 cursor      inherit                     inherit                    inherit                     inherit
 copilot     gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
 codex       gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
 antigravity pro                         pro                        flash                       flash
-opencode    anthropic/claude-fable-5-1  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-sonnet-5-5
+opencode    anthropic/claude-fable-5-1  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-haiku-5-5
 EOF
+# A project keeps the earlier light model with one override, and sync's drift
+# report names it against the new default.
+printf '%s\n' 'models:' '  claude:' '    light: sonnet' '  opencode:' '    light: "anthropic/claude-sonnet-5-5"' > "$OUT/light-pin.yaml"
+load_model_tiers "$OUT/light-pin.yaml" claude
+chk eq "$IS_MODEL_LIGHT" "sonnet"
+load_model_tiers "$OUT/light-pin.yaml" opencode
+chk eq "$IS_MODEL_LIGHT" "anthropic/claude-sonnet-5-5"
+drift="$(report_model_drift "$OUT/light-pin.yaml")"
+chk grep -Eq '^  claude +light +config="sonnet" +default="haiku"$' <<< "$drift"
+chk grep -Eq '^  opencode +light +config="anthropic/claude-sonnet-5-5" +default="anthropic/claude-haiku-5-5"$' <<< "$drift"
 
 echo "== every built-in agent target has a default for every standard tier =="
 # An adapter writes whatever the tier resolves to, so a tier one tool has no
@@ -603,6 +613,97 @@ chk eq "$(printf '%s\n' "$warnings" | cut -d ' ' -f 1-3)" "$(printf 'WARNING: %s
     '../lint-shared/fm.md:2 unquoted' '../lint-shared/fm.md:3 effort' '../lint-shared/fm.md:5 <module>')"
 chk eq "$(printf '%s\n' "$warnings" | head -n 1)" \
     'WARNING: intelligence/agents/fm.md:2 unquoted colon in value at column 15 — wrap value in quotes'
+
+echo "== source lint: skill and agent keys that do something other than they read =="
+# One warning per file and key, from the pass every sync runs over every
+# source, packages included; the engine says which sources are agents.
+SL="$OUT/lint-keys"
+mkdir -p "$SL/intelligence/rules" "$SL/intelligence/agents" "$SL/.intelligence/packages/@a/b/skills/pkg"
+for skill in inline dead forked plain; do mkdir -p "$SL/intelligence/skills/$skill"; done
+printf 'sources:\n  rules:\n    - "intelligence/rules"\n  agents:\n    - "intelligence/agents"\n  skills:\n    - ".intelligence/packages/@a/b/skills"\n    - "intelligence/skills"\ntargets:\n  claude: { enabled: true, output: ".claude" }\n  cursor: { enabled: true, output: ".cursor" }\n' > "$SL/intelligence.yaml"
+printf '%s\n' '---' 'name: inline' 'model: fable' 'tier: frontier' '---' 'model: a body line' 'agent: a body line' > "$SL/intelligence/skills/inline/SKILL.md"
+printf '%s\r\n' '---' 'name: dead' 'agent: reviewer' 'context: inline' '---' > "$SL/intelligence/skills/dead/SKILL.md"
+printf '%s\n' '---' 'name: forked' 'context: "fork"' 'agent: reviewer' 'model: haiku' '---' > "$SL/intelligence/skills/forked/SKILL.md"
+printf '%s\n' '---' 'name: plain' 'model:' '---' > "$SL/intelligence/skills/plain/SKILL.md"
+printf '%s\n' '---' 'name: pkg' 'agent: reviewer' '---' > "$SL/.intelligence/packages/@a/b/skills/pkg/SKILL.md"
+printf '%s\n' '---' 'description: a rule' 'model: haiku' 'tier: light' '---' > "$SL/intelligence/rules/r.md"
+printf '%s\n' '---' 'name: pinned' 'description: x' 'tier: standard' 'model: haiku' 'access: readonly' \
+    'tools: Read, Grep' 'disallowedTools: Write' '---' '' '# Pinned' '' '```yaml' 'tier: heavy' 'access: readonly' \
+    'tools: Read' 'model: x' '```' > "$SL/intelligence/agents/pinned.md"
+printf '%s\n' '---' 'name: listed' 'description: y' 'access: readonly' 'tools:' '  - Read' '  - Grep' 'readonly: true' \
+    '---' 'Body' > "$SL/intelligence/agents/listed.md"
+printf '%s\n' '---' 'name: open' 'description: z' 'access: full' 'tools: Read' '---' 'Body' > "$SL/intelligence/agents/open.md"
+printf '%s\n' '---' 'name: bare' 'description: w' 'tier: light' '---' 'Body' > "$SL/intelligence/agents/bare.md"
+# A key a tool replaces warns only where that tool renders the agent.
+printf '%s\n' '---' 'name: elsewhere' 'access: readonly' 'tools: Read' 'readonly: true' 'targets: [codex]' '---' 'Body' \
+    > "$SL/intelligence/agents/elsewhere.md"
+printf '%s\n' '---' 'name: nocursor' 'access: readonly' 'readonly: true' 'tools: Read' 'exclude_targets:' '  - cursor' \
+    '---' 'Body' > "$SL/intelligence/agents/nocursor.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$SL" "$SL/intelligence.yaml" lint 2> "$OUT/lint-keys.err"
+chk eq "$(cat "$OUT/lint-keys.err")" "$(printf 'WARNING: %s\n' \
+    'intelligence/agents/listed.md:5 tools: is replaced in Claude Code by the tools access: readonly grants — set access: instead' \
+    'intelligence/agents/listed.md:8 readonly: is replaced in Cursor by what access: readonly sets — set access: instead' \
+    'intelligence/agents/nocursor.md:5 tools: is replaced in Claude Code by the tools access: readonly grants — set access: instead' \
+    'intelligence/agents/pinned.md:5 model: on an agent is not read — tier: selects its model in every tool; pin one under models.<tool>.<tier>' \
+    'intelligence/agents/pinned.md:7 tools: is replaced in Claude Code by the tools access: readonly grants — set access: instead' \
+    'intelligence/agents/pinned.md:8 disallowedTools: is replaced in Claude Code by what access: readonly disallows — set access: instead' \
+    '.intelligence/packages/@a/b/skills/pkg/SKILL.md:3 agent: selects nothing without context: fork — fork the skill or remove the field' \
+    'intelligence/skills/dead/SKILL.md:3 agent: selects nothing without context: fork — fork the skill or remove the field' \
+    'intelligence/skills/inline/SKILL.md:3 model: without context: fork switches the session model for the rest of the turn and drops the prompt cache — fork the skill or remove the field' \
+    'intelligence/skills/inline/SKILL.md:4 tier: is read on agents only — on a skill every tool receives it as written')"
+
+echo "== agent transforms: a key the adapter writes is not copied, and the body keeps every line =="
+mkdir -p "$SL/.claude/agents" "$SL/.cursor/agents"
+# shellcheck source=/dev/null
+source "$REPO/engine/adapters/claude.sh"
+# shellcheck source=/dev/null
+source "$REPO/engine/adapters/cursor.sh"
+sync_claude_agents "$SL" "$SL/intelligence.yaml" "$SL/.claude" > /dev/null 2>&1
+sync_cursor_agents "$SL" "$SL/intelligence.yaml" "$SL/.cursor" > /dev/null 2>&1
+body_lines=('' '# Pinned' '' '```yaml' 'tier: heavy' 'access: readonly' 'tools: Read' 'model: x' '```')
+chk eq "$(cat "$SL/.claude/agents/pinned.md")" "$(printf '%s\n' '---' 'name: pinned' 'description: x' \
+    'tools: Read, Grep, Glob, Bash' 'disallowedTools: Write, Edit' 'model: sonnet' '---' "${body_lines[@]}")"
+chk eq "$(cat "$SL/.cursor/agents/pinned.md")" "$(printf '%s\n' '---' 'name: pinned' 'description: x' \
+    'model: inherit' 'readonly: true' '---' "${body_lines[@]}")"
+# A block list goes with its key; a key access does not write passes through.
+chk eq "$(cat "$SL/.claude/agents/listed.md")" "$(printf '%s\n' '---' 'name: listed' 'description: y' 'readonly: true' \
+    'tools: Read, Grep, Glob, Bash' 'disallowedTools: Write, Edit' 'model: opus' '---' 'Body')"
+chk eq "$(cat "$SL/.cursor/agents/listed.md")" "$(printf '%s\n' '---' 'name: listed' 'description: y' \
+    'model: inherit' 'readonly: true' '---' 'Body')"
+chk eq "$(cat "$SL/.claude/agents/open.md")" "$(printf '%s\n' '---' 'name: open' 'description: z' 'tools: Read' \
+    'model: opus' '---' 'Body')"
+chk eq "$(cat "$SL/.claude/agents/bare.md")" "$(printf '%s\n' '---' 'name: bare' 'description: w' 'model: haiku' '---' 'Body')"
+chk eq "$(cat "$SL/.cursor/agents/bare.md")" "$(printf '%s\n' '---' 'name: bare' 'description: w' 'model: inherit' '---' 'Body')"
+
+echo "== source lint: an access value outside full, readonly and runner =="
+# One warning per file, naming the value and the vocabulary (decision 0026).
+# The value is matched exactly, as the adapters match it; runner is in the
+# vocabulary, so it is the tools: that Claude Code replaces under it, and the
+# readonly: that Cursor replaces, that warn; a full agent's readonly: passes
+# through; an empty value is absent.
+SA="$OUT/lint-access"
+mkdir -p "$SA/intelligence/agents"
+printf 'sources:\n  agents:\n    - "intelligence/agents"\ntargets:\n  claude: { enabled: true, output: ".claude" }\n  cursor: { enabled: true, output: ".cursor" }\n' \
+    > "$SA/intelligence.yaml"
+printf '%s\n' '---' 'name: typo' 'access: read-only' '---' 'access: also-bad in the body' > "$SA/intelligence/agents/typo.md"
+printf '%s\n' '---' 'name: cased' 'description: c' 'access: "Runner"' '---' > "$SA/intelligence/agents/cased.md"
+printf '%s\n' '---' 'name: run' 'access: runner' 'tools: Read' 'readonly: false' '---' > "$SA/intelligence/agents/run.md"
+printf '%s\n' '---' 'name: ro' 'access: readonly' '---' > "$SA/intelligence/agents/ro.md"
+printf '%s\n' '---' 'name: all' 'access: full' 'readonly: true' '---' > "$SA/intelligence/agents/all.md"
+printf '%s\n' '---' 'name: blank' 'access:' '---' > "$SA/intelligence/agents/blank.md"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$SA" "$SA/intelligence.yaml" lint 2> "$OUT/lint-access.err"
+chk eq "$(cat "$OUT/lint-access.err")" "$(printf 'WARNING: %s\n' \
+    'intelligence/agents/cased.md:4 access "Runner" is not one of full, readonly, runner — every tool renders it as full access' \
+    'intelligence/agents/run.md:4 tools: is replaced in Claude Code by the tools access: runner grants — set access: instead' \
+    'intelligence/agents/run.md:5 readonly: is replaced in Cursor by what access: runner sets — set access: instead' \
+    'intelligence/agents/typo.md:3 access "read-only" is not one of full, readonly, runner — every tool renders it as full access')"
+# With neither Claude Code nor Cursor enabled, no tool replaces those keys.
+printf 'sources:\n  agents:\n    - "intelligence/agents"\ntargets:\n  claude: { enabled: false, output: ".claude" }\n  copilot: { enabled: true, output: ".github" }\n' \
+    > "$SA/off.yaml"
+IS_SOURCE_FILES_MEMO=0 source_catalog_build "$SA" "$SA/off.yaml" lint 2> "$OUT/lint-access-off.err"
+chk eq "$(cat "$OUT/lint-access-off.err")" "$(printf 'WARNING: %s\n' \
+    'intelligence/agents/cased.md:4 access "Runner" is not one of full, readonly, runner — every tool renders it as full access' \
+    'intelligence/agents/typo.md:3 access "read-only" is not one of full, readonly, runner — every tool renders it as full access')"
 
 echo "== layout tokens: one row in IS_LAYOUT_TOKENS reaches expansion, every escape and the lint =="
 # A copy of the library whose only change is a probe row in the declaration:
@@ -917,6 +1018,23 @@ echo "== rendered copies drop targets and exclude_targets, from the frontmatter 
 printf -- '---\ndescription: x\ntargets:\n  - claude\n  - cursor\nexclude_targets: [pi,\n  codex]\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]\n' > "$T/strip.md"
 finalize_copy_named "$OUT" "" "$T/strip.md"
 chk eq "$(cat "$OUT/strip.md")" "$(printf -- '---\ndescription: x\npaths:\n  - "src/**"\n---\ntargets: [kept in the body]')"
+
+echo "== rule bodies: only a --- on line 1 opens frontmatter =="
+# A rule without frontmatter that shows a YAML header in a code fence keeps
+# every line in AGENTS.md, Codex's override and Copilot's always-on channel.
+RB="$OUT/rule-bodies"
+mkdir -p "$RB"
+printf '%s\n' '# Wiki pages' '' '```yaml' '---' 'concern: wiki-page' '---' '```' 'After the block' > "$RB/nofm.md"
+printf '%s\n' '---' 'description: x' '---' 'Body' '---' 'kept' '---' > "$RB/fm.md"
+printf '%s\n' 'Agent text' '---' 'between' '---' > "$RB/agent.md"
+chk eq "$(emit_rule_bodies "$RB/nofm.md" "$RB/fm.md")" \
+    "$(printf '%s\n' '# Wiki pages' '' '```yaml' '---' 'concern: wiki-page' '---' '```' 'After the block' '' 'Body' '---' 'kept' '---')"
+wrap_rec() { printf '%s\x1f%s\x1f%s\x1f0\x1fnone\x1f%s\x1f\n' "$RB/$1.md" "$RB/$1.out" "$2" "${3:-}"; }
+emit_wrapped_bodies "$(wrap_rec nofm fence_nofm)"$'\n'"$(wrap_rec fm fence_nofm)"$'\n'"$(wrap_rec agent fence $'\x1e'HEAD)"
+chk eq "$(cat "$RB/nofm.out")" "$(cat "$RB/nofm.md")"
+chk eq "$(cat "$RB/fm.out")" "$(printf '%s\n' 'Body' '---' 'kept' '---')"
+# A `fence` source (an agent) without frontmatter still yields only its wrapper.
+chk eq "$(cat "$RB/agent.out")" "HEAD"
 
 echo "== source catalog: targets, exclusions and the committed group =="
 G="$OUT/grouped"

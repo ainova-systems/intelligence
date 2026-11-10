@@ -768,6 +768,89 @@ chknot grep -Fq "tier 'heavy'" "$OUT/tiers-unknown.txt"
 chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-compact.txt"
 chk grep -q "^WARNING: no claude model for tier 'haevy'" "$OUT/tiers-replay.txt"
 
+echo "== access renders per decision 0026 in every adapter =="
+# Each row of the decision's table, asserted on the rendered frontmatter: runner
+# reads, searches and runs commands with no edit tool; readonly renders as it
+# did before runner existed, Bash in Claude Code included; a value outside the
+# vocabulary warns once and renders exactly as full does.
+ACC="$OUT/access-render"
+mkdir -p "$ACC/intelligence/agents"
+git -C "$ACC" init --quiet
+cat > "$ACC/intelligence.yaml" <<EOF
+project:
+  name: access-render
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+  agents:
+    - "intelligence/agents"
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+  antigravity: { enabled: true, output: ".agents" }
+  claude: { enabled: true, output: ".claude" }
+  codex: { enabled: true, output: ".codex" }
+  copilot: { enabled: true, output: ".github" }
+  cursor: { enabled: true, output: ".cursor" }
+  opencode: { enabled: true, output: ".opencode" }
+  pi: { enabled: true, output: ".pi" }
+EOF
+for agent in reader:readonly runner:runner builder:full typo:read-only; do
+    printf -- '---\nname: %s\ndescription: "Agent"\ntier: standard\naccess: %s\n---\n\n# Agent\n' \
+        "${agent%%:*}" "${agent#*:}" > "$ACC/intelligence/agents/${agent%%:*}.md"
+done
+(cd "$ACC" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" sync > "$OUT/access-sync.txt" 2>&1) \
+    || { echo "FAIL: access sync"; cat "$OUT/access-sync.txt"; fail=1; }
+# fm_lines <file> — the frontmatter, both fences included.
+fm_lines() { awk 'NR == 1 && $0 != "---" { exit } { print } /^---$/ && ++n == 2 { exit }' "$1"; }
+lines() { printf '%s\n' "$@"; }
+m_claude="$(default_model claude standard)"; m_codex="$(default_model codex standard)"
+m_copilot="$(default_model copilot standard)"; m_cursor="$(default_model cursor standard)"
+m_opencode="$(default_model opencode standard)"; m_antigravity="$(default_model antigravity standard)"
+runner_line='Read, search and run commands, such as builds and tests, as the task needs. Do not create, edit or delete files.'
+chk eq "$(fm_lines "$ACC/.claude/agents/runner.md")" "$(lines '---' 'name: runner' 'description: "Agent"' \
+    'tools: Read, Grep, Glob, Bash' 'disallowedTools: Write, Edit' "model: $m_claude" '---')"
+chk eq "$(fm_lines "$ACC/.github/agents/runner.agent.md")" "$(lines '---' 'description: "Agent"' \
+    "model: $m_copilot" 'tools: ["read", "search", "execute"]' '---')"
+chk eq "$(fm_lines "$ACC/.cursor/agents/runner.md")" "$(lines '---' 'name: runner' 'description: "Agent"' \
+    "model: $m_cursor" 'readonly: true' '---')"
+chk eq "$(head -n 8 "$ACC/.codex/agents/runner.toml")" "$(lines 'name = "runner"' 'description = "Agent"' \
+    "model = \"$m_codex\"" '' 'developer_instructions = """' '## Access Mode' '' "$runner_line")"
+chk eq "$(fm_lines "$ACC/.opencode/agents/runner.md")" "$(lines '---' 'description: "Agent"' 'mode: subagent' \
+    "model: \"$m_opencode\"" 'permission:' '  edit: deny' '  bash: allow' '---')"
+chk eq "$(fm_lines "$ACC/.agents/agents/runner.md")" "$(lines '---' 'name: "runner"' 'description: "Agent"' \
+    "model: \"$m_antigravity\"" 'subagent: true' 'mainAgent: false' 'tools:' '  - view_file' '  - grep_search' \
+    '  - run_command' '---')"
+chk grep -Fqx "${runner_line% files.} files unless the user explicitly asks you to override this agent's normal restriction." \
+    "$ACC/.pi/prompts/intelligence-agent-runner.md"
+# readonly keeps the rendering it had before runner existed.
+chk eq "$(fm_lines "$ACC/.claude/agents/reader.md")" "$(lines '---' 'name: reader' 'description: "Agent"' \
+    'tools: Read, Grep, Glob, Bash' 'disallowedTools: Write, Edit' "model: $m_claude" '---')"
+chk eq "$(fm_lines "$ACC/.github/agents/reader.agent.md")" "$(lines '---' 'description: "Agent"' \
+    "model: $m_copilot" 'tools: ["read", "search"]' '---')"
+chk eq "$(fm_lines "$ACC/.cursor/agents/reader.md")" "$(lines '---' 'name: reader' 'description: "Agent"' \
+    "model: $m_cursor" 'readonly: true' '---')"
+chk eq "$(head -n 7 "$ACC/.codex/agents/reader.toml")" "$(lines 'name = "reader"' 'description = "Agent"' \
+    "model = \"$m_codex\"" 'sandbox_mode = "read-only"' '' 'developer_instructions = """' '')"
+chk eq "$(fm_lines "$ACC/.opencode/agents/reader.md")" "$(lines '---' 'description: "Agent"' 'mode: subagent' \
+    "model: \"$m_opencode\"" 'permission:' '  edit: deny' '  bash: deny' '---')"
+chk eq "$(fm_lines "$ACC/.agents/agents/reader.md")" "$(lines '---' 'name: "reader"' 'description: "Agent"' \
+    "model: \"$m_antigravity\"" 'subagent: true' 'mainAgent: false' 'tools:' '  - view_file' '  - grep_search' '---')"
+chk grep -Fqx "Default to read-only analysis. Do not change files or run mutating commands unless the user explicitly asks you to override this agent's normal restriction." \
+    "$ACC/.pi/prompts/intelligence-agent-reader.md"
+chk grep -Fqx 'sandbox_mode = "workspace-write"' "$ACC/.codex/agents/builder.toml"
+# An unknown value renders, in every tool, exactly as full access does.
+for rendered in .claude/agents/NAME.md .github/agents/NAME.agent.md .cursor/agents/NAME.md .codex/agents/NAME.toml \
+    .opencode/agents/NAME.md .agents/agents/NAME.md .pi/prompts/intelligence-agent-NAME.md; do
+    chk eq "$(sed 's/typo/builder/g' "$ACC/${rendered//NAME/typo}")" "$(cat "$ACC/${rendered//NAME/builder}")"
+done
+chk test "$(grep -c '^WARNING: .*access "' "$OUT/access-sync.txt")" -eq 1
+chk grep -Fqx 'WARNING: intelligence/agents/typo.md:5 access "read-only" is not one of full, readonly, runner — every tool renders it as full access' \
+    "$OUT/access-sync.txt"
+
 echo "== effort is written once and rendered where a tool has a field =="
 # Decision 0015: the neutral level reaches Claude Code (the nearest lower level
 # it has) and Codex; the shared skills tree keeps it as written; every other

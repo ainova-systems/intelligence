@@ -20,6 +20,17 @@
 #   model_reasoning_effort, sandbox_mode, developer_instructions).
 #   model_reasoning_effort comes from `effort:` alone — never from the tier —
 #   and is omitted without one, so Codex's own setting applies.
+#   access (decision 0026): `readonly` -> sandbox_mode = "read-only"; `runner`
+#   -> no sandbox_mode, and developer_instructions open with an instruction
+#   to run commands but not edit files; `full` and any other value ->
+#   sandbox_mode = "workspace-write". Source, checked 2026-11-10:
+#   learn.chatgpt.com/docs/agent-configuration/subagents — `sandbox_mode` in
+#   a custom agent file does not override the parent session, so every agent
+#   runs in the parent's sandbox whatever the line says; no documented key
+#   removes the edit tool ("Custom agent instructions can ask an agent to
+#   avoid edits"), so runner's edit limit is that instruction only.
+#   `readonly` keeps its line, and its shell, until decision 0026's breaking
+#   half turns `features.shell_tool` off for it.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -195,6 +206,7 @@ sync_codex_agents() {
             map_effort_var codex "$effort"
             case "$access" in
                 readonly) sandbox="read-only" ;;
+                runner)   sandbox="" ;;
                 *)        sandbox="workspace-write" ;;
             esac
             local name_escaped description_escaped
@@ -206,9 +218,15 @@ sync_codex_agents() {
             header+="${LS}description = \"$description_escaped\""
             header+="${LS}model = \"$IS_MODEL\""
             [ -z "$IS_EFFORT" ] || header+="${LS}model_reasoning_effort = \"$IS_EFFORT\""
-            header+="${LS}sandbox_mode = \"$sandbox\""
+            [ -z "$sandbox" ] || header+="${LS}sandbox_mode = \"$sandbox\""
             header+="${LS}"
             header+="${LS}developer_instructions = \"\"\""
+            if [ "$access" = "runner" ]; then
+                header+="${LS}## Access Mode"
+                header+="${LS}"
+                header+="${LS}Read, search and run commands, such as builds and tests, as the task needs. Do not create, edit or delete files."
+                header+="${LS}"
+            fi
 
             spec+="$path"$'\x1f'"$output_dir/$name.toml"$'\x1f'"fence"$'\x1f'"1"$'\x1f'"toml"$'\x1f'"$header"$'\x1f'"${LS}\"\"\""$'\n'
             report+="  agent: $name.toml"$'\n'

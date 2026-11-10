@@ -50,44 +50,42 @@ fi
 export IS_BUNDLED_PKG_DIR
 
 cmd="${1:-}"
+[ "$#" -eq 0 ] || shift
 case "$cmd" in
-    ""|help|-h|--help)
-        engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION")"
-        cat <<EOF
-intelligence — build, version and distribute AI agent intelligence
-(engine $engine_ver${INTELLIGENCE_NPM_VERSION:+, package $INTELLIGENCE_NPM_VERSION})
-
-Usage: intelligence <command> [args]
-
-  init [--preview|--apply]  Initialize, convert, restore or align this project
-    --targets a,b --dir name --bare --no-sync   New-project options
-    --force               Accept a dirty worktree during legacy project conversion
-  sync [adapter] [--compact] [--force] [--check]  Restore locked content, then render enabled adapters
-    --compact            On success show context, warnings and final status; on failure show diagnostics
-    --force              Render again and refresh discovery of unconfigured source directories
-    --check              Change no generated file; exit 0 when up to date, 2 when sync is needed
-  update [@scope/name]    Show an update plan; ask before applying it
-    --preview             Show the plan without asking or writing
-    --apply               Apply the plan without asking
-    --latest              Move one named package past its range to the newest version
-  upgrade [--next] [--preview|--apply]  Replace the installed CLI with the newest npm version
-    --next                Follow the prerelease line instead of the stable one
-  package <command>       add | remove | alias | list | search
-  source <command>        add | remove | list — the sources: block (own directories)
-  adapter <command>       list | create | enable | disable | remove
-  status [--check]        Project state; --check runs deep consistency checks
-  registry <list|add|remove>  Manage the trusted registry list (add <repo-url>)
-  version                 Print CLI and engine versions
-EOF
+    ""|-h|--help|help)
+        # shellcheck source=lib/usage.sh
+        source "$CLI_DIR/lib/usage.sh"
+        # `help <command> [<subcommand>]` prints what `<command> --help` does.
+        if [ "$cmd" = help ]; then
+            case "${1:-}" in ""|-h|--help|help) ;; *) cli_help 1 "$@" ;; esac
+        fi
+        cli_usage_top "$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION")"
         exit 0
         ;;
+esac
+
+# `-h` or `--help` anywhere before `--` asks for the command's usage, answered
+# here before the command reads the project, takes the lock or prints a line.
+help_wanted=0
+for argument in "$@"; do
+    case "$argument" in
+        --) break ;;
+        -h|--help) help_wanted=1; break ;;
+    esac
+done
+
+case "$cmd" in
     version|-v|--version)
+        if [ "$help_wanted" = 1 ]; then
+            # shellcheck source=lib/usage.sh
+            source "$CLI_DIR/lib/usage.sh"
+            cli_help 0 version
+        fi
         engine_ver="$(tr -d ' \t\r\n' < "$IS_ENGINE_DIR/VERSION")"
         echo "${INTELLIGENCE_NPM_VERSION:-$engine_ver} (engine $engine_ver)"
         exit 0
         ;;
 esac
-shift
 
 # The command word builds a path — allow exactly lowercase words, so
 # `intelligence ../x` can never exec a neighbouring script.
@@ -119,6 +117,11 @@ if [ ! -f "$cmd_file" ]; then
     esac
     echo "ERROR: unknown command '$cmd'. Run 'intelligence help'." >&2
     exit 1
+fi
+if [ "$help_wanted" = 1 ]; then
+    # shellcheck source=lib/usage.sh
+    source "$CLI_DIR/lib/usage.sh"
+    cli_help 0 "$cmd" "$@"
 fi
 # `sync` runs on every save hook and CI check, so it runs in this process: a
 # second bash start is a large share of an unchanged sync on Git Bash. It
