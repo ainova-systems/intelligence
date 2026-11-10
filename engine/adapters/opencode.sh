@@ -23,6 +23,15 @@
 #   - Converted to .opencode/agents/<name>.md markdown agents
 #     (mode: subagent) with frontmatter description/model/permission. The
 #     body is the source agent's prompt, used directly as the system prompt.
+#   - access (decision 0026): `readonly` -> edit and bash denied; `runner` ->
+#     edit denied, bash allowed; `full` and any other value -> both allowed.
+#     Source, checked 2026-11-10: opencode.ai/docs/agents lists the top-level
+#     `permission` field as legacy V1, and opencode.ai/docs/migrate-v1
+#     ("Agent files") says V1 agent frontmatter "is deprecated but still
+#     translated automatically" in a file that uses no V2 key, which these
+#     files never do. Its `edit` covers the edit, write and patch tools. That
+#     V1 `bash` translates to V2's `shell` action is not stated; moving to
+#     V2 `permissions` is a change of its own.
 #
 # Every per-file loop batches its work into one awk process (see the batched
 # helpers in lib/common.sh): process spawns dominate sync time on Windows.
@@ -164,6 +173,7 @@ sync_opencode_agents() {
             # `edit` gates write/edit/apply_patch; `bash` gates shell.
             case "$access" in
                 readonly) edit_perm="deny";  bash_perm="deny"  ;;
+                runner)   edit_perm="deny";  bash_perm="allow" ;;
                 *)        edit_perm="allow"; bash_perm="allow" ;;
             esac
 

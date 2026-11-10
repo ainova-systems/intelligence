@@ -1119,6 +1119,107 @@ printf '%s\n' "$OUTPUT" | grep -qF -- "sync [adapter] [--compact]" \
 printf '%s\n' "$OUTPUT" | grep -qF -- "upgrade [--next] [--preview|--apply]" \
     || { echo "FAIL: upgrade missing from help"; fail=1; }
 
+echo "== 16a. every command answers --help, -h and help <command>, and touches nothing =="
+NL=$'\n'
+# help_tree <dir> - every path and file checksum outside Git, so a help that
+# took the lock, wrote a cache record or rendered shows as a difference.
+help_tree() {
+    (cd "$1" && find . -path ./.git -prune -o -print | LC_ALL=C sort \
+        && find . -path ./.git -prune -o -type f -exec cksum {} + | LC_ALL=C sort)
+}
+# help_run <dir> <args>... - stdout in HELP_OUT, stderr in HELP_ERR, status in RC.
+help_run() {
+    local d="$1"; shift
+    RC=0
+    HELP_OUT="$( (cd "$d" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" "$@") 2>"$OUT/help.err" )" || RC=$?
+    HELP_ERR="$(cat "$OUT/help.err")"
+}
+HELP_CASES="init sync update upgrade status version
+package package:add package:remove package:alias package:list package:search
+source source:add source:remove source:list
+adapter adapter:list adapter:create adapter:enable adapter:disable adapter:remove
+registry registry:list registry:add registry:remove"
+# A command added without a usage text fails here.
+for command_file in "$REPO"/cli/commands/*.sh; do
+    command_name="${command_file##*/}"
+    command_name="${command_name%.sh}"
+    case " $(printf '%s ' $HELP_CASES) " in
+        *" $command_name "*) ;;
+        *) echo "FAIL: no help case for the command $command_name"; fail=1 ;;
+    esac
+done
+help_tree "$PROJ" > "$OUT/help-before.txt"
+for help_case in $HELP_CASES; do
+    read -r -a words <<< "${help_case//:/ }"
+    help_run "$PROJ" help "${words[@]}"
+    [ "$RC" -eq 0 ] || { echo "FAIL: 'help ${words[*]}' exited $RC"; fail=1; }
+    reference="$HELP_OUT"
+    case "${reference%%"$NL"*}" in
+        "Usage: intelligence ${words[*]}"|"Usage: intelligence ${words[*]} "*) ;;
+        *) echo "FAIL: 'help ${words[*]}' does not open on its usage: ${reference%%"$NL"*}"; fail=1 ;;
+    esac
+    for flag in --help -h; do
+        help_run "$PROJ" "${words[@]}" "$flag"
+        [ "$RC" -eq 0 ] || { echo "FAIL: '${words[*]} $flag' exited $RC"; fail=1; }
+        [ -z "$HELP_ERR" ] || { echo "FAIL: '${words[*]} $flag' wrote to stderr: $HELP_ERR"; fail=1; }
+        [ "$HELP_OUT" = "$reference" ] || { echo "FAIL: '${words[*]} $flag' differs from 'help ${words[*]}'"; fail=1; }
+    done
+done
+# Anywhere before `--`, after other arguments too.
+help_run "$PROJ" help adapter enable
+reference="$HELP_OUT"
+help_run "$PROJ" adapter enable claude --help
+[ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] \
+    || { echo "FAIL: 'adapter enable claude --help' is not the enable usage (rc $RC)"; fail=1; }
+help_run "$PROJ" help package add
+reference="$HELP_OUT"
+help_run "$PROJ" package add @acme/pkg -h --no-sync
+[ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] \
+    || { echo "FAIL: 'package add @acme/pkg -h' is not the add usage (rc $RC)"; fail=1; }
+help_run "$PROJ" help sync
+reference="$HELP_OUT"
+for args in "agents --help" "--compact -h" "--check --help"; do
+    read -r -a words <<< "$args"
+    help_run "$PROJ" sync "${words[@]}"
+    [ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] && [ -z "$HELP_ERR" ] \
+        || { echo "FAIL: 'sync $args' is not the sync usage (rc $RC): $HELP_ERR"; fail=1; }
+done
+help_tree "$PROJ" > "$OUT/help-after.txt"
+cmp -s "$OUT/help-before.txt" "$OUT/help-after.txt" \
+    || { echo "FAIL: asking for help changed the project"; diff "$OUT/help-before.txt" "$OUT/help-after.txt" | head -5; fail=1; }
+HELP_NONE="$OUT/help-none"
+mkdir -p "$HELP_NONE"
+help_run "$HELP_NONE" sync --help
+[ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] && [ -z "$HELP_ERR" ] \
+    || { echo "FAIL: 'sync --help' outside a project (rc $RC): $HELP_ERR"; fail=1; }
+[ -z "$(ls -A "$HELP_NONE")" ] || { echo "FAIL: 'sync --help' wrote into a directory with no project"; fail=1; }
+# The top level is one text however it is asked for.
+help_run "$PROJ"
+reference="$HELP_OUT"
+for args in --help -h help "help --help" "help help"; do
+    read -r -a words <<< "$args"
+    help_run "$PROJ" "${words[@]}"
+    [ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] || { echo "FAIL: 'intelligence $args' is not the top-level help"; fail=1; }
+done
+# A help flag after `help <command>` asks for the same text.
+for args in "sync --help" "package -h" "package add --help"; do
+    read -r -a words <<< "$args"
+    help_run "$PROJ" help "${words[0]}" ${words[2]:+"${words[1]}"}
+    reference="$HELP_OUT"
+    help_run "$PROJ" help "${words[@]}"
+    [ "$RC" -eq 0 ] && [ "$HELP_OUT" = "$reference" ] && [ -z "$HELP_ERR" ] \
+        || { echo "FAIL: 'help $args' is not the usage of 'help ${words[0]}' (rc $RC): $HELP_ERR"; fail=1; }
+done
+# A request that names nothing, or a flag after `--`, is not help.
+xfail "unknown command 'nosuch'" "$PROJ" help nosuch
+xfail "unknown command 'intelligence package nosuch'" "$PROJ" help package nosuch
+xfail "unknown command 'nosuch'" "$PROJ" nosuch --help
+xfail "unknown option '--'" "$PROJ" sync -- --help
+# The usage error is the opening lines of the same text.
+xfail "usage: intelligence package add <spec> [--name @scope/name]" "$PROJ" package add
+xfail "usage: intelligence source add <rules|agents|skills> <dir>" "$PROJ" source add
+xfail "intelligence package alias <@scope/name> --remove" "$PROJ" package alias @acme/pkg
+
 echo "== 17. a source enumeration that cannot answer stops the run =="
 # A macOS runner cut a pipe write short mid-list (bash reports EINTR as
 # `printf: write error: Interrupted system call`). The list of files to render

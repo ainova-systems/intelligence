@@ -39,9 +39,19 @@ git -C "$P" config user.email e2e@example.com
 git -C "$P" config user.name e2e
 git -C "$P" config core.autocrlf false
 
+# double_load_warnings - how many warning lines in LOG carry the
+# claudeMdExcludes entry to paste.
+double_load_warnings() {
+    grep '^WARNING: Claude Code 2.1.277 and later reads AGENTS.md ' "$LOG" \
+        | grep -cF 'put this key in .claude/settings.json: { "claudeMdExcludes": ["**/AGENTS.md"] }' || true
+}
+
 echo "== init writes the local artifact patterns into the managed block =="
 run "$P" init --bare --targets "$TARGETS"
 is "init exit" 0 "$RC"
+is "claudeMdExcludes warnings from the first sync" 1 "$(double_load_warnings)"
+# The manifest comment restates the access vocabulary of decision 0026.
+chk grep -Fq 'access: full|readonly|runner)' "$P/intelligence.yaml"
 for pattern in 'intelligence/rules/*.local.md' 'intelligence/agents/*.local.md' 'intelligence/skills/*.local/'; do
     chk grep -Fqx "$pattern" "$P/.gitignore"
 done
@@ -74,6 +84,47 @@ chknot grep -Fq claudeMdExcludes "$LOG"
 HOME="$OUT" run "$P" status --check
 chk grep -Fq '{ "claudeMdExcludes": ["**/AGENTS.md"] }' "$LOG"
 rm -r "$OUT/.claude"
+
+echo "== every sync prints the claudeMdExcludes step until a settings file holds it =="
+# Evaluated on each run and never recorded: the settings files are not sync
+# inputs, so a replayed warning would outlive the fix.
+run "$P" sync --force
+is "sync --force exit" 0 "$RC"
+is "claudeMdExcludes warnings from sync --force" 1 "$(double_load_warnings)"
+run "$P" sync
+is "unchanged sync exit" 0 "$RC"
+chk grep -q '^Unchanged: generated files are up to date' "$LOG"
+is "claudeMdExcludes warnings from an unchanged sync" 1 "$(double_load_warnings)"
+run "$P" sync --compact
+is "sync --compact exit" 0 "$RC"
+is "claudeMdExcludes warnings from sync --compact" 1 "$(double_load_warnings)"
+run "$P" sync --check
+is "sync --check exit" 0 "$RC"
+is "claudeMdExcludes warnings from sync --check" 1 "$(double_load_warnings)"
+printf '{\r\n  "claudeMdExcludes": ["docs/**", "**/AGENTS.md"]\r\n}\r\n' > "$P/.claude/settings.json"
+run "$P" sync
+is "sync exit with the exclude" 0 "$RC"
+is "claudeMdExcludes warnings once settings.json holds the entry" 0 "$(double_load_warnings)"
+run "$P" sync --check
+is "sync --check exit with the exclude" 0 "$RC"
+is "claudeMdExcludes warnings from sync --check once settings.json holds the entry" 0 "$(double_load_warnings)"
+printf '{ "claudeMdExcludes": ["**/OTHER.md"] }\n' > "$P/.claude/settings.json"
+run "$P" sync
+is "claudeMdExcludes warnings when the entry matches another file" 1 "$(double_load_warnings)"
+rm "$P/.claude/settings.json"
+printf '# Root\n' > "$P/CLAUDE.md"
+run "$P" sync --compact
+is "sync exit with a root CLAUDE.md" 0 "$RC"
+is "claudeMdExcludes warnings with a root CLAUDE.md" 0 "$(double_load_warnings)"
+rm "$P/CLAUDE.md"
+A="$OUT/agents-only"
+mkdir -p "$A"
+git -C "$A" init --quiet
+run "$A" init --bare --targets agents
+is "init without the claude target" 0 "$RC"
+is "claudeMdExcludes warnings without the claude target" 0 "$(double_load_warnings)"
+run "$A" sync
+is "claudeMdExcludes warnings from sync without the claude target" 0 "$(double_load_warnings)"
 
 echo "== status --check reports a missing local pattern; init restores it =="
 grep -Fvx 'intelligence/agents/*.local.md' "$P/.gitignore" > "$OUT/gitignore" && cp "$OUT/gitignore" "$P/.gitignore"

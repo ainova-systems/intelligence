@@ -24,7 +24,7 @@ Apply these checks to the source groups resolved by the review skill.
 | **Weak / duplicate description** | Identical to a sibling, or too vague to choose between them | `DIFFERENTIATE` — add the distinguishing trigger |
 | **Description over budget** | Over ~250 characters (the shared registry budget); over **1024** the tools reject the artifact outright | `TRIM` — keep the distinguishing trigger, drop the rest |
 | **Missing frontmatter field** | `name` or `description` absent | `PATCH` — add it |
-| **Dead skill field** | `agent:` in a `SKILL.md` without `context: fork` (`R8`) | `PATCH` - delete `agent:`, which selects nothing without the fork, or fork the skill when the authoring conventions say it should |
+| **Dead skill field** | `agent:` or `model:` in a `SKILL.md` without `context: fork`, or `tier:` in one (`R8`) | `PATCH` - delete the field: without the fork `agent:` selects nothing and `model:` switches the session model and drops the prompt cache, and only an agent reads `tier:`; or fork the skill when the authoring conventions say it should |
 | **Orphan rule** | Nothing points at it and nothing loads it | `FLAG` — intentional, or dead? |
 
 Detection commands, portable on purpose — no `\b` and no `-P`, so the same command works in Git Bash on Windows, on macOS (BSD grep) and on Linux. Run each over the source directories resolved in step 2, never over generated output:
@@ -66,15 +66,8 @@ find <rule-dirs> <agent-dirs> <skill-dirs> -name '*.md' | while IFS= read -r f; 
     { p += NF; if (p > max) max = p }
     END { printf "%6d %4d %s\n", w, max, f }' "$f"
 done | sort -rn
-
-# R8 - a skill's agent: without context: fork, read from the frontmatter only
-find <skill-dirs> -name SKILL.md | while IFS= read -r f; do
-  awk -v f="$f" 'NR == 1 && /^---[ \t\r]*$/ { fm = 1; next }
-    fm && /^---[ \t\r]*$/ { exit }
-    fm && /^agent:/ { a = 1 }
-    fm && /^context:[ \t]*"?fork/ { c = 1 }
-    END { if (a && !c) print f }' "$f"
-done
 ```
+
+`R8` has no command of its own: every sync checks it over every source, packages included, and prints one `WARNING:` line per field naming the file and line. Read those lines from `intelligence sync` output.
 
 `R4` is a coarse net, not a verdict: a skill that merely *mentions* a verification command anywhere passes it. Read the final step of every skill regardless — the question is whether something at the end **proves the work landed**, not whether the word appears. So are `R5` and `R6`: a `NEVER` that carries its reason and a date inside a frontmatter template are both legitimate hits, and the row's action applies only where the marker or the id is doing no work.

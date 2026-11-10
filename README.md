@@ -97,7 +97,7 @@ The authoring rule, engine agents, meta-skills and their shared references are i
 | `status [--check]` | Show project state; `--check` performs deep manifest, lock, store and engine consistency checks. |
 | `registry list\|add\|remove` | Manage the ordered trust list used for package-name resolution. |
 
-Run `intelligence help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
+Run `intelligence help` for the command list and `intelligence <command> --help` for exact arguments. See [the CLI reference](docs/cli.md) for lifecycle behavior and safety contracts.
 
 Fresh initialization announces and confirms its first compact sync, then leaves the
 important next steps visible: add the recommended starter package with

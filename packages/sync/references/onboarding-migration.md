@@ -50,7 +50,7 @@ Migrate meaning, not tool syntax:
 | Root `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, Copilot root instructions | Split verified guidance by topic into rules; move machine-local preferences into local rules (`<content-dir>/rules/<name>.local.md`), which Git ignores and sync keeps out of committed output |
 | `.claude/rules/*.md` | Rule; preserve valid `paths:` |
 | `.cursor/rules/*.mdc` | Rule; rename `globs:` to `paths:` and remove `alwaysApply:` |
-| Claude/Cursor/Copilot agents, Codex `.codex/agents/*.toml` | Agent; map native model/readonly/tool fields back to `tier:` and `access:`, and a native effort level (`effort:`, `model_reasoning_effort`) back to `effort:` |
+| Claude/Cursor/Copilot agents, Codex `.codex/agents/*.toml` | Agent; map native model/readonly/tool fields back to `tier:` and `access:` (`readonly` when the agent only reads and searches, `runner` when it also runs commands, such as tests, without editing), and a native effort level (`effort:`, `model_reasoning_effort`) back to `effort:` |
 | Claude/Cursor/Copilot skills or commands | Skill when the procedure is repeated, multi-step, stable, and verifiable; otherwise a rule or no artifact |
 | Pi/OpenCode/Codex prompt artifacts | Rule, agent, or skill according to responsibility, after removing tool-specific wrappers |
 

@@ -17,19 +17,16 @@
 # next to a package.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
-
-USAGE="usage: intelligence source <command>
-  add <rules|agents|skills> <dir> [--first|--last|--before <entry>|--after <entry>]
-  remove <rules|agents|skills> <dir>
-  list"
+source "$CLI_DIR/lib/usage.sh"
 
 SECTIONS="rules agents skills"
 
+# assert_source_section <add|remove> <section>
 assert_source_section() {
-    case "${1:-}" in
+    case "${2:-}" in
         rules|agents|skills) ;;
-        "") die "$USAGE" ;;
-        *) die "unknown source kind '$1' — expected rules, agents or skills" ;;
+        "") cli_usage_die source "$1" ;;
+        *) die "unknown source kind '$2' — expected rules, agents or skills" ;;
     esac
 }
 
@@ -67,7 +64,7 @@ assert_not_package_reference() {
 # it by the package's name.
 assert_valid_source_dir() {
     local root="$1" dir="$2" problem
-    [ -n "$dir" ] || die "$USAGE"
+    [ -n "$dir" ] || cli_usage_die source add
     case "$dir" in
         *\\*) die "invalid source '$dir' — manifest paths use '/': ${dir//\\//}" ;;
         .intelligence|.intelligence/*)
@@ -107,15 +104,15 @@ print_section() {
 }
 
 action="${1:-}"
-[ -n "$action" ] || die "$USAGE"
+[ -n "$action" ] || cli_usage_die source
 shift
 
 case "$action" in
     add)
         section="${1:-}"
         dir="${2:-}"
-        assert_source_section "$section"
-        [ -n "$dir" ] || die "$USAGE"
+        assert_source_section add "$section"
+        [ -n "$dir" ] || cli_usage_die source add
         shift 2
         pos="last"
         anchor=""
@@ -131,7 +128,7 @@ case "$action" in
                     [ -n "${2:-}" ] || die "$1 needs the entry to place this source next to"
                     pos="${1#--}"; anchor="$(normalize_source_dir "$2")"; pos_given=1; shift 2
                     ;;
-                *) die "$USAGE" ;;
+                *) cli_usage_die source add ;;
             esac
         done
 
@@ -176,9 +173,9 @@ case "$action" in
     remove)
         section="${1:-}"
         dir="${2:-}"
-        assert_source_section "$section"
-        [ -n "$dir" ] || die "$USAGE"
-        [ $# -le 2 ] || die "$USAGE"
+        assert_source_section remove "$section"
+        [ -n "$dir" ] || cli_usage_die source remove
+        [ $# -le 2 ] || cli_usage_die source remove
         dir="$(normalize_source_dir "$dir")"
         case "$dir" in
             .intelligence|.intelligence/*)
@@ -203,7 +200,7 @@ case "$action" in
         echo "Run 'intelligence sync' to rewrite the outputs."
         ;;
     list)
-        [ $# -eq 0 ] || die "$USAGE"
+        [ $# -eq 0 ] || cli_usage_die source list
         require_cli_project
         manifest="$IP_ROOT/intelligence.yaml"
         for section in $SECTIONS; do
@@ -211,6 +208,6 @@ case "$action" in
         done
         ;;
     *)
-        die "$USAGE"
+        cli_usage_die source
         ;;
 esac

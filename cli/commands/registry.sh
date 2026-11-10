@@ -7,6 +7,7 @@
 # names carry their own scope, and the first registry to declare a name wins.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 sub="${1:-list}"
 case "$sub" in
@@ -34,7 +35,7 @@ case "$sub" in
         url="${2:-}"
         force=0
         [ "${3:-}" = "--force" ] && force=1
-        [ -n "$url" ] || die "usage: intelligence registry add <registry-repo-url> [--force]"
+        [ -n "$url" ] || cli_usage_die registry add
         case "$url" in
             @*) die "registries are added by URL — names carry their own scope. To install a package: intelligence package add $url/<name>" ;;
         esac
@@ -69,7 +70,7 @@ case "$sub" in
         ;;
     remove)
         url="${2:-}"
-        [ -n "$url" ] || die "usage: intelligence registry remove <url>"
+        [ -n "$url" ] || cli_usage_die registry remove
         require_cli_project
         project_as_committed "$IP_ROOT"
         registries_remove "$IP_ROOT/intelligence.yaml" "$url"
@@ -81,6 +82,6 @@ case "$sub" in
         echo "removed: $url"
         ;;
     *)
-        die "usage: intelligence registry <list | add <url> [--force] | remove <url>>"
+        cli_usage_die registry
         ;;
 esac

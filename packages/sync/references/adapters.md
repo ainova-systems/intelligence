@@ -282,7 +282,7 @@ access: full
 ---
 ```
 
-Map `tier` through `get_model`, not a hardcoded model name. Map `effort` through `map_effort_var` and emit the tool's own effort key only when it returns a level; never derive an effort from the tier, and never copy the source `effort:` line into a tool without a field. Transform `access: full|readonly` into the target tool's native permission model. Preserve the body as the agent's instructions.
+Map `tier` through `get_model`, not a hardcoded model name. Map `effort` through `map_effort_var` and emit the tool's own effort key only when it returns a level; never derive an effort from the tier, and never copy the source `effort:` line into a tool without a field. Transform `access: full|readonly|runner` into the target tool's native permission model. Preserve the body as the agent's instructions.
 
 | Built-in | `effort:` rendering | Evidence, checked 2026-10-07 |
 |---|---|---|

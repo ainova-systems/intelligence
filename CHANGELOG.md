@@ -4,6 +4,29 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.26.0]
+
+### Added
+
+- `access: runner` for an agent that reads, searches and runs commands without edit tools, rendered in every adapter as the authoring conventions' access mappings list; `readonly` and `full` render as before (decision 0026).
+- Sync prints a `WARNING:` line, with file and line, for an agent's `access:` value outside `full`, `readonly` and `runner`, which still renders as `full` in every tool.
+- Sync prints a `WARNING:` line, with file and line, for a skill's `agent:` or `model:` without `context: fork` and for `tier:` on a skill; `intelligence-review-context` check R8 reads those warnings instead of running a command of its own.
+- `-h` and `--help` print the usage of every command and subcommand and exit 0, and `intelligence help <command> [<subcommand>]` prints the same text; asking for help reads no project and writes nothing.
+
+### Changed
+
+- The `light` tier maps to Haiku by default: `haiku` in Claude Code and `anthropic/claude-haiku-5-5` in OpenCode. To keep the earlier model, set `models.claude.light: sonnet` and `models.opencode.light: "anthropic/claude-sonnet-5-5"` (decision 0029).
+- Every `sync`, including `--compact`, `--check` and an unchanged run, prints a `WARNING:` line with the `claudeMdExcludes` entry for `.claude/settings.json` while Claude Code would load the always-on rules twice through `AGENTS.md`; the warning clears once the entry is added, and sync still never writes settings (decision 0025).
+- A usage error prints the opening lines of the command's own usage text and points to `--help`, and `intelligence help <word>` exits 1 for a word that names no command, where it printed the top-level help.
+- The manifest comment `init` writes lists `runner` among the agent `access:` values.
+
+### Fixed
+
+- Claude Code and Cursor agent files no longer carry a key twice when the source sets one the adapter writes: `model:` in both, `tools:` and `disallowedTools:` in Claude Code and `readonly:` in Cursor under an `access:` that writes them. The value derived from `tier:` and `access:` wins, and sync prints one `WARNING:` line per source file and key while that tool renders the agent.
+- Claude Code and Cursor agent bodies keep lines that start with `tier:`, `access:`, `tools:` or `disallowedTools:`, such as a frontmatter example in a code block; only the frontmatter drops those keys.
+- A rule without frontmatter keeps every `---` line in `AGENTS.md`, `AGENTS.override.md` and Copilot's always-on instructions; the text between its first two `---` lines, such as a YAML example, used to disappear.
+- `status --check` no longer prints the `claudeMdExcludes` note for an `agents` target without an `output:`, which renders to `.agents/AGENTS.md`, a file Claude Code does not read.
+
 ## [0.25.3]
 
 ### Fixed

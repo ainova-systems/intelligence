@@ -12,7 +12,17 @@
 #     local one, or one whose targets leave `agents` out — becomes
 #     .cursor/rules/<name>.mdc with `alwaysApply: true` (decision 0021).
 # Skills: copy skill directories in full (SKILL.md + bundled resources)
-# Agents: strip tier/access/tools/disallowedTools, add model + readonly:true
+# Agents: strip tier/access/tools/disallowedTools and a source model from the
+#   frontmatter, add model + readonly:true
+#   access (decision 0026): `readonly` and `runner` -> readonly: true; `full`
+#   and any other value -> no readonly key. Source, checked 2026-11-10:
+#   cursor.com/docs/subagents — `readonly` means "no file edits, no
+#   state-changing shell commands", and no other field controls access.
+#   Cursor cannot express "commands, but no edits", so `runner` takes the
+#   one restriction it has; which commands count as state-changing is not
+#   defined there, so whether a test run is allowed is not verified. The
+#   mapping is map_access_to_cursor_readonly_var in lib/common.sh, which the
+#   source lint asks too.
 # Cursor has no per-agent or per-skill effort field (its effort is part of a
 # model ID), so `effort:` is stripped from both.
 #
@@ -156,15 +166,19 @@ sync_cursor_agents() {
     i=0
     while IFS=$'\x1f' read -r path tier access; do
         resolve_model_var "$tier"
-        cursor_readonly=""
-        [ "$access" = "readonly" ] && cursor_readonly="readonly: true"
+        map_access_to_cursor_readonly_var "$access"
+        cursor_readonly="${IS_CURSOR_READONLY:+readonly: $IS_CURSOR_READONLY}"
         spec+="$path"$'\x1f'"$IS_MODEL"$'\x1f'"$cursor_readonly"$'\n'
         report+="  agent: ${names[i]}.md (tier=$tier -> cursor)"$'\n'
         i=$((i + 1))
     done < <(frontmatter_index "tier,access" "${files[@]}")
 
     # Always emit model: line (even when value matches Cursor's default)
-    # so config is explicit and grep-able.
+    # so config is explicit and grep-able. A source `model`, and `readonly`
+    # when access sets it, are not copied, so the file never holds a key
+    # twice (the lint warns about the source once); `tier`, `access`, `tools`
+    # and `disallowedTools` go as well. Only
+    # frontmatter lines go: the body is the author's.
     is_fin_awk_vars
     IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
@@ -182,15 +196,14 @@ sync_cursor_agents() {
             count = 0
             fm = 0
             tgt_reset()
+            split("", OWN_ST)
+            own_re = "^(tier|access|tools|disallowedTools|model" (RO[FILENAME] != "" ? "|readonly" : "") "):"
         }
-        /^tier:/  { next }
-        /^access:/ { next }
-        /^tools:/ { next }
-        /^disallowedTools:/ { next }
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
         fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
+        fm && count == 1 && !/^---$/ && fm_key_drop($0, own_re, OWN_ST) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" { next }
         count == 2 && /^---$/ {
             print fin_line("model: " MODEL[FILENAME]) > out

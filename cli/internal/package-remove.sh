@@ -2,9 +2,10 @@
 # Internal package remove operation.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 name="${1:-}"
-[ -n "$name" ] || die "usage: intelligence package remove <@scope/name>"
+[ -n "$name" ] || cli_usage_die package remove
 shift || true
 no_sync=0 force=0
 for a in "$@"; do

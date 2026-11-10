@@ -2,11 +2,12 @@
 # intelligence status [--check] — project state or deep consistency checks.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
 case "${1:-}" in
     "") ;;
-    --check) [ $# -eq 1 ] || die "usage: intelligence status [--check]"; exec bash "$CLI_DIR/internal/check.sh" ;;
-    *) die "usage: intelligence status [--check]" ;;
+    --check) [ $# -eq 1 ] || cli_usage_die status; exec bash "$CLI_DIR/internal/check.sh" ;;
+    *) cli_usage_die status ;;
 esac
 
 detect_project

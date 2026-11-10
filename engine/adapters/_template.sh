@@ -28,8 +28,9 @@
 #   get_model(config, ide, tier)        — resolve model from config or default
 #   get_model_default(ide, tier)        — hardcoded default for ide:tier
 #   map_effort(tool, effort)            — the tool's level for a neutral effort; "" when none
-#   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly->restricted
-#   map_access_to_claude_disallowed(access) — readonly->"Write, Edit", full->""
+#   map_access_to_claude_tools(access)  — full->"" (no tools list; inherits all), readonly|runner->restricted
+#   map_access_to_claude_disallowed(access) — readonly|runner->"Write, Edit", full->""
+#                                       (access values: IS_ACCESS_LEVELS; any other renders as full)
 #   source_artifacts_var(root, config, section, adapter, output)
 #                                       — the sources this adapter renders (below)
 #   finalize_copy_named(dir, map, file...) — copy and finalize files under their rendered names

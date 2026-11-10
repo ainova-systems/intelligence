@@ -1,7 +1,7 @@
 # 0026 – One access vocabulary across tools
 
 Date: 2026-11-07
-Status: accepted, implementation deferred
+Status: accepted, implemented in part in 0.26.0 — `runner` renders in every adapter as point 2 states, and an `access:` value outside the three warns and renders as `full`; `readonly` keeps its earlier rendering in Claude Code and Codex until point 3 and the Codex `readonly` row ship in a release of their own
 
 The owner accepted this record on 2026-11-07 as the lowest-priority work: it does
 not ship in 0.25.0, and its breaking change to `readonly` waits for a release of

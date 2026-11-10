@@ -5,11 +5,9 @@
 # of the block, and one alias names exactly one package.
 set -euo pipefail
 source "$CLI_DIR/lib/cli-common.sh"
+source "$CLI_DIR/lib/usage.sh"
 
-USAGE="usage: intelligence package alias <@scope/name> <alias>
-       intelligence package alias <@scope/name> --remove"
-
-[ $# -eq 2 ] || die "$USAGE"
+[ $# -eq 2 ] || cli_usage_die package alias
 name="$1"
 want="$2"
 
@@ -39,7 +37,7 @@ if [ "$want" = "--remove" ]; then
     exit 0
 fi
 
-case "$want" in -*) die "$USAGE" ;; esac
+case "$want" in -*) cli_usage_die package alias ;; esac
 assert_valid_alias "$want"
 if [ "$current" = "$want" ]; then
     echo "$name: alias $want (unchanged)"

@@ -6,6 +6,11 @@
 # Skills: copy skill directories in full (SKILL.md + bundled resources),
 #   effort -> Claude's effort level
 # Agents: tier -> model, effort -> effort, access -> tools/disallowedTools
+#   access (decision 0026): `readonly` and `runner` -> tools: Read, Grep,
+#   Glob, Bash with disallowedTools: Write, Edit; `full` and any other value
+#   -> neither key, which inherits every tool. The mapping and its source
+#   are map_access_to_claude_tools_var in lib/common.sh. `readonly` keeps
+#   Bash until decision 0026's breaking half.
 # Plugin: with `targets.claude.plugin: true`, the Claude Code mod in
 #   adapters/claude-plugin/ is rendered into <output>/skills/intelligence/
 #   (decision 0022). Claude Code loads a plugin from a project's skills
@@ -188,6 +193,10 @@ sync_claude_agents() {
     # would reprocess backslash escapes). The first frontmatter `effort:` line
     # becomes Claude's level in place, or goes when there is none; a later
     # one goes too, since frontmatter_index read only the first.
+    # A frontmatter key this adapter writes itself is not copied, so the file
+    # never holds it twice: `model`, and `tools` / `disallowedTools` when
+    # access maps to them (the lint warns about the source once). `tier` and
+    # `access` go too. Only frontmatter lines go: the body is the author's.
     is_fin_awk_vars
     IS_NAME_MAP="$name_map" IS_MAP_SPEC="$spec" awk "${IS_FIN_V[@]}" -v dst="$output_dir/agents" "$IS_AWK_LIB"'
         BEGIN {
@@ -206,13 +215,15 @@ sync_claude_agents() {
             fm = 0
             effort_seen = 0
             tgt_reset()
+            split("", OWN_ST)
+            own_re = "^(tier|access|model" (TOOLS[FILENAME] != "" ? "|tools" : "") \
+                (EXTRA[FILENAME] != "" ? "|disallowedTools" : "") "):"
         }
-        /^tier:/  { next }
-        /^access:/ { next }
         { sub(/\r$/, "") }
         FNR == 1 && $0 == "---" { fm = 1 }
         /^---$/ { count++ }
         fm && count == 1 && !/^---$/ && tgt_drop($0) { next }
+        fm && count == 1 && !/^---$/ && fm_key_drop($0, own_re, OWN_ST) { next }
         fm && count == 1 && substr($0, 1, 7) == "effort:" {
             if (!effort_seen++ && EFFORT[FILENAME] != "") print fin_line("effort: " EFFORT[FILENAME]) > out
             next
