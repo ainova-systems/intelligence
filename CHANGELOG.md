@@ -10,6 +10,11 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - `intelligence update --latest` without a package name moves every package past its range to the newest stable version in one plan and one confirmation, rewriting each requested range to `^<that version>`; a `ref:` pin follows its ref as in a plain update, the engine-content package is skipped, and the plan's outside-range summary names the command (decision 0032).
 
+### Changed
+
+- The Claude Code plugin's line above the prompt is one sentence naming Intelligence, such as `Intelligence needs a sync  1: Sync now` or `Checking Intelligence…`, in the default colors, instead of `intelligence: sync needed` in yellow or red; a failed check points to `/intelligence` for the reason (decision 0033).
+- When the CLI on `PATH` is older than the project, the Claude Code plugin says so once a session in a toast instead of a red line above the prompt. Behind by a minor or patch it shows the sync verdict and offers `Sync now` as usual; only a newer major, which the CLI refuses, withholds the sync (decision 0033).
+
 ## [0.27.0]
 
 ### Added

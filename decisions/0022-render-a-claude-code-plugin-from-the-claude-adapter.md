@@ -3,6 +3,7 @@
 Date: 2026-10-18
 Status: accepted
 Superseded by 0028 in part: point 1's `version` = `engine/VERSION` and the consequence that the plugin's `version` moves with it. The plugin carries the project's `schema_version`.
+Superseded by 0033 in part: point 4's upgrade label for a CLI older than the project, the sync it withholds, and the consequence that the line says so. An older CLI is said once a session in a toast, and only a newer major withholds the sync.
 
 ## Context
 

@@ -59,7 +59,8 @@ lint_engine() {
 
 # The Claude Code plugin the Claude adapter renders (decision 0022) is
 # JavaScript, which shellcheck never reads: `node --check` parses the hooks
-# module and `claude plugin validate` reads the template the way Claude Code
+# module, `cli/tests/plugin-hooks.mjs` drives it against a fake host, and
+# `claude plugin validate` reads the template the way Claude Code
 # loads it. Neither tool is a prerequisite of this repository, so an absent one
 # is reported as skipped — a check that did not run never reads as passed —
 # and the gate itself is skipped when neither could run. CI's runners carry
@@ -77,8 +78,9 @@ lint_plugin() {
     if command -v node >/dev/null 2>&1; then
         ran=1
         node --check "$PLUGIN_TEMPLATE/hooks/register.js" || rc=1
+        node cli/tests/plugin-hooks.mjs "$REPO" || rc=1
     else
-        absent+=("lint: claude plugin — node --check $PLUGIN_TEMPLATE/hooks/register.js: node is not on PATH")
+        absent+=("lint: claude plugin — node --check $PLUGIN_TEMPLATE/hooks/register.js and cli/tests/plugin-hooks.mjs: node is not on PATH")
     fi
     if command -v claude >/dev/null 2>&1; then
         ran=1
@@ -244,7 +246,7 @@ main() {
             fi
             # Shell sources and the plugin template decide the lint gates;
             # anything the engine renders or the CLI resolves decides the suites.
-            if grep -Eq '^(cli|engine)/.*\.sh$|^npm/[^/]+\.sh$|^cli/intelligence$|^engine/adapters/claude-plugin/' <<< "$paths"; then
+            if grep -Eq '^(cli|engine)/.*\.sh$|^npm/[^/]+\.sh$|^cli/intelligence$|^engine/adapters/claude-plugin/|^cli/tests/plugin-hooks\.mjs$' <<< "$paths"; then
                 want_lint=1
             fi
             if grep -Eq '^(cli|engine|packages/sync|examples|npm)/' <<< "$paths"; then

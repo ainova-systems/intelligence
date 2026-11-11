@@ -141,10 +141,11 @@ plugin into `<output>/skills/intelligence/` (decision 0022): a
 The module is a Claude Code *mod*: at session start and every five minutes it
 runs `intelligence sync --check` in the session's root without delaying the
 session, shows the verdict in one line above the prompt while a check runs or
-something needs attention, with Claude Code's spinner while a check or a sync
-has not answered and a `Sync now` button when a sync is needed, shows nothing
-while the project is up to date (the VS Code extension, which draws no band,
-gets a status line instead), and registers
+something needs attention — one sentence naming Intelligence, such as
+`Intelligence needs a sync`, in the default colors — with Claude Code's spinner
+while a check or a sync has not answered and a `Sync now` button when a sync is
+needed, shows nothing while the project is up to date (the VS Code extension,
+which draws no band, gets a status line instead), and registers
 `/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
 re-checks, `check` re-checks, no argument prints the current status. It
 registers no tool and never submits a prompt. This section defines the field.
@@ -158,10 +159,13 @@ the plugin while the flag is on; sync refuses it and names the skill's source
 path and the field.
 
 The plugin needs the `intelligence` CLI on `PATH` (its line says when it is
-missing, and asks for `intelligence upgrade` when the CLI there is older than
-the project, offering no sync, since that CLI would drop the plugin) and Claude
-Code 2.1.287 or later, where mods are on by default;
-earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
+missing) and Claude Code 2.1.287 or later, where mods are on by default;
+earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
+When the CLI on `PATH` is older than the project, the plugin says so once a
+session, in a toast naming `intelligence upgrade`, and draws no line for it:
+behind by a minor or patch it keeps showing the CLI's verdict and offering the
+sync, since the CLI keeps syncing behind its own warning; behind by a major,
+which the CLI refuses, it shows nothing and offers no sync (decision 0033). A
 project plugin loads only in a folder the person has trusted, and a cloud or
 remote session that does not load project plugins shows nothing. A first
 `sync --check` with no record renders the project privately, which can take
