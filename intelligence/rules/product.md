@@ -48,6 +48,11 @@ Two directories now carry the word: `intelligence/` is this project's own conten
 `packages/sync/` is the content the product ships. `repo-purity` still refuses
 `intelligence/sync` and `intelligence/scripts` — the legacy vendored layout.
 
+## Working copy
+
+Work in this repository's own checkout, on a short-lived branch as `git-workflow`
+describes. Never create or work in a `git worktree` of it: the owner's instruction.
+
 ## Release status
 
 Intelligence has a stable release line. Publishing a matching non-prerelease
