@@ -190,8 +190,12 @@ restores the one-at-a-time order for any run.
 
 Normal sync announces its checks immediately and streams rendering progress as
 adapters finish. An unchanged run separates retained warnings from the result and ends
-with `Unchanged: no files needed updating`. Cached results still require reading
-source and output contents; the check is not a timestamp-only shortcut.
+with `Unchanged: no files needed updating, checked in 180 ms`; a run that renders
+ends with `Sync complete in 12.4 sec`. The time runs from the start of the command,
+in milliseconds under a second, in tenths of a second under a minute, and in minutes
+and seconds after that; Bash 3.2 has no `EPOCHREALTIME`, so there it counts whole
+seconds. Cached results still require reading source and output contents; the check
+is not a timestamp-only shortcut.
 
 Normal sync writes the engine's whole stream, its `ERROR:` lines included, to
 stdout: the CLI records that one stream for the next cache hit, and splitting it

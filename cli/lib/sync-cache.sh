@@ -479,6 +479,39 @@ sync_cache_prepare() {
     sync_cache_dependencies && sync_cache_directory && sync_cache_fingerprint "$1"
 }
 
+# sync_elapsed_var <start> [<now>] — set IS_SYNC_ELAPSED to the time from
+# <start> to <now> (default: the present), both EPOCHREALTIME readings, as
+# `in 450 ms`, `in 12.4 sec` or `in 2 min 5 sec`. Bash 3.2 has no
+# EPOCHREALTIME: there <start> is empty, and the whole seconds this shell has
+# run stand in for the reading.
+sync_elapsed_var() {
+    local start="${1//[!0-9]/}" now="${2-${EPOCHREALTIME:-}}" us s tenths coarse=0
+    now="${now//[!0-9]/}"
+    if [ -n "$start" ] && [ -n "$now" ]; then
+        us=$((10#$now - 10#$start))
+    else
+        us=$((SECONDS * 1000000))
+        coarse=1
+    fi
+    if [ "$us" -lt 1000000 ]; then
+        if [ "$coarse" = 1 ]; then
+            IS_SYNC_ELAPSED="in under 1 sec"
+        else
+            IS_SYNC_ELAPSED="in $((us / 1000)) ms"
+        fi
+    elif [ "$us" -lt 59950000 ]; then
+        if [ "$coarse" = 1 ]; then
+            IS_SYNC_ELAPSED="in $((us / 1000000)) sec"
+        else
+            tenths=$(((us + 50000) / 100000))
+            IS_SYNC_ELAPSED="in $((tenths / 10)).$((tenths % 10)) sec"
+        fi
+    else
+        s=$(((us + 500000) / 1000000))
+        IS_SYNC_ELAPSED="in $((s / 60)) min $((s % 60)) sec"
+    fi
+}
+
 sync_with_cache() {
     local target="$1" force="$2" rc=0 cacheable=0 before_t before_i
     project_lock_scratch "$REPO_ROOT" || return 1
@@ -493,7 +526,8 @@ sync_with_cache() {
             && [ "$SC_RECORD_O" = "$SC_PRINT_O" ]; then
             echo 'Unchanged: generated files are up to date.'
             printf '\n%s\n' "$SC_RECORD_REPORT"
-            printf '\n=== Unchanged: no files needed updating ===\n'
+            sync_elapsed_var "${SYNC_STARTED:-}"
+            printf '\n=== Unchanged: no files needed updating, checked %s ===\n' "$IS_SYNC_ELAPSED"
             return 0
         fi
     fi
@@ -523,7 +557,8 @@ sync_with_cache() {
             sync_cache_publish "$SC_SCRATCH.report"
         fi
     fi
-    echo "=== Sync complete ==="
+    sync_elapsed_var "${SYNC_STARTED:-}"
+    echo "=== Sync complete $IS_SYNC_ELAPSED ==="
     return 0
 }
 
