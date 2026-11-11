@@ -1419,5 +1419,45 @@ done
 chknot_walk() { ! grep -Fxq -- "$1" "$OUT/walk-find.args"; }
 chk chknot_walk 'Temp/**'
 
+echo "== source name map: one split per batch, the names the pattern lookup gave =="
+# The lookup source_name_map_names_var replaced: right for any map, but each
+# path cost time quadratic in the map's length.
+oracle_name_map() {
+    local rest
+    case "$1" in *$'\n'"$2"$'\x1f'*) ;; *) return 1 ;; esac
+    rest="${1#*$'\n'"$2"$'\x1f'}"
+    printf '%s' "${rest%%$'\n'*}"
+}
+nm_map=$'\n'
+for entry in "/r/a b/skills/x"$'\x1f'x "/r/[x]*/skills/y?"$'\x1f'y \
+    "/r/skills/deploy.local"$'\x1f'deploy "/r/é/skills/ü"$'\x1f'ü \
+    "/r/skills/x"$'\x1f'x "/r/skills/x2"$'\x1f'x2; do
+    nm_map+="$entry"$'\n'
+done
+nm_paths=("/r/a b/skills/x" "/r/[x]*/skills/y?" "/r/skills/deploy.local" "/r/é/skills/ü"
+    "/r/skills/x" "/r/skills/x2" "/r/skills/deploy.local" "/r/skills" "/r/skills/x2/" "/r/a b/skills/x")
+source_name_map_names_var "$nm_map" "${nm_paths[@]}"
+chk eq "${#IS_MAPPED_NAMES[@]}" "${#nm_paths[@]}"
+for ((i = 0; i < ${#nm_paths[@]}; i++)); do
+    want="$(oracle_name_map "$nm_map" "${nm_paths[i]}" || true)"
+    chk eq "${IS_MAPPED_NAMES[i]}" "$want"
+done
+chk source_name_map_var "$nm_map" "/r/skills/deploy.local"
+chk eq "$IS_MAPPED_NAME" deploy
+chknot source_name_map_var "$nm_map" "/r/skills"
+source_name_map_names_var "" "/r/skills/x"
+chk eq "${#IS_MAPPED_NAMES[@]}:${IS_MAPPED_NAMES[0]}" "1:"
+# A map of 600 skills used to take minutes; a split costs one pass.
+nm_map=$'\n'
+nm_paths=()
+for ((i = 0; i < 600; i++)); do
+    nm_paths+=("/repo/.intelligence/packages/@scope/pack-$i/skills/skill-$i")
+    nm_map+="${nm_paths[i]}"$'\x1f'"skill-$i"$'\n'
+done
+SECONDS=0
+source_name_map_names_var "$nm_map" "${nm_paths[@]}"
+chk test "$SECONDS" -le 10
+chk eq "${IS_MAPPED_NAMES[0]}:${IS_MAPPED_NAMES[599]}" "skill-0:skill-599"
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

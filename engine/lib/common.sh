@@ -389,14 +389,47 @@ finalize_copy_named() {
 # map gives <path>; return 1 when it gives none. A map is "\n" followed by one
 # `<path> US <name>` line per source.
 source_name_map_var() {
-    local rest
-    IS_MAPPED_NAME=""
-    case "$1" in
-        *$'\n'"$2"$'\x1f'*) ;;
-        *) return 1 ;;
-    esac
-    rest="${1#*$'\n'"$2"$'\x1f'}"
-    IS_MAPPED_NAME="${rest%%$'\n'*}"
+    source_name_map_names_var "$1" "$2"
+    IS_MAPPED_NAME="${IS_MAPPED_NAMES[0]}"
+    [ -n "$IS_MAPPED_NAME" ]
+}
+
+# source_name_map_names_var <name-map> <path>... — set IS_MAPPED_NAMES to the
+# name the map gives each path, in argument order, or to an empty string for a
+# path it does not name. The map is split once: Bash retries a pattern at every
+# offset of the string it matches, so a lookup matched across the whole map
+# cost time quadratic in its length, once per skill, and dominated the sync of
+# a project with a hundred-odd skills. Callers pass paths in map order, so each
+# search starts after the previous match; a path names one source, so the
+# first match found is the only one.
+source_name_map_names_var() {
+    local map="$1" path entry saved_ifs="$IFS" noglob=0 at=0 i j=0 k n
+    local -a entries map_keys=() map_names=()
+    shift
+    case $- in *f*) noglob=1 ;; esac
+    set -f
+    IFS=$'\n'
+    # shellcheck disable=SC2206  # split on newlines only, with globbing off
+    entries=($map)
+    IFS="$saved_ifs"
+    [ "$noglob" = 1 ] || set +f
+    for entry in ${entries[@]+"${entries[@]}"}; do
+        map_keys+=("${entry%%$'\x1f'*}")
+        map_names+=("${entry#*$'\x1f'}")
+    done
+    n=${#map_keys[@]}
+    IS_MAPPED_NAMES=()
+    for path in "$@"; do
+        IS_MAPPED_NAMES[j]=""
+        for ((k = 0; k < n; k++)); do
+            i=$(((at + k) % n))
+            [ "${map_keys[i]}" = "$path" ] || continue
+            IS_MAPPED_NAMES[j]="${map_names[i]}"
+            at=$((i + 1))
+            break
+        done
+        j=$((j + 1))
+    done
 }
 
 # frontmatter_index <keys-csv> <file>...
@@ -926,11 +959,14 @@ copy_skill_bundle_dirs_named() {
     local src from name dest i linked=0 renamed=0
     local -a srcs=() names=()
     for src in "$@"; do
-        src="${src%/}"
-        srcs+=("$src")
+        srcs+=("${src%/}")
+    done
+    source_name_map_names_var "$map" "${srcs[@]}"
+    for ((i = 0; i < ${#srcs[@]}; i++)); do
+        src="${srcs[i]}"
         name="${src##*/}"
-        if source_name_map_var "$map" "$src" && [ "$IS_MAPPED_NAME" != "$name" ]; then
-            name="$IS_MAPPED_NAME"
+        if [ -n "${IS_MAPPED_NAMES[i]}" ] && [ "${IS_MAPPED_NAMES[i]}" != "$name" ]; then
+            name="${IS_MAPPED_NAMES[i]}"
             renamed=1
         fi
         names+=("$name")
