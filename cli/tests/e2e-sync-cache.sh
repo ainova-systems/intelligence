@@ -128,10 +128,27 @@ check grep -q '^WARNING: Antigravity' "$TMP/warning-report"
 check grep -q 'stale copy is what Antigravity loads. Remove it' "$TMP/warning-report"
 check test "$(wc -l < "$TMP/warning-report" | tr -d ' ')" -eq 2
 
+echo '== The completion line says how long the sync took =='
+elapsed() (
+    source "$REPO/cli/lib/sync-cache.sh"
+    [ -z "${3:-}" ] || SECONDS="$3"
+    sync_elapsed_var "$1" "$2"
+    printf '%s\n' "$IS_SYNC_ELAPSED"
+)
+check test "$(elapsed 1700000000.000000 1700000000.450250)" = 'in 450 ms'
+check test "$(elapsed 1700000000,000000 1700000000,999999)" = 'in 999 ms'
+check test "$(elapsed 1700000000.000000 1700000012.360000)" = 'in 12.4 sec'
+check test "$(elapsed 1700000000.000000 1700000059.960000)" = 'in 1 min 0 sec'
+check test "$(elapsed 1700000000.000000 1700000125.400000)" = 'in 2 min 5 sec'
+# Bash 3.2 has no EPOCHREALTIME: the shell's whole seconds stand in.
+check test "$(elapsed '' '' 0)" = 'in under 1 sec'
+check test "$(elapsed '' '' 42)" = 'in 42 sec'
+ELAPSED='in ([0-9]+ ms|[0-9]+(\.[0-9])? sec|under 1 sec|[0-9]+ min [0-9]+ sec)'
+
 echo '== Six built-ins, first/full sync and unchanged bytes/mtimes =='
 miss
 check test -f "$STATE"
-check test "$(tail -1 <<< "$OUTPUT")" = '=== Sync complete ==='
+check grep -Eqx "=== Sync complete $ELAPSED ===" <<< "$(tail -1 <<< "$OUTPUT")"
 cp "$PROJECT/AGENTS.md" "$TMP/expected"
 touch -t 200201010000 "$TMP/marker"
 find "$PROJECT/.agents" "$PROJECT/.claude" "$PROJECT/.codex" "$PROJECT/.github" "$PROJECT/.cursor" "$PROJECT/.pi" "$PROJECT/AGENTS.md" -type f -exec touch -t 200101010000 {} +
@@ -384,7 +401,7 @@ miss
 check has 'WARNING: Codex may truncate'
 hit
 check has 'WARNING: Codex may truncate'
-check test "$(tail -1 <<< "$OUTPUT")" = '=== Unchanged: no files needed updating ==='
+check grep -Eqx "=== Unchanged: no files needed updating, checked $ELAPSED ===" <<< "$(tail -1 <<< "$OUTPUT")"
 check awk '/^WARNING: Codex/ { if (previous != "") exit 1; found=1 } { previous=$0 } END { if (!found) exit 1 }' <<< "$OUTPUT"
 run --compact
 check test "$RC" -eq 0

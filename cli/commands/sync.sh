@@ -6,6 +6,10 @@ set -euo pipefail
 # Only sync_check may request a comparison from the engine.
 unset IS_SYNC_CHECK IS_SYNC_CHECK_ROOT
 
+# The completion line reports the time from here (sync_elapsed_var).
+# shellcheck disable=SC2034  # read by sync-cache.sh when the sync ends
+SYNC_STARTED="${EPOCHREALTIME:-}"
+
 # Print before library loading and lifecycle checks so a content verification
 # never looks idle. Compact output remains a buffered machine-readable report,
 # and a check prints only its verdict.

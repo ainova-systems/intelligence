@@ -4,6 +4,16 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.29.0]
+
+### Added
+
+- `intelligence sync` ends with how long it took: `=== Sync complete in 12.4 sec ===`, or `=== Unchanged: no files needed updating, checked in 180 ms ===` when nothing needed rendering. `--compact` and `--check` print what they did before.
+
+### Fixed
+
+- A full sync no longer slows down with the square of the project's skill count while it names each skill in every skill tree; in a project with a hundred-odd skills that lookup took most of the sync's time.
+
 ## [0.28.0]
 
 ### Added

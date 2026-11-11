@@ -367,7 +367,7 @@ chknot grep -q 'PACK_RULE_MARKER' "$PROJ/.claude/rules/pack-rule.md"
 chk grep -q 'PROJECT_SKILL' "$PROJ/.claude/skills/pack-do-thing/SKILL.md"
 grep -Fqx "WARNING: 2 package artifact(s) never render: a later source overrides them by name — 'intelligence status --check' names them" <<< "$ov_sync" \
     || { echo "FAIL: sync did not count the overridden package rule and skill"; grep '^WARNING' <<< "$ov_sync"; fail=1; }
-is "the line sync ends on" '=== Sync complete ===' "$(tail -1 <<< "$ov_sync")"
+is "the line sync ends on" '=== Sync complete ===' "$(tail -1 <<< "$ov_sync" | sed 's/ in [^=]*===$/ ===/')"
 # status --check names the package and the version its lock pins, and the
 # exit stays what the project's checks decide.
 ov_rc=0

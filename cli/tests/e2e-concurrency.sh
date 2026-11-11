@@ -69,7 +69,8 @@ printf '\000\001\377binary\000' > "$SEED/intelligence/skills/demo/assets/data.bi
 printf '%s\n' '---' 'name: second' 'description: Another skill' '---' '# Second' > "$SEED/intelligence/skills/second/SKILL.md"
 mkdir -p "$SEED/.claude" && printf '{}\n' > "$SEED/.claude/settings.json"
 
-# run <project> <serial:0|1> <args...> — sets OUT (paths normalized) and RC.
+# run <project> <serial:0|1> <args...> — sets OUT (paths and the time the
+# completion line reports normalized) and RC.
 run() {
     local project="$1" serial="$2"
     shift 2
@@ -79,7 +80,8 @@ run() {
     else
         OUT="$(cd "$project" && bash "$CLI" sync "$@" 2>&1)" || RC=$?
     fi
-    OUT="$(printf '%s\n' "$OUT" | sed -e "s#$project#PROJECT#g" -e 's#intelligence-[a-z]*-[A-Za-z0-9]*#TMP#g')"
+    OUT="$(printf '%s\n' "$OUT" | sed -e "s#$project#PROJECT#g" -e 's#intelligence-[a-z]*-[A-Za-z0-9]*#TMP#g' \
+        | sed -E 's/ in ([0-9]+ ms|[0-9]+(\.[0-9])? sec|under 1 sec|[0-9]+ min [0-9]+ sec) ===$/ in TIME ===/')"
 }
 
 # same_run <label> <args...> — run the serial and concurrent copies, compare.
