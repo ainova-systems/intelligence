@@ -1383,5 +1383,41 @@ chk eq "$(frontmatter_index 'paths[]' "$F/commented.md")" "$F/commented.md"$'\x1
 chk eq "$(frontmatter_index 'paths[]' "$F/flow-comment.md")" "$F/flow-comment.md"$'\x1f''[ "x,y/**", z/** ]'
 chk eq "$(frontmatter_index 'paths[]' "$F/scalar.md")" "$F/scalar.md"$'\x1f''"solo/**"'
 
+echo "== the unwired-source walk never enters what ignore: and submodules: list =="
+# A working temp folder can hold a whole checkout of the project: the walk has
+# to leave it out, not walk it and drop the results.
+W="$OUT/walk"
+for d in intelligence/rules docs/intelligence/rules Temp/copy/intelligence/rules \
+    apps/tmp/intelligence/rules .tmp/intelligence/rules apps/web/build/intelligence/agents \
+    libs/sdk/intelligence/rules keep/build/intelligence/rules; do
+    mkdir -p "$W/$d"
+    printf 'x\n' > "$W/$d/r.md"
+done
+cat > "$W/intelligence.yaml" <<'EOF'
+sources:
+  rules:
+    - "intelligence/rules"
+ignore:
+  - "Temp/**"
+  - "tmp"
+  - "./.tmp/"
+  - "apps/web/build"
+submodules:
+  - "libs/sdk"
+EOF
+mkdir -p "$OUT/walk-bin"
+REAL_FIND="$(command -v find)"
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" > "%s"\nexec "%s" "$@"\n' "$OUT/walk-find.args" "$REAL_FIND" > "$OUT/walk-bin/find"
+chmod +x "$OUT/walk-bin/find"
+walk_out="$(PATH="$OUT/walk-bin:$PATH" IS_CLI=1 IS_CONTENT_REL=intelligence warn_unsynced "$W" "$W/intelligence.yaml" 2>&1 >/dev/null)"
+chk eq "$(grep 'NOT SYNCED' <<< "$walk_out" | sort | paste -sd, -)" \
+    "WARNING: NOT SYNCED: docs/intelligence/rules,WARNING: NOT SYNCED: keep/build/intelligence/rules"
+# Each entry reaches find as a prune: a name as -name, a path as a suffix.
+for want in Temp tmp .tmp '*/apps/web/build' '*/libs/sdk'; do
+    chk grep -Fxq -- "$want" "$OUT/walk-find.args"
+done
+chknot_walk() { ! grep -Fxq -- "$1" "$OUT/walk-find.args"; }
+chk chknot_walk 'Temp/**'
+
 [ "$fail" -eq 0 ] && echo "ENGINE-UNIT: ALL OK"
 exit "$fail"

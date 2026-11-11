@@ -18,12 +18,6 @@ while [ $# -gt 0 ]; do
     esac
     shift || true
 done
-# Crossing a range is per package on purpose: each boundary SemVer marks is a
-# changelog to read, so a blanket sweep would be one confirmation for several
-# unrelated decisions.
-[ "$latest" -eq 0 ] || [ -n "$only" ] \
-    || die "--latest needs the package to move: intelligence update @scope/name --latest"
-
 require_cli_project
 [ "$preview" -eq 1 ] || project_lock_hold "$IP_ROOT"
 manifest="$IP_ROOT/intelligence.yaml"
@@ -53,7 +47,9 @@ while IFS= read -r name; do
     # message followed by "not in the manifest" would contradict itself.
     found=1
     if [ "$name" = "$SYNC_PKG_NAME" ]; then
-        [ "$latest" -eq 0 ] \
+        # Named, --latest asks for a move this pin cannot make; a sweep
+        # (decision 0032) passes over it exactly as a plain update does.
+        [ "$latest" -eq 0 ] || [ -z "$only" ] \
             || die "$name is the engine content package — its pin follows the installed CLI; use 'intelligence upgrade'"
         echo "  $name: engine content follows the installed CLI — skipped"
         continue
@@ -69,7 +65,9 @@ while IFS= read -r name; do
     [ -n "$ref" ] || [ -n "$range" ] || die "$name has neither version nor ref in the manifest"
 
     ref_moved=0 remote_sha="" beyond="" range_move=""
-    [ "$latest" -eq 0 ] || [ -z "$ref" ] \
+    # A sweep has no range to cross on a ref pin, so the pin follows its ref
+    # as in a plain update and stays a ref; only naming it asks for more.
+    [ "$latest" -eq 0 ] || [ -z "$ref" ] || [ -z "$only" ] \
         || die "$name is pinned to ref '$ref', not a version range — a ref pin is frozen by intent; re-add the package to change it"
     if [ -n "$ref" ]; then
         tag="$ref"
@@ -127,10 +125,11 @@ while IFS= read -r name; do
         newest="$(printf '%s\n' "$versions" | semver_pick_highest "latest")"
         if [ -n "$newest" ] && [ "$(semver_cmp "$newest" "$picked")" = "1" ]; then
             if [ "$latest" -eq 1 ]; then
-                # Asked for by name: take the newest and widen the recorded
-                # intent to match, keeping the caret so the next boundary is
-                # still a decision. The manifest keeps saying what the project
-                # asked for — that is what makes the move reviewable.
+                # Asked for: take the newest and widen the recorded intent to
+                # match, keeping the caret so the next boundary is still a
+                # decision. The manifest keeps saying what the project asked
+                # for — that is what makes the move, or a sweep of them,
+                # reviewable.
                 picked="$newest"
                 read -r tag _ <<< "$(remote_tag_for_version "$url" "$picked")"
                 requested="^$newest"
@@ -206,7 +205,7 @@ fi
 # Counted apart from the movable ones: no mode of this command installs these,
 # so folding them into "updates available" would promise work --apply skips.
 if [ "$outside" -gt 0 ]; then
-    echo "outside the requested range: $outside package(s) — read the changelog, then run the 'follow it' command above"
+    echo "outside the requested range: $outside package(s) — read each changelog, then run the 'follow it' command above, or 'intelligence update --latest' for all of them"
 fi
 
 if [ "$preview" -eq 0 ] && [ "$moved" -gt 0 ] && [ "$no_sync" -eq 0 ]; then

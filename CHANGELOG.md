@@ -4,6 +4,18 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.28.0]
+
+### Added
+
+- `intelligence update --latest` without a package name moves every package past its range to the newest stable version in one plan and one confirmation, rewriting each requested range to `^<that version>`; a `ref:` pin follows its ref as in a plain update, the engine-content package is skipped, and the plan's outside-range summary names the command (decision 0032).
+
+### Changed
+
+- The Claude Code plugin's line above the prompt is one sentence naming Intelligence, such as `Intelligence needs a sync  1: Sync now` or `Checking Intelligence…`, in the default colors, instead of `intelligence: sync needed` in yellow or red; a failed check points to `/intelligence` for the reason (decision 0033).
+- When the CLI on `PATH` is older than the project, the Claude Code plugin says so once a session in a toast instead of a red line above the prompt. Behind by a minor or patch it shows the sync verdict and offers `Sync now` as usual; only a newer major, which the CLI refuses, withholds the sync (decision 0033).
+- Sync's search for unwired `rules/`, `agents/` and `skills/` directories no longer enters a directory the manifest's `ignore:` or `submodules:` lists, instead of walking it and dropping what it found, so a working temp folder or a scratch checkout listed there (`Temp`, `tmp/**`) no longer slows every full sync. An entry may end in `/**` or `/` and start with `./`, and matches as a `find` pattern.
+
 ## [0.27.0]
 
 ### Added

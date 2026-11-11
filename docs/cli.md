@@ -141,10 +141,11 @@ plugin into `<output>/skills/intelligence/` (decision 0022): a
 The module is a Claude Code *mod*: at session start and every five minutes it
 runs `intelligence sync --check` in the session's root without delaying the
 session, shows the verdict in one line above the prompt while a check runs or
-something needs attention, with Claude Code's spinner while a check or a sync
-has not answered and a `Sync now` button when a sync is needed, shows nothing
-while the project is up to date (the VS Code extension, which draws no band,
-gets a status line instead), and registers
+something needs attention — one sentence naming Intelligence, such as
+`Intelligence needs a sync`, in the default colors — with Claude Code's spinner
+while a check or a sync has not answered and a `Sync now` button when a sync is
+needed, shows nothing while the project is up to date (the VS Code extension,
+which draws no band, gets a status line instead), and registers
 `/intelligence [sync|check]` — `sync` runs `intelligence sync --compact` and
 re-checks, `check` re-checks, no argument prints the current status. It
 registers no tool and never submits a prompt. This section defines the field.
@@ -158,10 +159,13 @@ the plugin while the flag is on; sync refuses it and names the skill's source
 path and the field.
 
 The plugin needs the `intelligence` CLI on `PATH` (its line says when it is
-missing, and asks for `intelligence upgrade` when the CLI there is older than
-the project, offering no sync, since that CLI would drop the plugin) and Claude
-Code 2.1.287 or later, where mods are on by default;
-earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. A
+missing) and Claude Code 2.1.287 or later, where mods are on by default;
+earlier versions load it only with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`.
+When the CLI on `PATH` is older than the project, the plugin says so once a
+session, in a toast naming `intelligence upgrade`, and draws no line for it:
+behind by a minor or patch it keeps showing the CLI's verdict and offering the
+sync, since the CLI keeps syncing behind its own warning; behind by a major,
+which the CLI refuses, it shows nothing and offers no sync (decision 0033). A
 project plugin loads only in a folder the person has trusted, and a cloud or
 remote session that does not load project plugins shows nothing. A first
 `sync --check` with no record renders the project privately, which can take
@@ -386,12 +390,12 @@ A range is a ceiling as well as a floor, so the plan reports both sides of it. W
   @acme/core: v0.4.1 -> v0.4.2 — 0.6.1 available outside '^0.4.0'
       follow it: intelligence update @acme/core --latest
 updates available: 1 package(s)
-outside the requested range: 1 package(s) — read the changelog, then run the 'follow it' command above
+outside the requested range: 1 package(s) — read each changelog, then run the 'follow it' command above, or 'intelligence update --latest' for all of them
 ```
 
 They are counted apart because no ordinary mode installs them. This matters most before `1.0.0`, where the caret holds the minor, so `^0.4.0` follows `0.4.x` only.
 
-`--latest` is that deliberate crossing: it moves the named package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. It shares the plan's modes, so `--preview` shows the move and the new range without writing. It requires the package to be named, because one confirmation must not cover several unrelated changelogs; it refuses a `ref:` pin, which is frozen by intent, and the engine-content package, whose pin follows the installed CLI through a plain `update`. The widened range reaches the manifest only after the new content is installed and wired. See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
+`--latest` is that deliberate crossing: it moves a package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. Without a package name it crosses every range in one plan, one line per package with both versions and both ranges, under one confirmation; with a name it moves that package alone. It shares the plan's modes, so `--preview` shows every move and new range without writing. In the sweep a `ref:` pin follows its ref as in a plain `update` and stays a ref, and the engine-content package is skipped, since its pin follows the installed CLI; naming either one with `--latest` refuses. The installed CLI is never part of it: the plan names `intelligence upgrade`. The widened range reaches the manifest only after the new content is installed and wired (decision 0032). See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
 
 ### `intelligence upgrade`
 

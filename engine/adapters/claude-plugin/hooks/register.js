@@ -30,13 +30,19 @@ const FRAME_MS = 120
 // The CLI's refusal when another command holds the project lock.
 const LOCK_REFUSAL = /another intelligence sync is (running|starting)/
 // The CLI's word that the project was stamped by a newer CLI than itself: a
-// warning for a newer minor or patch, a refusal for a newer major.
-const CLI_BEHIND = /newer than this CLI's engine|IS_STATUS=ahead-of-engine/
+// warning for a newer minor or patch, after which it checks and syncs as
+// usual, and a refusal for a newer major.
+const CLI_BEHIND_WARNING = /newer than this CLI's engine/
+const CLI_BEHIND_REFUSAL = /IS_STATUS=ahead-of-engine/
+const UPGRADE_HINT = 'This project needs a newer Intelligence CLI to sync: intelligence upgrade'
 
 // What the last check found. `status` is one of unknown (no verdict yet), ok,
-// stale, error, missing-cli or old-cli; `busy` is true while a sync started
-// from here is running.
+// stale, error, missing-cli or old-cli (a newer major refused); `busy` is
+// true while a sync started from here is running.
 const state = { status: 'unknown', detail: '', checkedAt: null, busy: false }
+// A CLI behind the project is said once a session (decision 0033): when to
+// upgrade is the person's call, and the CLI repeats it on every sync.
+let behindTold = false
 // A check already in flight answers the next caller too, so a timer tick and
 // a /intelligence check never run two CLI processes side by side.
 let pendingCheck = null
@@ -90,21 +96,20 @@ function animating() {
   return state.busy || state.status === 'unknown'
 }
 
-// The band's line: one short phrase, with Claude Code's spinner while a check
-// or a sync has not answered yet.
+// The band's line: one short sentence naming the product, with Claude Code's
+// spinner while a check or a sync has not answered yet. The band draws
+// nothing for ok and old-cli.
 function label() {
-  if (state.busy) return FRAMES[frame] + ' intelligence: syncing'
+  if (state.busy) return FRAMES[frame] + ' Syncing Intelligence…'
   switch (state.status) {
     case 'stale':
-      return 'intelligence: sync needed'
+      return 'Intelligence needs a sync'
     case 'missing-cli':
-      return 'intelligence: CLI not found'
-    case 'old-cli':
-      return 'intelligence: update the CLI'
+      return 'Intelligence CLI not found on PATH'
     case 'error':
-      return 'intelligence: check failed'
+      return 'Intelligence check failed'
     default:
-      return FRAMES[frame] + ' intelligence: checking'
+      return FRAMES[frame] + ' Checking Intelligence…'
   }
 }
 
@@ -121,7 +126,7 @@ function statusText() {
     case 'missing-cli':
       return 'CLI not found on PATH'
     case 'old-cli':
-      return 'the intelligence CLI on PATH is older than this project — run: intelligence upgrade'
+      return 'this project needs a newer Intelligence CLI to sync — run: intelligence upgrade'
     case 'error':
       return 'check failed: ' + state.detail + at
     default:
@@ -141,8 +146,14 @@ function show($) {
     ticker.cancel()
     ticker = null
   }
-  $.ui.status(band ? undefined : statusText())
+  $.ui.status(band || state.status === 'old-cli' ? undefined : statusText())
   $.ui.invalidate('ui.render')
+}
+
+function tellBehind($, refused) {
+  if (behindTold) return
+  behindTold = true
+  $.ui.toast(refused ? UPGRADE_HINT : 'This project uses a newer Intelligence CLI; upgrade when ready: intelligence upgrade')
 }
 
 // Ask again soon after a command that held the project lock; the verdict
@@ -184,10 +195,12 @@ async function runCheck($) {
     return
   }
   const parsed = parseStatus(result.stdout)
-  // An older CLI renders this project with its own engine, so its verdict
-  // says nothing about what this project's CLI would write, and its sync
-  // would drop this plugin: say so instead of offering one.
-  if (CLI_BEHIND.test((result.stderr || '') + ' ' + (result.stdout || ''))) setState('old-cli', reasonLine(result.stderr))
+  const output = (result.stderr || '') + ' ' + (result.stdout || '')
+  // A newer minor or patch leaves the CLI's verdict standing, as the CLI
+  // itself does; only a newer major leaves no verdict and no sync to offer.
+  const refused = CLI_BEHIND_REFUSAL.test(output)
+  if (refused || CLI_BEHIND_WARNING.test(output)) tellBehind($, refused)
+  if (refused) setState('old-cli', reasonLine(result.stderr))
   // Exit 0 is up to date and 2 is `out-of-date`, the only verdicts sync
   // --check gives; anything else is the CLI refusing to answer.
   else if (result.exitCode === 0) setState('ok', parsed.detail)
@@ -218,8 +231,8 @@ async function lockHeld($, root) {
 async function runSync($) {
   if (state.busy) return
   if (state.status === 'old-cli') {
-    $.ui.toast('update the intelligence CLI first: intelligence upgrade')
-    return 'not run'
+    $.ui.toast(UPGRADE_HINT)
+    return 'Intelligence sync not run'
   }
   state.busy = true
   show($)
@@ -233,18 +246,18 @@ async function runSync($) {
     cwd = await $.session.root()
     const result = await $.process.run(['intelligence', 'sync', '--compact'], { cwd, timeoutMs: SYNC_TIMEOUT_MS })
     if (result.exitCode === 0) {
-      outcome = 'sync finished'
+      outcome = 'Intelligence sync finished'
     } else {
       const reason = reasonLine(result.stderr) || parseStatus(result.stdout).detail || 'exit ' + result.exitCode
-      outcome = 'sync failed: ' + reason
+      outcome = 'Intelligence sync failed: ' + reason
     }
   } catch (err) {
     // A sync past its timeout, which includes waiting for a check, keeps
     // running and holding the lock: it has not failed yet.
     if (!/failed to start/i.test(errorMessage(err)) && (await lockHeld($, cwd))) {
-      outcome = 'sync is still running; the status updates when it ends'
+      outcome = 'Intelligence sync is still running; the status updates when it ends'
     } else {
-      outcome = 'sync could not run: ' + errorMessage(err)
+      outcome = 'Intelligence sync could not run: ' + errorMessage(err)
     }
   }
   // The check, not the sync's own exit code, decides what the status shows:
@@ -310,17 +323,22 @@ export function register(on) {
 
   // The band above the prompt, where Claude Code draws nothing of its own,
   // carries the status while there is something to wait for or act on, and
-  // is gone while the project is up to date.
+  // is gone while the project is up to date or its CLI is behind it. It is
+  // drawn in the default colors, as Claude Code's own rows there are: a
+  // status the person may act on when it suits them is not an alarm.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (state.status === 'ok' && !state.busy) return next(e)
+    if ((state.status === 'ok' || state.status === 'old-cli') && !state.busy) return next(e)
     const { Box, Text, Button } = $.ui.resolve(e)
-    const color = state.status === 'error' || state.status === 'old-cli' ? 'red' : state.status === 'stale' ? 'yellow' : undefined
-    const children = [Text({ color, dimColor: animating(), children: [label()] })]
+    const quiet = animating() || state.status === 'missing-cli'
+    const children = [Text({ dimColor: quiet, children: [label()] })]
     // A digit hotkey on the band also fires from an empty prompt, typed and
     // left for a moment; a letter would need the band focused first. Plain,
     // because only a plain button shows its hotkey in the terminal.
     if (state.status === 'stale' && !state.busy) {
       children.push(Button({ key: 'sync', label: 'Sync now', hotkey: '1', plain: true, onPress: () => runSync($) }))
+    }
+    if (state.status === 'error' && !state.busy) {
+      children.push(Text({ dimColor: true, children: ['/intelligence shows why'] }))
     }
     return Box({ flexDirection: 'row', columnGap: 2, children })
   })

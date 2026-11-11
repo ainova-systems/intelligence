@@ -1,5 +1,5 @@
 #!/bin/bash
-# intelligence update [@scope/name] [--preview|--apply]
+# intelligence update [@scope/name] [--latest] [--preview|--apply]
 #
 # One update surface: show the installed-CLI/project/package plan, then either
 # stop, ask interactively, or apply without a prompt. Replacing the global npm
@@ -21,10 +21,6 @@ while [ $# -gt 0 ]; do
     shift
 done
 [ "$preview_seen" -eq 0 ] || [ "$apply_seen" -eq 0 ] || die "choose either --preview or --apply"
-# Crossing a range is one package's decision, and SemVer marks the boundary as
-# the place a changelog has to be read.
-[ "$latest" -eq 0 ] || [ -n "$only" ] \
-    || die "--latest needs the package to move: intelligence update @scope/name --latest"
 
 require_cli_project
 manifest="$IP_ROOT/intelligence.yaml"

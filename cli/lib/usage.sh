@@ -26,7 +26,7 @@ Usage: intelligence <command> [args]
   update [@scope/name]    Show an update plan; ask before applying it
     --preview             Show the plan without asking or writing
     --apply               Apply the plan without asking
-    --latest              Move one named package past its range to the newest version
+    --latest              Move every package, or the named one, past its range to the newest version
   upgrade [--next] [--preview|--apply]  Replace the installed CLI with the newest npm version
     --next                Follow the prerelease line instead of the stable one
   package <command>       add | remove | alias | list | search
@@ -91,7 +91,8 @@ Show the plan for the installed CLI, the project's versions and its packages,
 then ask before applying it. Only update moves the project's versions.
 
   @scope/name      Plan for this package only
-  --latest         Move the named package past its range to the newest version
+  --latest         Move every package, or the named one, past its range to the
+                   newest version
   --preview        Show the plan without asking or writing
   --apply          Apply the plan without asking
   -h, --help       Show this help

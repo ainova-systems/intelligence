@@ -268,6 +268,26 @@ one before any tag moves.
 were; with `next` unset, a stable release still points it at that version; with a
 newer preview on `next`, a stable release still leaves it alone.
 
+### 13. Skill-name lookup grows with the square of the source map
+
+**Problem.** `source_name_map_var` (`engine/lib/common.sh`) reads a path's name
+with `${1#*$'\n'"$2"$'\x1f'}`. A shortest-prefix removal whose pattern starts
+with `*` is matched against every prefix of the map, so one lookup costs time
+quadratic in the map's length. `copy_skill_bundle_dirs_named` calls it once per
+skill for every skill tree an adapter writes - Claude, Cursor and the shared
+`.agents/skills` - and the adapters render in parallel, each holding a core. On
+Git Bash a synthetic map of 128 entries takes about a quarter second per lookup,
+and doubling the entries multiplies the total by seven to eight, so a full sync
+of a project with a hundred-odd skills spends most of its time here.
+
+**Deliver.** Look a name up without matching a pattern across the whole map:
+parse the map once into indexed arrays that Bash 3.2 supports, or carry the names
+beside the source file list built in the same order.
+
+**Acceptance.** Sync time over 150 synthetic skills grows linearly with their
+number, the output stays byte-identical to the current engine's, and a path the
+map does not name still returns 1.
+
 ## Adapter candidates
 
 Assessment date: September 5, 2026. “Existing” refers to current Intelligence code;

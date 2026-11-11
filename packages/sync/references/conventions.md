@@ -77,6 +77,17 @@ Missing project-owned source directories are skipped, so a package-only project 
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
 
+Every full sync also walks the project for `rules/`, `agents/` and `skills/` directories inside a folder named like the content directory that no `sources:` entry wires, and prints `WARNING: NOT SYNCED: <path>` for each. The walk never enters generated output, the package store, `.git`, `node_modules`, `vendor` or `dist`, nor anything the manifest's `ignore:` or `submodules:` lists. List a working temp folder or a scratch checkout of the repository in `ignore:`: the walk would otherwise read every directory in it on each full sync and report the copy's sources as unwired.
+
+```yaml
+ignore:
+  - "Temp"
+  - "tmp/**"
+  - "apps/web/build"
+```
+
+An entry without a `/` skips every directory of that name, one with a `/` skips every directory whose path ends that way, and a trailing `/**` is the directory itself. Entries match as `find` patterns, so `*.tmp` skips every directory ending in `.tmp`.
+
 The CLI owns package and registry blocks:
 
 ```yaml
@@ -118,7 +129,7 @@ Practice:
 
 - **Keep the caret.** It is the right default at both stages: automatic patches, and a deliberate decision at every boundary that SemVer says may break.
 - **Read `intelligence update --preview` as two answers.** The move is what the range allows; the `available outside '<range>'` note is what it excludes, and it prints the command that follows it. That note never joins the counter, because no ordinary mode of `update` installs it.
-- **Cross a boundary deliberately, one at a time.** Read the package's changelog for every version crossed, then `intelligence update @scope/name --latest`: it takes the newest stable version and rewrites the requested range to `^<that version>`, so the manifest still records what the project asked for and the next boundary is still a decision. The flag needs the package named — one confirmation must not cover several unrelated changelogs — and it refuses a `ref:` pin, which is frozen by intent. Without it `update` never widens a range, because a command that granted itself permission to install would make the range meaningless.
+- **Cross a boundary deliberately.** Read the package's changelog for every version crossed, then `intelligence update @scope/name --latest`: it takes the newest stable version and rewrites the requested range to `^<that version>`, so the manifest still records what the project asked for and the next boundary is still a decision. `intelligence update --latest` does the same for every package in one plan, a line per crossing, so read each changelog it names before confirming; a `ref:` pin keeps following its ref, and naming one with the flag refuses, since it is frozen by intent. Without the flag `update` never widens a range, because a command that granted itself permission to install would make the range meaningless.
 - **Review the generated diff, not just the lock.** A package minor may rename or drop an artifact. A renamed skill breaks every `/skill-name` that invoked it, and a renamed artifact silently ends the override relationship a same-named project artifact had, so the project's version stops winning and the package's content appears instead.
 - **`latest` and `*` are for a package you own and release in lockstep.** Anywhere else they hand an upstream author write access to your agents' behavior between two syncs.
 - **Never pin a range to dodge a broken release.** Pin the exact version (`1.4.2`), record why, and remove the pin when the fix ships — a narrowed range hides the reason and outlives the incident.

@@ -690,6 +690,8 @@ chk grep -q 'url: "https://github.com/ainova-systems/intelligence.git"' "$P13/in
 xok "engine content follows" "$P13" update --preview
 # The engine-content pin is the CLI's, not a range anyone crosses.
 xfail "intelligence upgrade" "$P13" update @ainova-systems/sync --latest --preview
+# A sweep passes over it as a plain update does (decision 0032).
+xok "@ainova-systems/sync: engine content follows the installed CLI — skipped" "$P13" update --latest --preview
 xfail "--force" "$P13" package remove @ainova-systems/sync
 chk grep -q '"@ainova-systems/sync"' "$P13/intelligence.yaml"
 xok "" "$P13" package remove @ainova-systems/sync --force
