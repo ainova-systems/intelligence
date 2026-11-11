@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.28.0]
+
+### Added
+
+- `intelligence update --latest` without a package name moves every package past its range to the newest stable version in one plan and one confirmation, rewriting each requested range to `^<that version>`; a `ref:` pin follows its ref as in a plain update, the engine-content package is skipped, and the plan's outside-range summary names the command (decision 0032).
+
 ## [0.27.0]
 
 ### Added

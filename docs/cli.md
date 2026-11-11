@@ -386,12 +386,12 @@ A range is a ceiling as well as a floor, so the plan reports both sides of it. W
   @acme/core: v0.4.1 -> v0.4.2 — 0.6.1 available outside '^0.4.0'
       follow it: intelligence update @acme/core --latest
 updates available: 1 package(s)
-outside the requested range: 1 package(s) — read the changelog, then run the 'follow it' command above
+outside the requested range: 1 package(s) — read each changelog, then run the 'follow it' command above, or 'intelligence update --latest' for all of them
 ```
 
 They are counted apart because no ordinary mode installs them. This matters most before `1.0.0`, where the caret holds the minor, so `^0.4.0` follows `0.4.x` only.
 
-`--latest` is that deliberate crossing: it moves the named package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. It shares the plan's modes, so `--preview` shows the move and the new range without writing. It requires the package to be named, because one confirmation must not cover several unrelated changelogs; it refuses a `ref:` pin, which is frozen by intent, and the engine-content package, whose pin follows the installed CLI through a plain `update`. The widened range reaches the manifest only after the new content is installed and wired. See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
+`--latest` is that deliberate crossing: it moves a package to the newest stable version and rewrites its requested range to `^<that version>`, keeping the manifest a record of what the project asked for and the next boundary a decision. Without a package name it crosses every range in one plan, one line per package with both versions and both ranges, under one confirmation; with a name it moves that package alone. It shares the plan's modes, so `--preview` shows every move and new range without writing. In the sweep a `ref:` pin follows its ref as in a plain `update` and stays a ref, and the engine-content package is skipped, since its pin follows the installed CLI; naming either one with `--latest` refuses. The installed CLI is never part of it: the plan names `intelligence upgrade`. The widened range reaches the manifest only after the new content is installed and wired (decision 0032). See the [range practice](../packages/sync/references/conventions.md#choosing-a-range).
 
 ### `intelligence upgrade`
 

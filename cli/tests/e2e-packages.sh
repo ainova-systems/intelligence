@@ -170,7 +170,7 @@ grep -q 'request \^1.1.0 -> ~1.3.0 (keeps v1.3.0)' <<< "$preview_req" \
 chk grep -q 'requested: "~1.3.0"' "$PROJ/intelligence.lock"
 (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" status --check >/dev/null)
 
-echo "== --latest crosses the range, and only when asked for one package =="
+echo "== --latest crosses a named package's range =="
 # ~1.3.0 holds the project at v1.3.0 while v2.0.0 exists — the shape of every
 # range that has fallen behind. Crossing it is the named, deliberate move.
 pv_out="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
@@ -183,10 +183,9 @@ grep -q '^outside the requested range: 1 package(s)' <<< "$pv_out" \
 # Counted apart: no ordinary mode installs it.
 grep -q '^updates available: 0 package(s)' <<< "$pv_out" \
     || { echo "FAIL: the outside-range package leaked into the update counter"; fail=1; }
-# A blanket sweep would be one confirmation for several unrelated changelogs.
-if (cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest --preview) >/dev/null 2>&1; then
-    echo "FAIL: --latest without a package name was accepted"; fail=1
-fi
+# The summary names the sweep beside the per-package command.
+grep -q "or 'intelligence update --latest' for all of them$" <<< "$pv_out" \
+    || { echo "FAIL: the outside-range summary did not name the sweep"; fail=1; }
 pv_latest="$(cd "$PROJ" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @acme/shared --latest --preview)"
 grep -q 'v1.3.0 -> v2.0.0 (range ~1.3.0 -> \^2.0.0)' <<< "$pv_latest" \
     || { echo "FAIL: --latest preview did not report the crossing and the new range"; fail=1; }
@@ -499,6 +498,108 @@ is "budget warnings" "$(printf 'WARNING: %s\n' \
     'intelligence/rules/long-rule.md is 2001 words, over the rule budget of 2000' \
     'intelligence/skills/long-skill/SKILL.md:6 has a 151-word paragraph, over the budget of 150')" \
     "$(grep -E '^WARNING: .*(budget|-word)' <<< "$tok_out")"
+
+echo "== --latest with no package crosses every range in one plan =="
+# Two packages behind their ranges, one already on its newest version and a
+# branch pin: the sweep (decision 0032) crosses both ranges, leaves the newest
+# one alone and lets the branch follow its ref as a plain update does.
+SW="$OUT/sweep"
+mkdir -p "$SW/intelligence/rules"
+cat > "$SW/intelligence.yaml" <<EOF
+project:
+  name: sweep
+
+schema_version: "$ENGINE_VER"
+
+sources:
+  rules:
+    - "intelligence/rules"
+  agents:
+  skills:
+
+targets:
+  agents: { enabled: true, output: "AGENTS.md" }
+EOF
+printf '# Ctx\n\nsweep context\n' > "$SW/intelligence/rules/context.md"
+printf '.intelligence/\n' > "$SW/.gitignore"
+git -C "$SW" init --quiet
+# sweep_release <repo> <marker> [tag] — one rule named after the repo; the
+# first call creates the repo.
+sweep_release() {
+    mkdir -p "$1/rules"
+    printf '# Sweep\n\n%s\n' "$2" > "$1/rules/$(basename "$1").md"
+    [ -d "$1/.git" ] || git -C "$1" init --quiet
+    git -C "$1" -c user.email=t@t -c user.name=t add -A
+    git -C "$1" -c user.email=t@t -c user.name=t commit --quiet -m "$2"
+    [ -z "${3:-}" ] || git -C "$1" tag "$3"
+}
+sweep_release "$OUT/sw-one" SW_ONE_100 v1.0.0
+sweep_release "$OUT/sw-two" SW_TWO_040 v0.4.0
+sweep_release "$OUT/sw-three" SW_THREE_100 v1.0.0
+sweep_release "$OUT/sw-branch" SW_BRANCH_ONE
+git -C "$OUT/sw-branch" checkout -q -B trunk
+SWB_SHA1="$(git -C "$OUT/sw-branch" rev-parse HEAD)"
+for p in one two three; do
+    (cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+file://$OUT/sw-$p" --name "@sw/$p" --no-sync >/dev/null)
+done
+(cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" package add "git+file://$OUT/sw-branch@trunk" --name @sw/branch --no-sync >/dev/null)
+sweep_release "$OUT/sw-one" SW_ONE_110 v1.1.0
+sweep_release "$OUT/sw-one" SW_ONE_200 v2.0.0
+sweep_release "$OUT/sw-two" SW_TWO_061 v0.6.1
+sweep_release "$OUT/sw-branch" SW_BRANCH_TWO
+SWB_SHA2="$(git -C "$OUT/sw-branch" rev-parse HEAD)"
+cp "$SW/intelligence.yaml" "$OUT/sweep.yaml.before"
+cp "$SW/intelligence.lock" "$OUT/sweep.lock.before"
+
+sw_plain="$(cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --preview)"
+grep -q '^outside the requested range: 2 package(s)' <<< "$sw_plain" \
+    || { echo "FAIL: the plain plan did not count both packages behind their ranges"; fail=1; }
+sw_pv="$(cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest --preview)"
+for want in \
+    '  @sw/one: v1.0.0 -> v2.0.0 (range ^1.0.0 -> ^2.0.0)' \
+    '  @sw/two: v0.4.0 -> v0.6.1 (range ^0.4.0 -> ^0.6.1)' \
+    '  @sw/three: v1.0.0 (up to date)' \
+    "  @sw/branch: trunk ${SWB_SHA1:0:7} -> ${SWB_SHA2:0:7}" \
+    'updates available: 3 package(s)'; do
+    grep -Fqx -- "$want" <<< "$sw_pv" || { echo "FAIL: the sweep plan lacks '$want'"; fail=1; }
+done
+# Nothing is left outside a range once the sweep crosses them all.
+chknot grep -q 'outside the requested range' <<< "$sw_pv"
+chknot grep -q 'follow it:' <<< "$sw_pv"
+# One confirmation covers the sweep, and a shell that cannot give it refuses.
+if (cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest </dev/null) >/dev/null 2>&1; then
+    echo "FAIL: a non-interactive sweep applied without --apply"; fail=1
+fi
+chk cmp -s "$OUT/sweep.yaml.before" "$SW/intelligence.yaml"
+chk cmp -s "$OUT/sweep.lock.before" "$SW/intelligence.lock"
+
+(cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest --apply >/dev/null)
+# sw_field <file> <package> <field> — one field of one package's entry.
+sw_field() {
+    awk -v key="\"$2\":" -v f="$3:" '
+        $1 == key { hit = 1; next }
+        hit && /^  "/ { exit }
+        hit && $1 == f { gsub(/"/, "", $2); print $2; exit }' "$1"
+}
+is "@sw/one range" "^2.0.0" "$(sw_field "$SW/intelligence.yaml" @sw/one version)"
+is "@sw/two range" "^0.6.1" "$(sw_field "$SW/intelligence.yaml" @sw/two version)"
+is "@sw/three range" "^1.0.0" "$(sw_field "$SW/intelligence.yaml" @sw/three version)"
+is "@sw/one lock" "^2.0.0 v2.0.0" "$(sw_field "$SW/intelligence.lock" @sw/one requested) $(sw_field "$SW/intelligence.lock" @sw/one resolved)"
+is "@sw/two lock" "^0.6.1 v0.6.1" "$(sw_field "$SW/intelligence.lock" @sw/two requested) $(sw_field "$SW/intelligence.lock" @sw/two resolved)"
+is "@sw/three lock" "v1.0.0" "$(sw_field "$SW/intelligence.lock" @sw/three resolved)"
+# The branch pin stays a ref: the sweep moved its commit, not its intent.
+is "@sw/branch intent" "trunk " "$(sw_field "$SW/intelligence.yaml" @sw/branch ref) $(sw_field "$SW/intelligence.yaml" @sw/branch version)"
+is "@sw/branch lock" "trunk $SWB_SHA2" "$(sw_field "$SW/intelligence.lock" @sw/branch resolved) $(sw_field "$SW/intelligence.lock" @sw/branch sha)"
+for want in SW_ONE_200 SW_TWO_061 SW_THREE_100 SW_BRANCH_TWO; do
+    chk grep -q "$want" "$SW/AGENTS.md"
+done
+grep -Fqx 'updates available: 0 package(s)' \
+    <<< "$(cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update --latest --preview)" \
+    || { echo "FAIL: a second sweep found more to move"; fail=1; }
+# Naming a ref pin still asks for a conversion the sweep never makes.
+if (cd "$SW" && IS_SUPPRESS_CLI_NOTE=1 bash "$CLI" update @sw/branch --latest --preview) >/dev/null 2>&1; then
+    echo "FAIL: --latest on a named ref pin was accepted"; fail=1
+fi
 
 [ "$fail" -eq 0 ] && echo "CLI-E2E: ALL OK"
 exit "$fail"
