@@ -14,6 +14,7 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - The Claude Code plugin's line above the prompt is one sentence naming Intelligence, such as `Intelligence needs a sync  1: Sync now` or `Checking Intelligence…`, in the default colors, instead of `intelligence: sync needed` in yellow or red; a failed check points to `/intelligence` for the reason (decision 0033).
 - When the CLI on `PATH` is older than the project, the Claude Code plugin says so once a session in a toast instead of a red line above the prompt. Behind by a minor or patch it shows the sync verdict and offers `Sync now` as usual; only a newer major, which the CLI refuses, withholds the sync (decision 0033).
+- Sync's search for unwired `rules/`, `agents/` and `skills/` directories no longer enters a directory the manifest's `ignore:` or `submodules:` lists, instead of walking it and dropping what it found, so a working temp folder or a scratch checkout listed there (`Temp`, `tmp/**`) no longer slows every full sync. An entry may end in `/**` or `/` and start with `./`, and matches as a `find` pattern.
 
 ## [0.27.0]
 

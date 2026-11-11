@@ -2282,13 +2282,23 @@ warn_unsynced() {
         done <<< "$IS_YAML_LIST"
     done
 
-    # Collect ignore + submodule patterns.
-    local ignores=()
+    # `ignore:` and `submodules:` entries leave the walk instead of its
+    # results: a project's working copies, temp checkouts and submodules can
+    # hold more directories than the project itself. A name matches at any
+    # depth, a path matches as a suffix, and `Temp/**` means `Temp`.
+    local prune=()
     for section in ignore submodules; do
         load_yaml_list "$config_file" "$section"
         while IFS= read -r ign; do
+            ign="${ign%/\*\*}"
+            while [ "${ign%/}" != "$ign" ]; do ign="${ign%/}"; done
+            while [ "${ign#./}" != "$ign" ]; do ign="${ign#./}"; done
+            while [ "${ign#/}" != "$ign" ]; do ign="${ign#/}"; done
             [ -z "$ign" ] && continue
-            ignores+=("$ign")
+            case "$ign" in
+                */*) prune+=(-o -path "*/$ign") ;;
+                *) prune+=(-o -name "$ign") ;;
+            esac
         done <<< "$IS_YAML_LIST"
     done
 
@@ -2324,15 +2334,6 @@ warn_unsynced() {
         case "/$rel_dir/" in
             *"/$intel_basename/_backup/"*) continue ;;
         esac
-
-        # Skip ignore/submodule patterns.
-        local skip=false
-        for ign in "${ignores[@]+"${ignores[@]}"}"; do
-            case "$rel_dir" in
-                "$ign"/*|*/"$ign"/*) skip=true; break ;;
-            esac
-        done
-        [ "$skip" = true ] && continue
 
         # Only flag directories whose ancestry includes a folder with the
         # same basename as the intelligence source dir (so we catch
@@ -2375,7 +2376,7 @@ warn_unsynced() {
             echo "WARNING: NOT SYNCED: $rel_dir" >&2
             warnings=$((warnings + 1))
         fi
-    done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
+    done < <(find "$repo_root" \( -name ".git" -o -name "node_modules" -o -name "vendor" -o -name "dist" -o -name ".claude" -o -name ".cursor" -o -name ".github" -o -name ".codex" -o -name ".agents" -o -name ".intelligence" ${prune[@]+"${prune[@]}"} \) -prune -o -type d \( -name "rules" -o -name "agents" -o -name "skills" -o -name "Rules" -o -name "Agents" -o -name "Skills" \) -print 2>/dev/null)
 
     if [ $warnings -gt 0 ]; then
         # Name the command that does it. A diagnostic that ends in "edit this

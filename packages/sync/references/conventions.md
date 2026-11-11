@@ -77,6 +77,17 @@ Missing project-owned source directories are skipped, so a package-only project 
 
 Project-owned entries are managed with `intelligence source add|remove|list` rather than by hand — it validates the path against the way the engine resolves it and prints the resulting order. `add` appends by default; `--before <entry>` / `--after <entry>` place content that should behave like a package ahead of the project's own directories.
 
+Every full sync also walks the project for `rules/`, `agents/` and `skills/` directories inside a folder named like the content directory that no `sources:` entry wires, and prints `WARNING: NOT SYNCED: <path>` for each. The walk never enters generated output, the package store, `.git`, `node_modules`, `vendor` or `dist`, nor anything the manifest's `ignore:` or `submodules:` lists. List a working temp folder or a scratch checkout of the repository in `ignore:`: the walk would otherwise read every directory in it on each full sync and report the copy's sources as unwired.
+
+```yaml
+ignore:
+  - "Temp"
+  - "tmp/**"
+  - "apps/web/build"
+```
+
+An entry without a `/` skips every directory of that name, one with a `/` skips every directory whose path ends that way, and a trailing `/**` is the directory itself. Entries match as `find` patterns, so `*.tmp` skips every directory ending in `.tmp`.
+
 The CLI owns package and registry blocks:
 
 ```yaml
