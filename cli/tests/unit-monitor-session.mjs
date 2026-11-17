@@ -56,6 +56,7 @@ writeFileSync(live, jsonl(
   { type: 'assistant', attributionSkill: 'dev-deliver', timestamp: 't2', message: { content: [{ type: 'tool_use', id: 'u1', name: 'Bash', input: { command: 'npm test' } }] } },
   { type: 'user', timestamp: 't3', message: { content: [{ type: 'tool_result', tool_use_id: 'u1', is_error: true, content: 'Exit code 1\ntoken ghp_abcdefghijklmnopqrstuvwxyz0123 failed' }] } },
   { type: 'user', timestamp: 't4', message: { content: [{ type: 'tool_result', tool_use_id: 'u2', is_error: true, content: "The user doesn't want to proceed with this tool use." }] } },
+  { type: 'user', timestamp: 't4b', message: { content: [{ type: 'tool_result', tool_use_id: 'u4', is_error: true, content: 'mkdir: Permission denied' }] } },
   { type: 'user', timestamp: 't5', message: { content: [{ type: 'tool_result', tool_use_id: 'u3', content: 'fine' }] } },
   { type: 'user', timestamp: 't6', message: { content: '<system-reminder>context</system-reminder>' } },
   { type: 'user', timestamp: 't7', message: { content: 'no, run the gate first' } },
@@ -76,6 +77,8 @@ writeFileSync(rollout, jsonl(
   { type: 'event_msg', timestamp: 'c4', payload: { type: 'item_completed', item: { type: 'CommandExecution', command: ['pwsh', '-Command', 'dotnet build'], exit_code: 127, aggregated_output: 'dotnet: command not found' } } },
   { type: 'event_msg', timestamp: 'c5', payload: { type: 'item_completed', item: { type: 'CommandExecution', command: ['pwsh', '-Command', 'git status'], exit_code: 0 } } },
   { type: 'event_msg', timestamp: 'c6', payload: { type: 'turn_aborted', reason: 'interrupted' } },
+  { type: 'response_item', timestamp: 'c7', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'no' }] } },
+  { type: 'response_item', timestamp: 'c8', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'no' }] } },
 ))
 const oldRollout = join(day, 'rollout-2026-11-17T08-00-00-cx-0.jsonl')
 writeFileSync(oldRollout, jsonl({ type: 'session_meta', payload: { id: 'cx-0', cwd: project } }))
@@ -97,6 +100,13 @@ const cases = {
     assert.deepEqual(got, ['claude live-1 busy', 'claude old-1 closed', 'codex cx-0 closed', 'codex cx-1 active'])
   },
 
+  'matches a root however it is spelled'() {
+    const spelled = process.platform === 'win32'
+      ? project.replace(/^([A-Za-z]):\\/, (_, d) => '/' + d.toLowerCase() + '/').replace(/\\/g, '/')
+      : project + '/'
+    assert.deepEqual(rows(run('list', '--root', spelled).out).map((r) => r[1]).sort(), ['cx-1', 'live-1'])
+  },
+
   'leaves out an id passed to --exclude'() {
     const ids = rows(run('list', '--root', project, '--exclude', 'cx-1').out).map((r) => r[1])
     assert.deepEqual(ids, ['live-1'])
@@ -107,29 +117,31 @@ const cases = {
     assert.equal(r.code, 0, r.err)
     const lines = r.out.trim().split('\n')
     const kinds = lines.map((l) => l.split('\t')[0])
-    assert.deepEqual(kinds.slice(0, -1), ['SKILL', 'ERROR', 'DENIED', 'USER', 'INTERRUPT', 'COMPACT'])
+    assert.deepEqual(kinds.slice(0, -1), ['SKILL', 'ERROR', 'DENIED', 'ERROR', 'USER', 'INTERRUPT', 'COMPACT'])
     assert.match(lines[1], /skill=dev-deliver Bash npm test -> Exit code 1 token <redacted> failed/)
     assert.doesNotMatch(r.out, /ghp_/)
-    assert.match(lines[3], /\tskill=dev-deliver no, run the gate first$/)
-    assert.match(lines.at(-1), /^CURSOR=\d+$/)
+    assert.match(lines[3], /mkdir: Permission denied/)
+    assert.match(lines[4], /\tskill=dev-deliver no, run the gate first$/)
+    assert.match(lines.at(-1), /^CURSOR=\d+@\d+$/)
   },
 
-  'resumes from its cursor and holds back a line still being written'() {
+  async 'resumes from its cursor, holding back a line still being written without reading it as growth'() {
     const cursor = run('read', live).out.trim().split('\n').at(-1).slice('CURSOR='.length)
     appendFileSync(live, JSON.stringify({ type: 'user', timestamp: 't11', message: { content: 'second try' } }) + '\n{"type":"us')
     const r = run('read', live, '--from', cursor)
     const lines = r.out.trim().split('\n')
     assert.equal(lines.length, 2)
     assert.match(lines[0], /^USER\tt11\t/)
-    const next = Number(lines[1].slice('CURSOR='.length))
-    assert.ok(next > Number(cursor))
+    const next = lines[1].slice('CURSOR='.length)
+    assert.ok(Number(next.split('@')[0]) > Number(cursor.split('@')[0]))
+    assert.equal(await runAsync('wait', 'claude', 'live-1', live, '--from', next, '--timeout', '0.3'), 4)
     appendFileSync(live, 'er","timestamp":"t12","message":{"content":"third"}}\n')
-    assert.match(run('read', live, '--from', String(next)).out, /^USER\tt12\t.*third\n/)
+    assert.match(run('read', live, '--from', next).out, /^USER\tt12\t.*third\n/)
   },
 
-  'reads Codex signals: one user turn, the skill it names, failed commands, aborts'() {
+  'reads Codex signals: each user turn once, the skill it names, failed commands, aborts'() {
     const lines = run('read', rollout).out.trim().split('\n')
-    assert.deepEqual(lines.slice(0, -1).map((l) => l.split('\t')[0]), ['SKILL', 'USER', 'ERROR', 'INTERRUPT'])
+    assert.deepEqual(lines.slice(0, -1).map((l) => l.split('\t')[0]), ['SKILL', 'USER', 'ERROR', 'INTERRUPT', 'USER', 'USER'])
     assert.match(lines[2], /exit 127 dotnet build -> dotnet: command not found/)
   },
 
@@ -138,8 +150,8 @@ const cases = {
     const zst = join(day, 'rollout-2026-11-17T11-00-00-cx-2.jsonl.zst')
     writeFileSync(zst, zlib.zstdCompressSync(readFileSync(rollout)))
     const lines = run('read', zst).out.trim().split('\n')
-    assert.deepEqual(lines.slice(0, -1).map((l) => l.split('\t')[0]), ['SKILL', 'USER', 'ERROR', 'INTERRUPT'])
-    assert.match(lines.at(-1), /^CURSOR=7@\d+$/)
+    assert.deepEqual(lines.slice(0, -1).map((l) => l.split('\t')[0]), ['SKILL', 'USER', 'ERROR', 'INTERRUPT', 'USER', 'USER'])
+    assert.match(lines.at(-1), /^CURSOR=9@\d+$/)
     assert.equal(run('read', zst, '--from', lines.at(-1).slice('CURSOR='.length)).out, lines.at(-1) + '\n')
     rmSync(zst)
   },
@@ -163,9 +175,11 @@ const cases = {
     assert.equal(await runAsync('wait', 'codex', 'cx-0', oldRollout, '--from', cx, '--timeout', '5'), 3)
   },
 
-  'refuses a missing transcript and a cursor past its end'() {
+  'refuses a missing transcript and a cursor that is malformed or past the end'() {
     assert.equal(run('read', join(home, 'missing.jsonl')).code, 2)
     assert.equal(run('read', live, '--from', '99999999').code, 2)
+    assert.equal(run('read', live, '--from', 'abc').code, 2)
+    assert.equal(run('wait', 'claude', 'live-1', live, '--from', '12').code, 2)
     assert.equal(run('list').code, 2)
   },
 }

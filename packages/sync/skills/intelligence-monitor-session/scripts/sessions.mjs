@@ -8,7 +8,7 @@
 //       one tab-separated line per session: tool id state updated transcript
 //       state: busy | idle | active (live)  or  closed
 //   node sessions.mjs read <transcript> [--from <cursor>]
-//       one line per signal since <cursor>, then CURSOR=<cursor>
+//       one line per signal since <cursor>, then CURSOR=<position>@<size>
 //   node sessions.mjs wait <tool> <id> <transcript> --from <cursor> [--timeout S] [--quiet S]
 //       exit 0 the transcript grew, 3 the session ended, 4 timed out still live
 //
@@ -218,7 +218,7 @@ function claudeSignals(entries, emit) {
         for (const b of content) {
           if (b.type !== 'tool_result' || !b.is_error) continue
           const out = textOf(b.content)
-          const kind = /doesn't want to proceed|was rejected|denied/i.test(out) ? 'DENIED' : /hook/i.test(out) ? 'HOOK' : 'ERROR'
+          const kind = /doesn't want to proceed|tool use was rejected|denied by the user|user denied/i.test(out) ? 'DENIED' : /hook/i.test(out) ? 'HOOK' : 'ERROR'
           emit(kind, e.timestamp, tag(`${tools.get(b.tool_use_id) || '?'} -> ${excerpt(out)}`))
         }
         continue
@@ -236,11 +236,14 @@ function claudeSignals(entries, emit) {
 }
 
 function codexSignals(entries, emit) {
-  const seen = new Set()
-  // Codex records one user turn as a response item and, in some versions, an event too.
-  const user = (ts, text) => {
-    if (!text || injected.test(text) || seen.has(text)) return
-    seen.add(text)
+  // Codex records one user turn as a response item and, in some versions, an
+  // event too: a turn repeating the previous one from the other record is that copy.
+  let last = { text: null, from: null }
+  const user = (ts, text, from) => {
+    if (!text || injected.test(text)) return
+    const copy = text === last.text && from !== last.from
+    last = copy ? { text: null, from: null } : { text, from }
+    if (copy) return
     const skill = /^\s*<skill>\s*<name>([^<]+)<\/name>/.exec(text) || /^\s*\$([a-z0-9][a-z0-9-]*)/.exec(text)
     if (skill) emit('SKILL', ts, skill[1].trim())
     if (!/^\s*<skill>/.test(text)) emit('USER', ts, excerpt(text))
@@ -248,9 +251,9 @@ function codexSignals(entries, emit) {
   for (const e of entries) {
     const p = e.payload || {}
     if (e.type === 'response_item' && p.type === 'message' && p.role === 'user') {
-      user(e.timestamp, textOf(p.content))
+      user(e.timestamp, textOf(p.content), 'item')
     } else if (e.type === 'event_msg' && p.type === 'user_message') {
-      user(e.timestamp, p.message || '')
+      user(e.timestamp, p.message || '', 'event')
     } else if (e.type === 'event_msg' && p.type === 'item_completed' && p.item && p.item.type === 'CommandExecution') {
       const code = p.item.exit_code
       if (typeof code === 'number' && code !== 0) {
@@ -267,20 +270,27 @@ function codexSignals(entries, emit) {
   }
 }
 
-// A plain transcript's cursor is the byte offset of the first unread line; a
-// compressed one's is `<lines>@<size>`, since only whole decompression reads it.
+// A cursor is `<position>@<size>`: the byte offset of the first unread line in
+// a plain transcript, or the count of lines read in a compressed one, which only
+// whole decompression reads; and the file's size when it was read, which is what
+// `wait` compares, so a line held back as unfinished never reads as growth.
+function position(cursor) {
+  const from = Number(String(cursor === undefined ? '0' : cursor).split('@')[0])
+  if (!Number.isInteger(from) || from < 0) fail(`not a cursor: ${cursor}`)
+  return from
+}
+
 function readSince(file, cursor) {
   const size = statSync(file).size
+  const from = position(cursor)
   let entries, next
   if (file.endsWith('.zst')) {
     const all = lines(file)
-    const from = Number(String(cursor || '0').split('@')[0]) || 0
     // The last line is either empty or still being written, unless it parses.
     const complete = parse(all[all.length - 1]) ? all.length : all.length - 1
     entries = all.slice(from, complete).map(parse).filter(Boolean)
     next = `${Math.max(from, complete)}@${size}`
   } else {
-    const from = Number(cursor || 0)
     if (from > size) fail(`cursor ${from} is past the end of ${file}`)
     const fd = openSync(file, 'r')
     const buf = Buffer.alloc(size - from)
@@ -289,7 +299,7 @@ function readSince(file, cursor) {
     let end = buf.lastIndexOf(0x0a) + 1
     if (end < buf.length && parse(buf.subarray(end).toString('utf8'))) end = buf.length
     entries = buf.subarray(0, end).toString('utf8').split('\n').map(parse).filter(Boolean)
-    next = String(from + end)
+    next = `${from + end}@${size}`
   }
   return { entries, next }
 }
@@ -304,7 +314,8 @@ function toolOf(file, entries) {
 
 function list(opts) {
   if (!opts.root.length) fail('list needs --root')
-  const roots = opts.root.map((r) => norm(resolve(r)))
+  // norm first: resolve() reads a Git Bash `/d/repo` as a path on the current drive.
+  const roots = opts.root.map((r) => norm(resolve(norm(r))))
   const limit = Number(opts.limit || 20)
   const quietMs = Number(opts.quiet || 900) * 1000
   const exclude = new Set([...opts.exclude, process.env.CLAUDE_CODE_SESSION_ID].filter(Boolean))
@@ -336,7 +347,9 @@ async function wait(opts) {
   const timeoutMs = Number(opts.timeout || 300) * 1000
   const quietMs = Number(opts.quiet || 900) * 1000
   const pollMs = Number(process.env.SESSIONS_POLL_MS || 2000)
-  const mark = file.endsWith('.zst') ? Number(String(opts.from).split('@')[1] || 0) : Number(opts.from)
+  position(opts.from)
+  const mark = Number(String(opts.from).split('@')[1])
+  if (!Number.isInteger(mark)) fail(`not a cursor from read: ${opts.from}`)
   const start = Date.now()
   for (;;) {
     let size = 0
