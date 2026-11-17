@@ -45,6 +45,7 @@ Source of truth: `intelligence/` | Sync: `intelligence sync` | Install: `npm ins
 | intelligence-learn-from-repository | Recover and complete first-time Intelligence repository onboarding |
 | intelligence-learn-from-session | Capture session lessons and workflows in project context |
 | intelligence-manage-adapters | Enable, disable, or remove adapters and assess generated-output cleanup |
+| intelligence-monitor-session | Watch another session in this project and turn the problems it hits into intelligence-layer fixes |
 | intelligence-review-context | Audit rules, agents, and skills and propose behavior-preserving reductions |
 | intelligence-sync | Sync intelligence to enabled adapters |
 | intelligence-update-context | Create, revise, or remove project rules, agents, and skills |
