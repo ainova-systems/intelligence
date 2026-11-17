@@ -240,7 +240,8 @@ chk test -f "$FRESH/.intelligence/packages/@ainova-systems/sync/references/onboa
 # contributor-only implementation workflows do not belong in consumer output.
 expected_skills=(
     intelligence-learn-from-repository intelligence-learn-from-session
-    intelligence-manage-adapters intelligence-review-context intelligence-sync
+    intelligence-manage-adapters intelligence-monitor-session
+    intelligence-review-context intelligence-sync
     intelligence-upgrade intelligence-update-context
 )
 printf '%s\n' "${expected_skills[@]}" | sort > "$OUT/expected-skills.txt"
@@ -256,6 +257,8 @@ for skill_root in "$FRESH/.intelligence/packages/@ainova-systems/sync/skills" \
         chk test -s "$skill_root/intelligence-review-context/references/$reference.md"
     done
     chknot test -e "$skill_root/dev-build-adapter"
+    # A skill's bundled helper travels with it to every output.
+    chk test -s "$skill_root/intelligence-monitor-session/scripts/sessions.mjs"
 done
 # Upgrades and adapter changes are the owner's decision: those two skills reach
 # every skill output marked so no agent selects them, and the operator a forked
@@ -281,7 +284,8 @@ for skill in intelligence-review-context intelligence-sync; do
     chk grep -Fqx 'background: false' "$FRESH/.claude/skills/$skill/SKILL.md"
 done
 for skill in intelligence-learn-from-repository intelligence-learn-from-session \
-    intelligence-manage-adapters intelligence-update-context intelligence-upgrade; do
+    intelligence-manage-adapters intelligence-monitor-session intelligence-update-context \
+    intelligence-upgrade; do
     chknot grep -q '^agent:' "$FRESH/.claude/skills/$skill/SKILL.md"
 done
 chk grep -Fqx '  - intelligence-sync' "$FRESH/.claude/agents/intelligence-operator.md"

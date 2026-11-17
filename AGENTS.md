@@ -214,6 +214,10 @@ auto-detect what is absent.
 
 - handoff_dir: auto
 
+## Delivery flow
+
+- worktree_policy: never
+
 ## Pull requests
 
 - platform: github

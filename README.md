@@ -34,7 +34,8 @@ smallest useful set of project-owned rules, agents and skills. Installed
 package content participates in duplicate detection. Analysis is read-only;
 each proposed change requires approval. Use
 `/intelligence-learn-from-session` later to capture a durable lesson or reusable
-workflow from a working session. Use `/intelligence-update-context` to create or
+workflow from a working session, or `/intelligence-monitor-session` to collect
+them from another session while it runs. Use `/intelligence-update-context` to create or
 revise rules, agents, and skills directly, or `/intelligence-review-context` to
 audit and propose reductions. See the [skill catalog and migration map](docs/skills.md).
 
