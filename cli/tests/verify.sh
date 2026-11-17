@@ -113,6 +113,15 @@ run_suites() {
         banner "test: $suite"
         bash "cli/tests/$suite.sh" "$REPO" || rc=1
     done
+    # The session monitor's helper ships as a JavaScript skill resource and runs
+    # where node does; without node it is reported, never passed.
+    banner "test: unit-monitor-session"
+    if command -v node >/dev/null 2>&1; then
+        node cli/tests/unit-monitor-session.mjs "$REPO" || rc=1
+    else
+        skipped+=("tests: unit-monitor-session — node is not on PATH")
+        echo "skipped: node is not on PATH"
+    fi
     return "$rc"
 }
 

@@ -4,6 +4,12 @@ All notable changes to Intelligence are recorded here.
 
 Legacy Intelligence Sync history remains in its [archive](https://github.com/ainova-systems/intelligence-sync/blob/main/CHANGELOG.md).
 
+## [0.30.0]
+
+### Added
+
+- `/intelligence-monitor-session` watches another Claude Code or Codex session working in the project, or analyses ended ones with `--closed`, records each problem it hits as a lesson record, and when it ends turns them into intelligence-layer proposals; accepted ones, or all of them with `--autofix`, go to `dev-deliver` (decision 0034).
+
 ## [0.29.0]
 
 ### Added

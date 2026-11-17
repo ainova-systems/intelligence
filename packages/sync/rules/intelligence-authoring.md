@@ -112,6 +112,6 @@ Sync measures the project's own sources against this table and prints a `WARNING
 
 ## Verifying a change to this layer
 
-The per-artifact authoring checks belong to `intelligence-update-context`. Session learning, repository onboarding, and accepted review findings use that same procedure. Invoke `intelligence-learn-from-session` to capture a lesson or workflow, `intelligence-learn-from-repository` for initial migration and recovery, and `intelligence-review-context` for audits and reductions. Operational work uses `intelligence-sync`. `intelligence-upgrade` and `intelligence-manage-adapters` change versions and generated outputs, so only the owner invokes them.
+The per-artifact authoring checks belong to `intelligence-update-context`. Session learning, repository onboarding, and accepted review findings use that same procedure. Invoke `intelligence-learn-from-session` to capture a lesson or workflow, `intelligence-monitor-session` to collect them from another session as it runs, `intelligence-learn-from-repository` for initial migration and recovery, and `intelligence-review-context` for audits and reductions. Operational work uses `intelligence-sync`. `intelligence-upgrade` and `intelligence-manage-adapters` change versions and generated outputs, so only the owner invokes them.
 
 A change to this layer is done when `<sync-cmd>` reports `IS_STATUS=ok` and the skill you invoked reports clean.

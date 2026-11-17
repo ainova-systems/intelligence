@@ -1,12 +1,13 @@
 # Intelligence skills
 
-The `@ainova-systems/sync` package ships seven skills. Slash commands are agent
+The `@ainova-systems/sync` package ships eight skills. Slash commands are agent
 workflows; ordinary `intelligence ...` commands are deterministic CLI operations.
 
 | Skill | Use it when |
 |---|---|
 | `intelligence-update-context` | Create, revise, or remove rules, agents, and skills. |
 | `intelligence-learn-from-session` | Save a session lesson, turn an observed workflow into a skill, or reconcile a folder of lesson records; a lesson about installed content becomes an upstream issue draft. |
+| `intelligence-monitor-session` | Watch another Claude Code or Codex session in the project, or analyse ended ones with `--closed`, and turn the problems it hits into lesson records, proposals and, on acceptance or `--autofix`, a `dev-deliver` run. |
 | `intelligence-review-context` | Audit the intelligence layer and propose reductions that preserve behavior. |
 | `intelligence-learn-from-repository` | Complete initial onboarding, migrate preserved instructions, or recover interrupted setup. |
 | `intelligence-manage-adapters` | Enable, disable, or remove existing adapters and assess generated-output cleanup. |
