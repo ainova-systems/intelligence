@@ -1981,14 +1981,14 @@ report_model_drift() {
         [ "$from_config" = "$default" ] && continue
         if [ $printed_header -eq 0 ]; then
             echo ""
-            echo "=== Model overrides (config.yaml differs from intelligence-sync defaults) ==="
+            echo "=== Model overrides (${config_file##*/} differs from the engine's defaults) ==="
             printed_header=1
         fi
         printf "  %-8s %-9s config=%-20s default=%s\n" "$ide" "$tier" "\"$from_config\"" "\"$default\""
     done <<< "$triples"
 
     if [ $printed_header -eq 1 ]; then
-        echo "  (To accept new defaults: remove the entry from config.yaml \`models:\` section.)"
+        echo "  (To accept a default, remove its entry from the \`models:\` section of ${config_file##*/}.)"
     fi
 }
 

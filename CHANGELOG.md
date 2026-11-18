@@ -10,6 +10,10 @@ Legacy Intelligence Sync history remains in its [archive](https://github.com/ain
 
 - Codex and Copilot render `tier: frontier` and `heavy` as `gpt-6.2-astra` and `standard` as `gpt-6.2-sol`, the current GPT-6.2 models. To keep the earlier ones, set `models.codex.heavy: gpt-6-astra` and `models.codex.standard: gpt-6.1-sol`, the same for `frontier`, and likewise under `models.copilot`.
 
+### Fixed
+
+- Sync's report of `models:` overrides that differ from the defaults names the project's manifest, such as `intelligence.yaml`, instead of `config.yaml`.
+
 ## [0.30.0]
 
 ### Added

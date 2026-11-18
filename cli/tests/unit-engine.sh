@@ -518,6 +518,9 @@ drift="$(report_model_drift "$OUT/light-pin.yaml")"
 chk grep -Eq '^  claude +light +config="sonnet" +default="haiku"$' <<< "$drift"
 chk grep -Eq '^  opencode +light +config="anthropic/claude-sonnet-5-5" +default="anthropic/claude-haiku-5-5"$' <<< "$drift"
 chk grep -Eq '^  opencode +frontier +config="anthropic/claude-fable-5-1" +default="anthropic/claude-fable-5-2"$' <<< "$drift"
+# The report names the manifest it read, never the legacy config.yaml.
+chk grep -Fqx "=== Model overrides (light-pin.yaml differs from the engine's defaults) ===" <<< "$drift"
+chk grep -Fqx '  (To accept a default, remove its entry from the `models:` section of light-pin.yaml.)' <<< "$drift"
 
 echo "== every built-in agent target has a default for every standard tier =="
 # An adapter writes whatever the tier resolves to, so a tier one tool has no
