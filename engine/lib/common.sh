@@ -1745,48 +1745,58 @@ has_paths() {
 
 # Hardcoded defaults: ide:tier -> model name. Where a tool has fewer models
 # than there are tiers, tiers share one (decision 0013). cli/tests/unit-engine.sh
-# pins this table independently, so a bump updates its expected matrix too.
-# When you bump these, re-run sync in projects; any project whose config.yaml
+# pins this table independently and checks the tier mappings table in
+# packages/sync/references/conventions.md against it, so a bump updates both;
+# the repository's dev-update-model-defaults skill walks one. Each entry cites
+# the page that backs it and the date it was last checked.
+# When you bump these, re-run sync in projects; any project whose manifest
 # `models:` section diverges from these will print a drift warning so users
 # know their override is now stale.
 # get_model_default_var sets IS_MODEL_DEFAULT; get_model_default prints it.
 get_model_default_var() {
     case "$1:$2" in
-        # Claude Code's `haiku` alias resolves to a current Haiku model
-        # (https://code.claude.com/docs/en/model-config, checked 2026-11-10),
-        # so light takes it on every Claude-backed target (decision 0029).
+        # Claude Code's aliases resolve to the current Fable, Opus, Sonnet and
+        # Haiku (https://code.claude.com/docs/en/model-config, checked
+        # 2026-11-18), so light takes `haiku` on every Claude-backed target
+        # (decision 0029).
         claude:frontier)  IS_MODEL_DEFAULT="fable" ;;
         claude:heavy)     IS_MODEL_DEFAULT="opus" ;;
         claude:standard)  IS_MODEL_DEFAULT="sonnet" ;;
         claude:light)     IS_MODEL_DEFAULT="haiku" ;;
-        # Cursor documents only `inherit` or a concrete model ID, so every
+        # Cursor documents only `inherit` or a concrete model ID
+        # (https://cursor.com/docs/subagents, checked 2026-11-18), so every
         # tier follows the session model unless the manifest pins one.
         cursor:frontier)  IS_MODEL_DEFAULT="inherit" ;;
         cursor:heavy)     IS_MODEL_DEFAULT="inherit" ;;
         cursor:standard)  IS_MODEL_DEFAULT="inherit" ;;
         cursor:light)     IS_MODEL_DEFAULT="inherit" ;;
-        # GPT-6 has no mid model, so frontier and heavy share Astra and render
-        # identically; reasoning effort comes from `effort:`, never the tier.
-        # Astra is still the most capable model Codex lists
-        # (https://developers.openai.com/codex/models, checked 2026-11-10).
-        copilot:frontier) IS_MODEL_DEFAULT="gpt-6-astra" ;;
-        copilot:heavy)    IS_MODEL_DEFAULT="gpt-6-astra" ;;
-        copilot:standard) IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
+        # OpenAI has no model between Astra and Sol, so frontier and heavy
+        # share Astra and render identically; reasoning effort comes from
+        # `effort:`, never the tier. Codex recommends GPT-6.2 Astra and Sol and
+        # calls GPT-6 Luna its most efficient model
+        # (https://learn.chatgpt.com/docs/models, checked 2026-11-18); Copilot
+        # lists all three as GA
+        # (https://docs.github.com/en/copilot/reference/ai-models/supported-models,
+        # checked 2026-11-18).
+        copilot:frontier) IS_MODEL_DEFAULT="gpt-6.2-astra" ;;
+        copilot:heavy)    IS_MODEL_DEFAULT="gpt-6.2-astra" ;;
+        copilot:standard) IS_MODEL_DEFAULT="gpt-6.2-sol" ;;
         copilot:light)    IS_MODEL_DEFAULT="gpt-6-luna" ;;
-        codex:frontier)   IS_MODEL_DEFAULT="gpt-6-astra" ;;
-        codex:heavy)      IS_MODEL_DEFAULT="gpt-6-astra" ;;
-        codex:standard)   IS_MODEL_DEFAULT="gpt-6.1-sol" ;;
+        codex:frontier)   IS_MODEL_DEFAULT="gpt-6.2-astra" ;;
+        codex:heavy)      IS_MODEL_DEFAULT="gpt-6.2-astra" ;;
+        codex:standard)   IS_MODEL_DEFAULT="gpt-6.2-sol" ;;
         codex:light)      IS_MODEL_DEFAULT="gpt-6-luna" ;;
-        # Antigravity accepts only inherit|flash|pro, so frontier and heavy
-        # share `pro` and standard and light share `flash`.
+        # Antigravity accepts only inherit|flash|pro
+        # (https://antigravity.google/docs/subagents, checked 2026-11-18), so
+        # frontier and heavy share `pro` and standard and light share `flash`.
         antigravity:frontier)  IS_MODEL_DEFAULT="pro" ;;
         antigravity:heavy)     IS_MODEL_DEFAULT="pro" ;;
         antigravity:standard)  IS_MODEL_DEFAULT="flash" ;;
         antigravity:light)     IS_MODEL_DEFAULT="flash" ;;
         # OpenCode takes catalog IDs from models.dev
-        # (https://opencode.ai/docs/models/, checked 2026-11-10). Frontier is
-        # the current Fable, the model Claude Code's `fable` alias resolves to:
-        # models.dev lists anthropic/claude-fable-5-2 (checked 2026-11-10).
+        # (https://opencode.ai/docs/models/, checked 2026-11-10): the same
+        # models Claude Code's aliases resolve to, which models.dev lists as
+        # its newest Fable, Opus, Sonnet and Haiku (checked 2026-11-18).
         opencode:frontier) IS_MODEL_DEFAULT="anthropic/claude-fable-5-2" ;;
         opencode:heavy)    IS_MODEL_DEFAULT="anthropic/claude-opus-5-5" ;;
         opencode:standard) IS_MODEL_DEFAULT="anthropic/claude-sonnet-5-5" ;;

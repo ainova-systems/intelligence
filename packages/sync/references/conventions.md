@@ -242,12 +242,12 @@ Do not instruct an agent to read rules or restate their content. Claude loads it
 
 | Tier | Claude | Cursor | Copilot / Codex | OpenCode | Antigravity | Typical use |
 |---|---|---|---|---|---|---|
-| `frontier` | `fable` | `inherit` | `gpt-6-astra` | `anthropic/claude-fable-5-2` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
-| `heavy` | `opus` | `inherit` | `gpt-6-astra` | `anthropic/claude-opus-5-5` | `pro` | implementation, complex reasoning, migration |
-| `standard` | `sonnet` | `inherit` | `gpt-6.1-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
+| `frontier` | `fable` | `inherit` | `gpt-6.2-astra` | `anthropic/claude-fable-5-2` | `pro` | long-horizon autonomous work, the hardest reasoning, where capability outweighs cost |
+| `heavy` | `opus` | `inherit` | `gpt-6.2-astra` | `anthropic/claude-opus-5-5` | `pro` | implementation, complex reasoning, migration |
+| `standard` | `sonnet` | `inherit` | `gpt-6.2-sol` | `anthropic/claude-sonnet-5-5` | `flash` | review, validation, analysis |
 | `light` | `haiku` | `inherit` | `gpt-6-luna` | `anthropic/claude-haiku-5-5` | `flash` | lookups and simple formatting |
 
-A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude Code's `fable` and `haiku` aliases resolve to the current Fable and Haiku models ([model configuration](https://code.claude.com/docs/en/model-config), checked 2026-11-10), and OpenCode takes the [models.dev](https://opencode.ai/docs/models/) catalog ID of the same model. Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there.
+A tier selects the model only and never sets a reasoning effort — that is `effort:`, below. Where two tiers share a model they therefore render identical agents: `frontier` and `heavy` in Codex and Copilot. Claude Code's `fable` and `haiku` aliases resolve to the current Fable and Haiku models ([model configuration](https://code.claude.com/docs/en/model-config), checked 2026-11-18), and OpenCode takes the [models.dev](https://opencode.ai/docs/models/) catalog ID of the same model. Cursor and Antigravity have fewer native levels than there are tiers, so several tiers share one value there.
 
 The vocabulary is tool-neutral. Adapters resolve it through `get_model()`. Override a default under `models.<tool>.<tier>` in `intelligence.yaml` only when the project needs a pin; sync reports drift when that override differs from the current default. Another tier name works only where `models.<tool>.<tier>` defines it; elsewhere — a typo, as a rule — the agent renders with an empty `model` and sync warns once per tool and tier.
 
