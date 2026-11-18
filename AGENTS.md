@@ -52,6 +52,7 @@ Source of truth: `intelligence/` | Sync: `intelligence sync` | Install: `npm ins
 | intelligence-upgrade | Upgrade Intelligence and installed packages with migration checks |
 | [dev-build-adapter](intelligence/skills/dev-build-adapter/SKILL.md) | Implement and verify built-in or project-owned Intelligence adapters |
 | [dev-run-roadmap](intelligence/skills/dev-run-roadmap/SKILL.md) | Implement one roadmap batch through a merge-ready PR |
+| [dev-update-model-defaults](intelligence/skills/dev-update-model-defaults/SKILL.md) | Move tier model defaults to current vendor models |
 
 ### Rules
 

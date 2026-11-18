@@ -486,11 +486,24 @@ while read -r ide frontier heavy standard light; do
 done <<'EOF'
 claude      fable                       opus                       sonnet                      haiku
 cursor      inherit                     inherit                    inherit                     inherit
-copilot     gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
-codex       gpt-6-astra                 gpt-6-astra                gpt-6.1-sol                 gpt-6-luna
+copilot     gpt-6.2-astra               gpt-6.2-astra              gpt-6.2-sol                 gpt-6-luna
+codex       gpt-6.2-astra               gpt-6.2-astra              gpt-6.2-sol                 gpt-6-luna
 antigravity pro                         pro                        flash                       flash
 opencode    anthropic/claude-fable-5-2  anthropic/claude-opus-5-5  anthropic/claude-sonnet-5-5 anthropic/claude-haiku-5-5
 EOF
+
+echo "== the authoring conventions' tier table shows the engine defaults =="
+# Consumers read the defaults in that table, not in the engine, so a bump that
+# misses it documents the previous models. One column serves Copilot and Codex.
+CONV="$REPO/packages/sync/references/conventions.md"
+for tier in frontier heavy standard light; do
+    row="$(awk -F'|' -v t="$tier" '
+        { for (i = 2; i <= 7; i++) { f[i] = $i; gsub(/[ \t`]/, "", f[i]) } }
+        f[2] == t { print f[3], f[4], f[5], f[6], f[7]; exit }
+    ' "$CONV")"
+    chk eq "$tier: $row" "$tier: $(get_model_default claude "$tier") $(get_model_default cursor "$tier") $(get_model_default copilot "$tier") $(get_model_default opencode "$tier") $(get_model_default antigravity "$tier")"
+    chk eq "$(get_model_default codex "$tier")" "$(get_model_default copilot "$tier")"
+done
 # A project keeps the earlier light model with one override, and sync's drift
 # report names it against the new default. The earlier OpenCode frontier model
 # is kept the same way.
@@ -505,6 +518,9 @@ drift="$(report_model_drift "$OUT/light-pin.yaml")"
 chk grep -Eq '^  claude +light +config="sonnet" +default="haiku"$' <<< "$drift"
 chk grep -Eq '^  opencode +light +config="anthropic/claude-sonnet-5-5" +default="anthropic/claude-haiku-5-5"$' <<< "$drift"
 chk grep -Eq '^  opencode +frontier +config="anthropic/claude-fable-5-1" +default="anthropic/claude-fable-5-2"$' <<< "$drift"
+# The report names the manifest it read, never the legacy config.yaml.
+chk grep -Fqx "=== Model overrides (light-pin.yaml differs from the engine's defaults) ===" <<< "$drift"
+chk grep -Fqx '  (To accept a default, remove its entry from the `models:` section of light-pin.yaml.)' <<< "$drift"
 
 echo "== every built-in agent target has a default for every standard tier =="
 # An adapter writes whatever the tier resolves to, so a tier one tool has no
